@@ -1,0 +1,25 @@
+name: wa_blast
+description: "Wave Bizz App."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_secure_storage: ^9.2.4
+  http: ^1.4.0
+  provider: ^6.1.5
+  shared_preferences: ^2.5.3
+  shimmer: ^3.0.0
+  url_launcher: ^6.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
