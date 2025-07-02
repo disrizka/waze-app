@@ -24,13 +24,13 @@ class HomeProvider with ChangeNotifier {
   bool _hasError = false;
   bool get hasError => _hasError;
 
-  Future<void> fetchChats() async {
+  Future<void> fetchChats(BuildContext context) async {
     _isLoading = true;
-    _hasError = false; // reset dulu
+    _hasError = false;
     notifyListeners();
 
     try {
-      final response = await ApiService.get('/user/message/room');
+      final response = await ApiService.get(context, '/user/message/room');
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
@@ -38,7 +38,7 @@ class HomeProvider with ChangeNotifier {
         _chats = data.map((e) => e as Map<String, dynamic>).toList();
       } else {
         _hasError = true;
-        _chats = []; // kosongkan jika error
+        _chats = [];
       }
     } catch (e) {
       _hasError = true;

@@ -6,8 +6,7 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   void _handleLogout(BuildContext context) {
-    Provider.of<AuthProvider>(context, listen: false).logout();
-    Navigator.pushReplacementNamed(context, '/splash');
+    Provider.of<AuthProvider>(context, listen: false).logout(context);
   }
 
   @override

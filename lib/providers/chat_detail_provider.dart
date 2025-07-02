@@ -13,36 +13,37 @@ class ChatDetailProvider with ChangeNotifier {
   List<Map<String, dynamic>> get messages => _messages;
   Map<String, dynamic>? get room => _room;
 
-  Future<void> fetchChatDetail(String roomId) async {
+  Future<void> fetchChatDetail(BuildContext context, String roomId) async {
     _isLoading = true;
     _hasError = false;
     notifyListeners();
 
     try {
-      final response = await ApiService.get('/user/message/room/$roomId');
-      print('[DEBUG] Status Code: ${response.statusCode}');
-      print('[DEBUG] Body: ${response.body}');
+      final response = await ApiService.get(
+        context,
+        '/user/message/room/$roomId',
+      );
+      debugPrint('[DEBUG] Status Code: ${response.statusCode}');
+      debugPrint('[DEBUG] Body: ${response.body}');
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
         final List<dynamic> data = decoded['data'];
         _messages = data.map((e) => e as Map<String, dynamic>).toList();
         _room = decoded['room'] as Map<String, dynamic>?;
-        print('[DEBUG] Parsed Messages: $_messages');
-        print('[DEBUG] Room Info: $_room');
       } else {
         _hasError = true;
         _messages = [];
         _room = null;
-        print(
-          '[ERROR] Failed to fetch chat detail: ${response.statusCode} - ${response.reasonPhrase}',
+        debugPrint(
+          '[ERROR] Failed to fetch chat detail: ${response.statusCode}',
         );
       }
     } catch (e) {
       _hasError = true;
       _messages = [];
       _room = null;
-      print('[EXCEPTION] fetchChatDetail error: $e');
+      debugPrint('[EXCEPTION] fetchChatDetail error: $e');
     }
 
     _isLoading = false;

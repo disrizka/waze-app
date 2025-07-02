@@ -21,6 +21,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void initState() {
     super.initState();
 
+    _messageController.addListener(() {
+      setState(() {});
+    });
+
     final provider = ChatDetailProvider();
     provider.addListener(() {
       if (!provider.isLoading && provider.messages.isNotEmpty) {
@@ -34,13 +38,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       }
     });
 
-    provider.fetchChatDetail(widget.roomId);
+    provider.fetchChatDetail(context, widget.roomId);
   }
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => ChatDetailProvider()..fetchChatDetail(widget.roomId),
+      create: (_) =>
+          ChatDetailProvider()..fetchChatDetail(context, widget.roomId),
       child: Scaffold(
         backgroundColor: const Color(0xFFEFEAE2),
         resizeToAvoidBottomInset: true,
@@ -249,8 +254,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         children: [
                           IconButton(
                             icon: const Icon(
-                              Icons.add,
-                              color: Color(0xFF128C7E),
+                              Icons.chat_bubble,
+                              color: Colors.green,
                             ),
                             onPressed: () {},
                           ),
@@ -275,35 +280,42 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                       ),
                                     ),
                                   ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.emoji_emotions_outlined,
-                                      color: Colors.green,
-                                    ),
-                                    onPressed: () {},
-                                  ),
                                 ],
                               ),
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.currency_rupee,
-                              color: Colors.green,
-                            ),
-                            onPressed: () {},
-                          ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.camera_alt,
-                              color: Colors.green,
-                            ),
-                            onPressed: () {},
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.mic, color: Colors.green),
-                            onPressed: () {},
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 250),
+                            transitionBuilder: (child, animation) =>
+                                FadeTransition(
+                                  opacity: animation,
+                                  child: SizeTransition(
+                                    sizeFactor: animation,
+                                    axis: Axis.horizontal,
+                                    child: child,
+                                  ),
+                                ),
+                            child: _messageController.text.trim().isEmpty
+                                ? const SizedBox(
+                                    key: ValueKey('empty'),
+                                    width: 30,
+                                  )
+                                : Row(
+                                    key: const ValueKey('filled'),
+                                    children: [
+                                      const SizedBox(width: 6),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.send,
+                                          color: Colors.green,
+                                        ),
+                                        onPressed: () {
+                                          _messageController.clear();
+                                          setState(() {});
+                                        },
+                                      ),
+                                    ],
+                                  ),
                           ),
                         ],
                       ),

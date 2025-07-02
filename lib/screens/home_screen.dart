@@ -20,7 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final homeProvider = Provider.of<HomeProvider>(context, listen: false);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      homeProvider.fetchChats();
+      homeProvider.fetchChats(context);
     });
 
     _searchController.addListener(() {
@@ -77,7 +77,10 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.refresh, color: Colors.black54),
             tooltip: 'Refresh',
             onPressed: () {
-              Provider.of<HomeProvider>(context, listen: false).fetchChats();
+              Provider.of<HomeProvider>(
+                context,
+                listen: false,
+              ).fetchChats(context);
             },
           ),
           IconButton(
@@ -87,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.edit, color: Colors.black54),
             onPressed: () {
-              Provider.of<AuthProvider>(context, listen: false).logout();
+              Provider.of<AuthProvider>(context, listen: false).logout(context);
               Navigator.pushReplacementNamed(context, '/');
             },
           ),

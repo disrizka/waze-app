@@ -96,16 +96,25 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Logout & bersihkan data
-  void logout() async {
-    await _secureStorage.deleteAll();
+  Future<void> logout(BuildContext context) async {
+    try {
+      // Hapus semua data dari secure storage
+      await _secureStorage.deleteAll();
 
-    _accessToken = null;
-    _refreshToken = null;
-    _name = null;
-    _email = null;
-    _isActivated = false;
+      // Reset semua state internal
+      _accessToken = null;
+      _refreshToken = null;
+      _name = null;
+      _email = null;
+      _isActivated = false;
+      _error = null;
 
-    notifyListeners();
+      debugPrint("Berhasil logout");
+
+      notifyListeners();
+      Navigator.pushNamedAndRemoveUntil(context, '/splash', (route) => false);
+    } catch (e) {
+      debugPrint("Gagal logout: $e");
+    }
   }
 }
