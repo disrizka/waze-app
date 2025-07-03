@@ -44,10 +44,10 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.lock_outline, size: 80, color: Colors.green),
+              const Icon(Icons.chat, size: 80, color: Colors.green),
               const SizedBox(height: 16),
               const Text(
-                'Welcome To Whatsapp Business!',
+                'Welcome To Wave Biz!',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
@@ -93,8 +93,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 onPressed: _handleLogin,
-                                icon: const Icon(Icons.login),
-                                label: const Text('Login'),
+                                icon: const Icon(
+                                  Icons.login,
+                                  color: Colors.white,
+                                ),
+                                label: const Text(
+                                  'Login',
+                                  style: TextStyle(color: Colors.white),
+                                ),
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 14,

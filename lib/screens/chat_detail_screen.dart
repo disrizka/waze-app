@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -259,28 +262,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                             ),
                             onPressed: () {},
                           ),
-                          Expanded(
+                          Flexible(
                             child: Container(
+                              constraints: const BoxConstraints(maxHeight: 150),
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
+                                vertical: 6,
                               ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF0F0F0),
-                                borderRadius: BorderRadius.circular(30),
+                                borderRadius: BorderRadius.circular(20),
                                 border: Border.all(color: Colors.grey.shade300),
                               ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _messageController,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Type a message',
-                                        border: InputBorder.none,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                              child: TextField(
+                                controller: _messageController,
+                                keyboardType: TextInputType.multiline,
+                                maxLines: null,
+                                minLines: 1,
+                                decoration: const InputDecoration(
+                                  hintText: 'Type a message',
+                                  border: InputBorder.none,
+                                  isCollapsed: true, // biar padding-nya rapat
+                                ),
                               ),
                             ),
                           ),
@@ -330,14 +333,31 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  void _launchPhoneDialer(String number) async {
+  Future<void> _launchPhoneDialer(String number) async {
     final Uri uri = Uri(scheme: 'tel', path: number);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tidak dapat membuka aplikasi telepon')),
-      );
+
+    if (Platform.isAndroid) {
+      if (await Permission.phone.request().isGranted) {
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } else {
+          _showSnackBar('Tidak dapat membuka dialer');
+        }
+      } else {
+        _showSnackBar('Izin panggilan ditolak');
+      }
+    } else if (Platform.isIOS) {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        _showSnackBar('Tidak dapat membuka dialer');
+      }
     }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
