@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../api/api_service.dart';
+import '../services/api_service.dart';
 
 class ChatDetailProvider with ChangeNotifier {
   bool _isLoading = true;
@@ -53,5 +53,40 @@ class ChatDetailProvider with ChangeNotifier {
   void clearMessages() {
     _messages = [];
     notifyListeners();
+  }
+
+  Future<void> sendMessage(
+    BuildContext context,
+    String roomId,
+    String message,
+  ) async {
+    if (message.trim().isEmpty) return;
+
+    try {
+      final payload = {'idUserMessageRoom': roomId, 'message': message};
+
+      final response = await ApiService.post(
+        context,
+        '/user/message/send',
+        payload,
+      );
+
+      debugPrint('[SEND] Status Code: ${response.statusCode}');
+      debugPrint('[SEND] Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        await fetchChatDetail(context, roomId);
+      } else {
+        debugPrint('[SEND ERROR] Gagal mengirim: ${response.statusCode}');
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Gagal mengirim pesan')));
+      }
+    } catch (e) {
+      debugPrint('[SEND EXCEPTION] $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Terjadi kesalahan saat mengirim pesan')),
+      );
+    }
   }
 }

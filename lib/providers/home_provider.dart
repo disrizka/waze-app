@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../api/api_service.dart';
+import '../services/api_service.dart';
 
 class HomeProvider with ChangeNotifier {
   List<Map<String, dynamic>> _chats = [];

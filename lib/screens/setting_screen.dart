@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../constants/app_colors.dart';
 import '../providers/auth_provider.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -19,11 +20,11 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.white,
         elevation: 0,
         title: const Text(
           'Settings',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+          style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
         ),
       ),
       body: Center(
@@ -34,31 +35,35 @@ class SettingsScreen extends StatelessWidget {
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.green, width: 2),
+                border: Border.all(color: AppColors.green, width: 2),
               ),
               child: CircleAvatar(
                 radius: 40,
-                backgroundColor: Colors.green[400],
+                backgroundColor: AppColors.green400,
                 child: Text(
                   name.isNotEmpty ? name[0].toUpperCase() : '?',
-                  style: const TextStyle(fontSize: 36, color: Colors.white),
+                  style: const TextStyle(fontSize: 36, color: AppColors.white),
                 ),
               ),
             ),
             const SizedBox(height: 12),
             Text(
               name,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: AppColors.black,
+              ),
             ),
             const SizedBox(height: 4),
-            Text(email, style: const TextStyle(color: Colors.grey)),
-            const SizedBox(height: 16),
+            Text(email, style: TextStyle(color: AppColors.grey)),
+            const SizedBox(height: 30),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
                 color: isActivated
-                    ? Colors.green.withOpacity(0.1)
-                    : Colors.red.withOpacity(0.1),
+                    ? AppColors.green.withOpacity(0.1)
+                    : AppColors.red.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(
@@ -67,20 +72,20 @@ class SettingsScreen extends StatelessWidget {
                   Icon(
                     Icons.verified,
                     size: 18,
-                    color: isActivated ? Colors.green : Colors.red,
+                    color: isActivated ? AppColors.green : AppColors.red,
                   ),
                   const SizedBox(width: 8),
                   Text(
                     isActivated ? 'Account Activated' : 'Not Activated',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: isActivated ? Colors.green : Colors.red,
+                      color: isActivated ? AppColors.green : AppColors.red,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 10),
             SizedBox(
               width: 140,
               height: 40,
@@ -89,8 +94,8 @@ class SettingsScreen extends StatelessWidget {
                 icon: const Icon(Icons.logout, size: 18),
                 label: const Text('Logout'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  foregroundColor: Colors.white,
+                  backgroundColor: AppColors.redAccent,
+                  foregroundColor: AppColors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   elevation: 2,
                   shape: RoundedRectangleBorder(

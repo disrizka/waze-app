@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:wa_blast/widgets/chat_tile.dart';
+import '../constants/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../providers/home_provider.dart';
 import 'chat_detail_screen.dart';
@@ -13,6 +15,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
+  bool _didInit = false;
 
   @override
   void initState() {
@@ -29,6 +32,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_didInit) {
+      _didInit = true;
+      Future.microtask(() {
+        final homeProvider = Provider.of<HomeProvider>(context, listen: false);
+        homeProvider.fetchChats(context);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -38,20 +53,24 @@ class _HomeScreenState extends State<HomeScreen> {
     return ListView.builder(
       itemCount: 8,
       itemBuilder: (context, index) => ListTile(
-        leading: CircleAvatar(backgroundColor: Colors.grey.shade300),
+        leading: const CircleAvatar(backgroundColor: AppColors.shimmerBase),
         title: Container(
           height: 14,
           width: 100,
-          color: Colors.grey.shade300,
+          color: AppColors.shimmerBase,
           margin: const EdgeInsets.only(bottom: 4),
         ),
-        subtitle: Container(height: 12, width: 80, color: Colors.grey.shade300),
+        subtitle: Container(
+          height: 12,
+          width: 80,
+          color: AppColors.shimmerBase,
+        ),
         trailing: Container(
           height: 12,
           width: 20,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.grey.shade300,
+            color: AppColors.shimmerBase,
           ),
         ),
       ),
@@ -66,15 +85,18 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.white,
         title: const Text(
           'Chats',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: AppColors.primaryText,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.black54),
+            icon: const Icon(Icons.refresh, color: AppColors.secondaryText),
             tooltip: 'Refresh',
             onPressed: () {
               Provider.of<HomeProvider>(
@@ -84,14 +106,10 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.camera_alt_outlined, color: Colors.black54),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit, color: Colors.black54),
+            icon: const Icon(Icons.edit, color: AppColors.secondaryText),
             onPressed: () {
               Provider.of<AuthProvider>(context, listen: false).logout(context);
-              Navigator.pushReplacementNamed(context, '/');
+              Navigator.pushReplacementNamed(context, '/home');
             },
           ),
         ],
@@ -106,7 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 hintText: 'Search by name',
                 prefixIcon: Icon(Icons.search),
                 filled: true,
-                fillColor: Color(0xFFF2F2F2),
+                fillColor: AppColors.background,
                 contentPadding: EdgeInsets.all(12),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.all(Radius.circular(25)),
@@ -151,43 +169,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     itemCount: filteredChats.length,
                     itemBuilder: (context, index) {
                       final chat = filteredChats[index];
-                      final isUnread = !(chat['read'] as bool);
-
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.green[200],
-                          child: Text(
-                            chat['name'].toString().substring(0, 1),
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                        ),
-                        title: Text(chat['name']),
-                        subtitle: Text(chat['number']),
-                        trailing: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              chat['lastUpdate'].toString().substring(11, 16),
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            if (isUnread)
-                              Container(
-                                margin: const EdgeInsets.only(top: 10),
-                                width: 12,
-                                height: 12,
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.green,
-                                ),
-                                child: const Icon(
-                                  Icons.circle,
-                                  size: 6,
-                                  color: Colors
-                                      .green, // atau gunakan Colors.greenAccent jika ingin outline lebih halus
-                                ),
-                              ),
-                          ],
-                        ),
+                      return ChatTile(
+                        chat: chat,
                         onTap: () {
                           Navigator.push(
                             context,
@@ -228,11 +211,11 @@ class _FilterChip extends StatelessWidget {
           label,
           style: TextStyle(
             fontWeight: FontWeight.bold,
-            color: isActive ? Colors.white : Colors.black,
+            color: isActive ? AppColors.white : AppColors.primaryText,
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        backgroundColor: isActive ? Colors.green : Colors.grey.shade200,
+        backgroundColor: isActive ? AppColors.primary : AppColors.chipInactive,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
     );

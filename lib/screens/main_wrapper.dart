@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:wa_blast/constants/app_colors.dart';
 import 'setting_screen.dart';
 import 'home_screen.dart';
 
@@ -27,8 +28,8 @@ class _MainWrapperState extends State<MainWrapper> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onTabTapped,
-        selectedItemColor: Colors.green,
-        unselectedItemColor: Colors.grey,
+        selectedItemColor: AppColors.green,
+        unselectedItemColor: AppColors.grey,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chats'),
           BottomNavigationBarItem(

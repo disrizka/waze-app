@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
-import '../api/api_constant.dart';
+import '../constants/api_constant.dart';
 import '../providers/auth_provider.dart';
 
 class ApiService {

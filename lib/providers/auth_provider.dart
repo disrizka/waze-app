@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:wa_blast/api/api_constant.dart';
+import 'package:wa_blast/constants/api_constant.dart';
 
 class AuthProvider with ChangeNotifier {
   // Internal fields

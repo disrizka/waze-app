@@ -5,7 +5,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:wa_blast/widgets/chat_bubble.dart';
 
+import '../constants/app_colors.dart';
 import '../providers/chat_detail_provider.dart';
 
 class ChatDetailScreen extends StatefulWidget {
@@ -50,11 +52,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       create: (_) =>
           ChatDetailProvider()..fetchChatDetail(context, widget.roomId),
       child: Scaffold(
-        backgroundColor: const Color(0xFFEFEAE2),
+        backgroundColor: AppColors.background,
         resizeToAvoidBottomInset: true,
         appBar: AppBar(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
+          backgroundColor: AppColors.white,
+          foregroundColor: AppColors.primaryText,
           title: Consumer<ChatDetailProvider>(
             builder: (context, provider, _) {
               final name = provider.room?['name'] ?? 'Chat Detail';
@@ -63,10 +65,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 children: [
                   CircleAvatar(
                     radius: 18,
-                    backgroundColor: Colors.green[400],
+                    backgroundColor: AppColors.primary,
                     child: Text(
                       name.toString().substring(0, 1).toUpperCase(),
-                      style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(color: AppColors.white),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -81,16 +83,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                             fontWeight: FontWeight.w600,
                           ),
                           overflow: TextOverflow.ellipsis,
-                          maxLines: 1, // 👈 Penting agar overflow bekerja
+                          maxLines: 1,
                         ),
                         Text(
-                          number,
+                          '+$number',
                           style: const TextStyle(
                             fontSize: 13,
-                            color: Colors.grey,
+                            color: AppColors.secondaryText,
                           ),
                           overflow: TextOverflow.ellipsis,
-                          maxLines: 1, // 👈 Tambahkan juga di sini
+                          maxLines: 1,
                         ),
                       ],
                     ),
@@ -108,7 +110,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 return Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: IconButton(
-                    icon: const Icon(Icons.call, color: Colors.green),
+                    icon: const Icon(Icons.call, color: AppColors.primary),
                     onPressed: () {
                       _launchPhoneDialer(number.toString());
                     },
@@ -118,7 +120,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
           ],
         ),
-
         body: Consumer<ChatDetailProvider>(
           builder: (context, provider, _) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -140,8 +141,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           padding: const EdgeInsets.all(12),
                           itemBuilder: (context, index) {
                             return Shimmer.fromColors(
-                              baseColor: Colors.grey.shade300,
-                              highlightColor: Colors.grey.shade100,
+                              baseColor: AppColors.shimmerBase,
+                              highlightColor: AppColors.shimmerHighlight,
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 8.0,
@@ -153,7 +154,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                       width: 200,
                                       height: 60,
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
+                                        color: AppColors.white,
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                     ),
@@ -173,73 +174,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           itemCount: provider.messages.length,
                           itemBuilder: (context, index) {
                             final message = provider.messages[index];
-                            final isMe =
-                                message['idUser'] != null &&
-                                message['idUser'].toString().isNotEmpty;
-                            final timestamp = message['createdAt'] ?? '';
-
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ), // <--- ini tambahan penting
-                              child: Row(
-                                mainAxisAlignment: isMe
-                                    ? MainAxisAlignment.end
-                                    : MainAxisAlignment.start,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      maxWidth:
-                                          MediaQuery.of(context).size.width *
-                                          0.75, // max 75% lebar layar
-                                    ),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: isMe
-                                            ? const Color(0xFFD9FDD3)
-                                            : Colors.white,
-                                        borderRadius: BorderRadius.only(
-                                          topLeft: const Radius.circular(10),
-                                          topRight: const Radius.circular(10),
-                                          bottomLeft: isMe
-                                              ? const Radius.circular(10)
-                                              : const Radius.circular(0),
-                                          bottomRight: isMe
-                                              ? const Radius.circular(0)
-                                              : const Radius.circular(10),
-                                        ),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                        vertical: 10,
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: isMe
-                                            ? CrossAxisAlignment.end
-                                            : CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            message['message'] ?? '',
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            timestamp,
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey[600],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            return ChatBubble(
+                              message: message['message'] ?? '',
+                              timestamp: message['createdAt'] ?? '',
+                              isMe:
+                                  message['idUser'] != null &&
+                                  message['idUser'].toString().isNotEmpty,
                             );
                           },
                         ),
@@ -252,13 +192,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         horizontal: 8,
                         vertical: 6,
                       ),
-                      decoration: const BoxDecoration(color: Colors.white),
+                      decoration: const BoxDecoration(color: AppColors.white),
                       child: Row(
                         children: [
                           IconButton(
                             icon: const Icon(
                               Icons.chat_bubble,
-                              color: Colors.green,
+                              color: AppColors.primary,
                             ),
                             onPressed: () {},
                           ),
@@ -270,9 +210,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                 vertical: 6,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF0F0F0),
+                                color: AppColors.inputBackground,
                                 borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: Colors.grey.shade300),
+                                border: Border.all(color: AppColors.border),
                               ),
                               child: TextField(
                                 controller: _messageController,
@@ -282,7 +222,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                 decoration: const InputDecoration(
                                   hintText: 'Type a message',
                                   border: InputBorder.none,
-                                  isCollapsed: true, // biar padding-nya rapat
+                                  isCollapsed: true,
                                 ),
                               ),
                             ),
@@ -310,11 +250,26 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                       IconButton(
                                         icon: const Icon(
                                           Icons.send,
-                                          color: Colors.green,
+                                          color: AppColors.primary,
                                         ),
                                         onPressed: () {
-                                          _messageController.clear();
-                                          setState(() {});
+                                          final message = _messageController
+                                              .text
+                                              .trim();
+                                          if (message.isNotEmpty) {
+                                            final provider =
+                                                Provider.of<ChatDetailProvider>(
+                                                  context,
+                                                  listen: false,
+                                                );
+                                            provider.sendMessage(
+                                              context,
+                                              widget.roomId,
+                                              message,
+                                            );
+                                            _messageController.clear();
+                                            setState(() {});
+                                          }
                                         },
                                       ),
                                     ],
