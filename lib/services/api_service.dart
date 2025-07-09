@@ -1,18 +1,18 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../constants/api_constant.dart';
 import '../providers/auth_provider.dart';
 
 class ApiService {
-  static final _storage = const FlutterSecureStorage();
-
   static Future<Map<String, String>> _buildHeaders({
     bool withAccessToken = false,
   }) async {
-    final accessToken = await _storage.read(key: 'accessToken') ?? '';
+    final prefs = await SharedPreferences.getInstance();
+    final accessToken = prefs.getString('accessToken') ?? '';
+
     return {
       'Content-Type': 'application/json',
       'Authorization': ApiConstant.basicAuth,

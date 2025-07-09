@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/constants/api_constant.dart';
 
 class AuthProvider with ChangeNotifier {
@@ -13,9 +13,6 @@ class AuthProvider with ChangeNotifier {
   bool _isActivated = false;
   bool _isLoading = false;
   String? _error;
-
-  // Secure storage instance
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
   // Getters
   String? get accessToken => _accessToken;
@@ -57,15 +54,13 @@ class AuthProvider with ChangeNotifier {
         _accessToken = data['token']['access_token'];
         _refreshToken = data['token']['refresh_token'];
 
-        // Simpan ke secure storage
-        await _secureStorage.write(key: 'accessToken', value: _accessToken);
-        await _secureStorage.write(key: 'refreshToken', value: _refreshToken);
-        await _secureStorage.write(key: 'name', value: _name);
-        await _secureStorage.write(key: 'email', value: _email);
-        await _secureStorage.write(
-          key: 'isActivated',
-          value: _isActivated.toString(),
-        );
+        // Simpan ke shared preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('accessToken', _accessToken!);
+        await prefs.setString('refreshToken', _refreshToken!);
+        await prefs.setString('name', _name!);
+        await prefs.setString('email', _email!);
+        await prefs.setBool('isActivated', _isActivated);
 
         _isLoading = false;
         notifyListeners();
@@ -84,24 +79,25 @@ class AuthProvider with ChangeNotifier {
 
   // Autologin saat app dibuka
   Future<void> tryAutoLogin() async {
-    final access = await _secureStorage.read(key: 'accessToken');
+    final prefs = await SharedPreferences.getInstance();
+    final access = prefs.getString('accessToken');
     if (access == null) return;
 
     _accessToken = access;
-    _refreshToken = await _secureStorage.read(key: 'refreshToken');
-    _name = await _secureStorage.read(key: 'name');
-    _email = await _secureStorage.read(key: 'email');
-    _isActivated = (await _secureStorage.read(key: 'isActivated')) == 'true';
+    _refreshToken = prefs.getString('refreshToken');
+    _name = prefs.getString('name');
+    _email = prefs.getString('email');
+    _isActivated = prefs.getBool('isActivated') ?? false;
 
     notifyListeners();
   }
 
+  // Logout function
   Future<void> logout(BuildContext context) async {
     try {
-      // Hapus semua data dari secure storage
-      await _secureStorage.deleteAll();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
 
-      // Reset semua state internal
       _accessToken = null;
       _refreshToken = null;
       _name = null;

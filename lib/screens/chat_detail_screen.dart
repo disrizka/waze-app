@@ -1,10 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:wa_blast/widgets/chat_bubble.dart';
 
 import '../constants/app_colors.dart';
@@ -111,9 +107,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   padding: const EdgeInsets.only(right: 12),
                   child: IconButton(
                     icon: const Icon(Icons.call, color: AppColors.primary),
-                    onPressed: () {
-                      _launchPhoneDialer(number.toString());
-                    },
+                    onPressed: () {},
                   ),
                 );
               },
@@ -286,28 +280,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
       ),
     );
-  }
-
-  Future<void> _launchPhoneDialer(String number) async {
-    final Uri uri = Uri(scheme: 'tel', path: number);
-
-    if (Platform.isAndroid) {
-      if (await Permission.phone.request().isGranted) {
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        } else {
-          _showSnackBar('Tidak dapat membuka dialer');
-        }
-      } else {
-        _showSnackBar('Izin panggilan ditolak');
-      }
-    } else if (Platform.isIOS) {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        _showSnackBar('Tidak dapat membuka dialer');
-      }
-    }
   }
 
   void _showSnackBar(String message) {
