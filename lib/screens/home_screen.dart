@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/widgets/chat_tile.dart';
+import 'package:wa_blast/widgets/modal_login.dart';
 import '../constants/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../providers/home_provider.dart';
@@ -16,6 +21,17 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   bool _didInit = false;
+
+  Future<int> _getStoredAccountCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final accounts = prefs.getStringList('accounts');
+    return accounts?.length ?? 0;
+  }
+
+  Future<List<String>> _getStoredAccounts() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList('accounts') ?? [];
+  }
 
   @override
   void initState() {
@@ -47,6 +63,19 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<String?> _getAccountName(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString('account_$email');
+    if (jsonString == null) return null;
+
+    try {
+      final data = jsonDecode(jsonString);
+      return data['name'];
+    } catch (e) {
+      return null;
+    }
   }
 
   Widget _buildShimmer() {
@@ -96,7 +125,11 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: AppColors.secondaryText),
+            icon: const Icon(
+              LucideIcons.refreshCcw,
+              color: AppColors.secondaryText,
+            ),
+
             tooltip: 'Refresh',
             onPressed: () {
               Provider.of<HomeProvider>(
@@ -105,11 +138,478 @@ class _HomeScreenState extends State<HomeScreen> {
               ).fetchChats(context);
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.edit, color: AppColors.secondaryText),
-            onPressed: () {
-              Provider.of<AuthProvider>(context, listen: false).logout(context);
-              Navigator.pushReplacementNamed(context, '/home');
+          Consumer<AuthProvider>(
+            builder: (context, auth, _) {
+              final name = auth.name ?? '';
+              final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+              return FutureBuilder<int>(
+                future: _getStoredAccountCount(),
+                builder: (context, snapshot) {
+                  final accountCount = snapshot.data ?? 1;
+                  final isSingleAccount = accountCount <= 1;
+
+                  return PopupMenuButton<String>(
+                    onSelected: (value) async {
+                      switch (value) {
+                        case 'switch':
+                          final accounts = await _getStoredAccounts();
+
+                          if (isSingleAccount) {
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (context) {
+                                return AlertDialog(
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  titlePadding: const EdgeInsets.fromLTRB(
+                                    24,
+                                    24,
+                                    24,
+                                    12,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 24,
+                                  ),
+                                  actionsPadding: const EdgeInsets.only(
+                                    right: 16,
+                                    bottom: 12,
+                                  ),
+
+                                  title: Row(
+                                    children: const [
+                                      Icon(
+                                        LucideIcons.userPlus,
+                                        color: AppColors.primary,
+                                      ),
+                                      SizedBox(width: 12),
+                                      Text(
+                                        'Tambah Akun Lainnya?',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 18,
+                                          color: AppColors.primaryText,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+
+                                  content: const Text(
+                                    'Apakah kamu ingin menambahkan akun lainnya? Kamu bisa login dan berpindah akun kapan saja.',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: AppColors.secondaryText,
+                                    ),
+                                  ),
+
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(context, false),
+                                      child: const Text(
+                                        'Batal',
+                                        style: TextStyle(color: Colors.black),
+                                      ),
+                                    ),
+                                    ElevatedButton.icon(
+                                      onPressed: () =>
+                                          Navigator.pop(context, true),
+                                      icon: const Icon(LucideIcons.plus),
+                                      label: const Text('Ya, Tambahkan'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.primary,
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+
+                            if (confirm == true) {
+                              final rootContext = Navigator.of(
+                                context,
+                                rootNavigator: true,
+                              ).context;
+                              Future.microtask(() {
+                                showAddAccountModal(rootContext);
+                              });
+                            }
+                          } else {
+                            showModalBottomSheet(
+                              context: context,
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.vertical(
+                                  top: Radius.circular(16),
+                                ),
+                              ),
+                              backgroundColor: Colors.white,
+                              builder: (context) {
+                                return Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Expanded(
+                                            child: Text(
+                                              'Switch Account',
+                                              style: TextStyle(
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(LucideIcons.x),
+
+                                            onPressed: () =>
+                                                Navigator.pop(context),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      ListView.builder(
+                                        shrinkWrap: true,
+                                        itemCount:
+                                            accounts.length +
+                                            (accounts.length < 5 ? 1 : 0),
+                                        itemBuilder: (context, index) {
+                                          if (index < accounts.length) {
+                                            final email = accounts[index];
+
+                                            return FutureBuilder<String?>(
+                                              future: _getAccountName(email),
+                                              builder: (context, snapshot) {
+                                                final name =
+                                                    snapshot.data ??
+                                                    'Nama tidak ditemukan';
+
+                                                return Padding(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        vertical: 6.0,
+                                                      ),
+                                                  child: ListTile(
+                                                    contentPadding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 12.0,
+                                                        ),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                    ),
+                                                    tileColor: Colors.grey[100],
+                                                    leading: CircleAvatar(
+                                                      backgroundColor:
+                                                          AppColors.primary,
+                                                      child: Text(
+                                                        email[0].toUpperCase(),
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    title: Text(
+                                                      name,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                    subtitle: Text(
+                                                      email,
+                                                      style: const TextStyle(
+                                                        color: Colors.grey,
+                                                      ),
+                                                    ),
+                                                    trailing: const Icon(
+                                                      LucideIcons.chevronRight,
+                                                      color: Colors.grey,
+                                                    ),
+                                                    onTap: () async {
+                                                      Navigator.pop(context);
+                                                      final success =
+                                                          await Provider.of<
+                                                                AuthProvider
+                                                              >(
+                                                                context,
+                                                                listen: false,
+                                                              )
+                                                              .switchAccount(
+                                                                email,
+                                                              );
+
+                                                      if (success) {
+                                                        Navigator.pushReplacementNamed(
+                                                          context,
+                                                          '/splash',
+                                                        );
+                                                      } else {
+                                                        final error =
+                                                            Provider.of<
+                                                                  AuthProvider
+                                                                >(
+                                                                  context,
+                                                                  listen: false,
+                                                                )
+                                                                .error;
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                              error ??
+                                                                  'Gagal switch akun',
+                                                            ),
+                                                          ),
+                                                        );
+                                                      }
+                                                    },
+                                                  ),
+                                                );
+                                              },
+                                            );
+                                          } else {
+                                            // Add Account tile (if account count < 5)
+                                            return Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 6.0,
+                                                  ),
+                                              child: ListTile(
+                                                contentPadding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12.0,
+                                                    ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                tileColor: AppColors.primary
+                                                    .withOpacity(0.1),
+                                                leading: const Icon(
+                                                  LucideIcons.userPlus,
+                                                  color: AppColors.primary,
+                                                ),
+                                                title: const Text(
+                                                  'Tambahkan Akun Lainnya',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    color:
+                                                        AppColors.primaryText,
+                                                  ),
+                                                ),
+                                                trailing: const Icon(
+                                                  LucideIcons.chevronRight,
+                                                  color: AppColors.primary,
+                                                ),
+                                                onTap: () async {
+                                                  Navigator.pop(
+                                                    context,
+                                                  ); // tutup bottom sheet
+
+                                                  final rootContext =
+                                                      Navigator.of(
+                                                        context,
+                                                        rootNavigator: true,
+                                                      ).context;
+
+                                                  final confirm = await showDialog<bool>(
+                                                    context: context,
+                                                    builder: (context) {
+                                                      return AlertDialog(
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                16,
+                                                              ),
+                                                        ),
+                                                        titlePadding:
+                                                            const EdgeInsets.fromLTRB(
+                                                              24,
+                                                              24,
+                                                              24,
+                                                              12,
+                                                            ),
+                                                        contentPadding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 24,
+                                                            ),
+                                                        actionsPadding:
+                                                            const EdgeInsets.only(
+                                                              right: 16,
+                                                              bottom: 12,
+                                                            ),
+
+                                                        title: Row(
+                                                          children: const [
+                                                            Icon(
+                                                              LucideIcons
+                                                                  .userPlus,
+                                                              color: AppColors
+                                                                  .primary,
+                                                            ),
+                                                            SizedBox(width: 12),
+                                                            Text(
+                                                              'Tambah Akun Lainnya?',
+                                                              style: TextStyle(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                fontSize: 18,
+                                                                color: AppColors
+                                                                    .primaryText,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+
+                                                        content: const Text(
+                                                          'Apakah kamu ingin menambahkan akun lainnya? Kamu bisa login dan berpindah akun kapan saja.',
+                                                          style: TextStyle(
+                                                            fontSize: 14,
+                                                            color: AppColors
+                                                                .secondaryText,
+                                                          ),
+                                                        ),
+
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  context,
+                                                                  false,
+                                                                ),
+                                                            child: const Text(
+                                                              'Batal',
+                                                              style: TextStyle(
+                                                                color: Colors
+                                                                    .black,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          ElevatedButton.icon(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  context,
+                                                                  true,
+                                                                ),
+                                                            icon: const Icon(
+                                                              LucideIcons.plus,
+                                                            ),
+                                                            label: const Text(
+                                                              'Ya, Tambahkan',
+                                                            ),
+                                                            style: ElevatedButton.styleFrom(
+                                                              backgroundColor:
+                                                                  AppColors
+                                                                      .primary,
+                                                              foregroundColor:
+                                                                  Colors.white,
+                                                              shape: RoundedRectangleBorder(
+                                                                borderRadius:
+                                                                    BorderRadius.circular(
+                                                                      8,
+                                                                    ),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      );
+                                                    },
+                                                  );
+
+                                                  if (confirm == true) {
+                                                    Future.microtask(() {
+                                                      showAddAccountModal(
+                                                        rootContext,
+                                                      );
+                                                    });
+                                                  }
+                                                },
+                                              ),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            );
+                          }
+                          break;
+
+                        case 'logout':
+                          auth.logout(context);
+                          break;
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'switch',
+                        child: Row(
+                          children: [
+                            Icon(
+                              isSingleAccount
+                                  ? LucideIcons.userPlus
+                                  : LucideIcons.users,
+                              color: Colors.black54,
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              isSingleAccount
+                                  ? 'Add Account'
+                                  : 'Switch Account',
+                            ),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'logout',
+                        child: Row(
+                          children: [
+                            Icon(LucideIcons.logOut, color: Colors.black54),
+                            SizedBox(width: 10),
+                            Text('Logout'),
+                          ],
+                        ),
+                      ),
+                    ],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    color: Colors.white,
+                    offset: const Offset(0, 50),
+                    elevation: 8,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 16.0),
+                      child: CircleAvatar(
+                        backgroundColor: AppColors.primary,
+                        child: Text(
+                          initial,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
             },
           ),
         ],
@@ -122,7 +622,7 @@ class _HomeScreenState extends State<HomeScreen> {
               controller: _searchController,
               decoration: const InputDecoration(
                 hintText: 'Search by name',
-                prefixIcon: Icon(Icons.search),
+                prefixIcon: Icon(LucideIcons.search),
                 filled: true,
                 fillColor: AppColors.background,
                 contentPadding: EdgeInsets.all(12),

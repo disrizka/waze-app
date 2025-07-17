@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../providers/auth_provider.dart';
 
-class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+class ProfileScreen extends StatelessWidget {
+  const ProfileScreen({super.key});
 
   void _handleLogout(BuildContext context) {
     Provider.of<AuthProvider>(context, listen: false).logout(context);
@@ -22,10 +23,6 @@ class SettingsScreen extends StatelessWidget {
         automaticallyImplyLeading: false,
         backgroundColor: AppColors.white,
         elevation: 0,
-        title: const Text(
-          'Settings',
-          style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
-        ),
       ),
       body: Center(
         child: Column(
@@ -70,7 +67,7 @@ class SettingsScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.verified,
+                    isActivated ? LucideIcons.badgeCheck : LucideIcons.xCircle,
                     size: 18,
                     color: isActivated ? AppColors.green : AppColors.red,
                   ),
@@ -83,26 +80,6 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: 140,
-              height: 40,
-              child: ElevatedButton.icon(
-                onPressed: () => _handleLogout(context),
-                icon: const Icon(Icons.logout, size: 18),
-                label: const Text('Logout'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.redAccent,
-                  foregroundColor: AppColors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  textStyle: const TextStyle(fontSize: 14),
-                ),
               ),
             ),
           ],

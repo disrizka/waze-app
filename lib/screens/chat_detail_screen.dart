@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/widgets/chat_bubble.dart';
@@ -106,7 +107,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 return Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: IconButton(
-                    icon: const Icon(Icons.call, color: AppColors.primary),
+                    icon: const Icon(
+                      LucideIcons.phone,
+                      color: AppColors.primary,
+                    ),
                     onPressed: () {},
                   ),
                 );
@@ -189,12 +193,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       decoration: const BoxDecoration(color: AppColors.white),
                       child: Row(
                         children: [
-                          IconButton(
-                            icon: const Icon(
-                              Icons.chat_bubble,
+                          Padding(
+                            padding: EdgeInsetsGeometry.symmetric(
+                              horizontal: 12,
+                              vertical: 5,
+                            ),
+                            child: const Icon(
+                              LucideIcons.messageCircle,
                               color: AppColors.primary,
                             ),
-                            onPressed: () {},
                           ),
                           Flexible(
                             child: Container(
@@ -243,7 +250,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                       const SizedBox(width: 6),
                                       IconButton(
                                         icon: const Icon(
-                                          Icons.send,
+                                          LucideIcons.send,
                                           color: AppColors.primary,
                                         ),
                                         onPressed: () {
@@ -280,11 +287,5 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
       ),
     );
-  }
-
-  void _showSnackBar(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }

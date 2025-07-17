@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../providers/auth_provider.dart';
@@ -46,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Icon(
-                Icons.chat_bubble_outline,
+                LucideIcons.messageCircle,
                 size: 64,
                 color: AppColors.primary,
               ),
@@ -90,7 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         filled: true,
                         fillColor: AppColors.greyBackground,
                         hintText: 'Email',
-                        prefixIcon: const Icon(Icons.email_outlined),
+                        prefixIcon: const Icon(LucideIcons.mail),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide.none,
@@ -105,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         filled: true,
                         fillColor: AppColors.greyBackground,
                         hintText: 'Password',
-                        prefixIcon: const Icon(Icons.lock_outline),
+                        prefixIcon: const Icon(LucideIcons.lock),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide.none,

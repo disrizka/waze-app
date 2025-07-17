@@ -23,22 +23,45 @@ class AuthProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
-  // Login function
+  static const String kAccountsKey = 'accounts';
+  static const String kActiveAccountKey = 'activeAccountEmail';
+  String? get activeAccountEmail => _email;
+
+  // Login function (with multi account storage)
   Future<bool> login(String email, String password) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     final String loginUrl = '${ApiConstant.baseUrl}/user/login';
-
     final headers = {
       'Content-Type': 'application/json',
       'Authorization': ApiConstant.basicAuth,
     };
-
     final body = jsonEncode({'email': email, 'password': password});
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final accounts = prefs.getStringList(kAccountsKey) ?? [];
+
+      final alreadyExists = accounts.contains(email);
+
+      // ❌ Jika akun sudah ada, jangan izinkan login lagi
+      if (alreadyExists) {
+        _error = 'Akun ini sudah pernah login di perangkat ini.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      // ✅ Batas maksimal 5 akun
+      if (accounts.length >= 5) {
+        _error = 'Maksimal 5 akun yang dapat login di perangkat ini.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
       final response = await http.post(
         Uri.parse(loginUrl),
         headers: headers,
@@ -54,13 +77,25 @@ class AuthProvider with ChangeNotifier {
         _accessToken = data['token']['access_token'];
         _refreshToken = data['token']['refresh_token'];
 
-        // Simpan ke shared preferences
-        final prefs = await SharedPreferences.getInstance();
         await prefs.setString('accessToken', _accessToken!);
         await prefs.setString('refreshToken', _refreshToken!);
         await prefs.setString('name', _name!);
         await prefs.setString('email', _email!);
         await prefs.setBool('isActivated', _isActivated);
+        await prefs.setString(kActiveAccountKey, _email!);
+
+        final accountData = {
+          'accessToken': _accessToken,
+          'refreshToken': _refreshToken,
+          'name': _name,
+          'email': _email,
+          'isActivated': _isActivated,
+        };
+        await prefs.setString('account_${_email!}', jsonEncode(accountData));
+
+        // ✅ Tambahkan akun ke list karena sebelumnya belum ada (tapi sudah dipastikan di atas)
+        accounts.add(_email!);
+        await prefs.setStringList(kAccountsKey, accounts);
 
         _isLoading = false;
         notifyListeners();
@@ -77,27 +112,121 @@ class AuthProvider with ChangeNotifier {
     return false;
   }
 
-  // Autologin saat app dibuka
-  Future<void> tryAutoLogin() async {
+  // Switch ke akun lain berdasarkan email
+  Future<bool> switchAccount(String email) async {
     final prefs = await SharedPreferences.getInstance();
-    final access = prefs.getString('accessToken');
-    if (access == null) return;
+    final accountJson = prefs.getString('account_$email');
 
-    _accessToken = access;
-    _refreshToken = prefs.getString('refreshToken');
-    _name = prefs.getString('name');
-    _email = prefs.getString('email');
-    _isActivated = prefs.getBool('isActivated') ?? false;
+    if (accountJson == null) {
+      _error = 'Data akun tidak ditemukan';
+      notifyListeners();
+      return false;
+    }
+
+    try {
+      final accountData = jsonDecode(accountJson);
+      _accessToken = accountData['accessToken'];
+      _refreshToken = accountData['refreshToken'];
+      _name = accountData['name'];
+      _email = accountData['email'];
+      _isActivated = accountData['isActivated'] ?? false;
+
+      // Set data aktif
+      await prefs.setString('accessToken', _accessToken!);
+      await prefs.setString('refreshToken', _refreshToken!);
+      await prefs.setString('name', _name!);
+      await prefs.setString('email', _email!);
+      await prefs.setBool('isActivated', _isActivated);
+      await prefs.setString(kActiveAccountKey, _email!);
+
+      _error = null;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = 'Gagal switch akun: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Ambil daftar akun
+  Future<List<String>> getStoredAccounts() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(kAccountsKey) ?? [];
+  }
+
+  // Hapus akun tertentu dari daftar
+  Future<void> removeAccount(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    final accounts = prefs.getStringList(kAccountsKey) ?? [];
+
+    accounts.remove(email);
+    await prefs.setStringList(kAccountsKey, accounts);
+    await prefs.remove('account_$email');
+
+    if (_email == email) {
+      await logoutWithoutNavigation();
+    }
 
     notifyListeners();
   }
 
-  // Logout function
+  // Autologin saat app dibuka
+  Future<void> tryAutoLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final activeEmail = prefs.getString(kActiveAccountKey);
+    if (activeEmail == null) return;
+
+    final accountJson = prefs.getString('account_$activeEmail');
+    if (accountJson == null) return;
+
+    try {
+      final accountData = jsonDecode(accountJson);
+
+      _accessToken = accountData['accessToken'];
+      _refreshToken = accountData['refreshToken'];
+      _name = accountData['name'];
+      _email = accountData['email'];
+      _isActivated = accountData['isActivated'] ?? false;
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint("AutoLogin gagal parsing: $e");
+    }
+  }
+
+  // Logout (tanpa pindah halaman)
+  Future<void> logoutWithoutNavigation() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    _accessToken = null;
+    _refreshToken = null;
+    _name = null;
+    _email = null;
+    _isActivated = false;
+    _error = null;
+
+    await prefs.remove('accessToken');
+    await prefs.remove('refreshToken');
+    await prefs.remove('name');
+    await prefs.remove('email');
+    await prefs.remove('isActivated');
+    notifyListeners();
+  }
+
   Future<void> logout(BuildContext context) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
 
+      final currentEmail = _email;
+      final accounts = prefs.getStringList(kAccountsKey) ?? [];
+
+      // Hapus akun aktif dari daftar dan data JSON-nya
+      accounts.remove(currentEmail);
+      await prefs.setStringList(kAccountsKey, accounts);
+      await prefs.remove('account_$currentEmail');
+
+      // Clear data akun aktif
       _accessToken = null;
       _refreshToken = null;
       _name = null;
@@ -105,9 +234,29 @@ class AuthProvider with ChangeNotifier {
       _isActivated = false;
       _error = null;
 
-      debugPrint("Berhasil logout");
+      await prefs.remove('accessToken');
+      await prefs.remove('refreshToken');
+      await prefs.remove('name');
+      await prefs.remove('email');
+      await prefs.remove('isActivated');
+      await prefs.remove(kActiveAccountKey);
 
       notifyListeners();
+
+      if (accounts.isNotEmpty) {
+        final nextEmail = accounts.first;
+        final success = await switchAccount(nextEmail);
+
+        if (success) {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            '/splash',
+            (route) => false,
+          );
+          return;
+        }
+      }
+
       Navigator.pushNamedAndRemoveUntil(context, '/splash', (route) => false);
     } catch (e) {
       debugPrint("Gagal logout: $e");
