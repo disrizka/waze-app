@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/constants/api_constant.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 class AuthProvider with ChangeNotifier {
   // Internal fields
@@ -27,7 +30,6 @@ class AuthProvider with ChangeNotifier {
   static const String kActiveAccountKey = 'activeAccountEmail';
   String? get activeAccountEmail => _email;
 
-  // Login function (with multi account storage)
   Future<bool> login(String email, String password) async {
     _isLoading = true;
     _error = null;
@@ -38,29 +40,48 @@ class AuthProvider with ChangeNotifier {
       'Content-Type': 'application/json',
       'Authorization': ApiConstant.basicAuth,
     };
-    final body = jsonEncode({'email': email, 'password': password});
+
+    final prefs = await SharedPreferences.getInstance();
+    final accounts = prefs.getStringList(kAccountsKey) ?? [];
+
+    final alreadyExists = accounts.contains(email);
+
+    if (alreadyExists) {
+      _error = 'Akun ini sudah pernah login di perangkat ini.';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+
+    if (accounts.length >= 5) {
+      _error = 'Maksimal 5 akun yang dapat login di perangkat ini.';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final accounts = prefs.getStringList(kAccountsKey) ?? [];
+      final deviceInfoPlugin = DeviceInfoPlugin();
+      String deviceId = '';
+      String deviceName = '';
 
-      final alreadyExists = accounts.contains(email);
-
-      // ❌ Jika akun sudah ada, jangan izinkan login lagi
-      if (alreadyExists) {
-        _error = 'Akun ini sudah pernah login di perangkat ini.';
-        _isLoading = false;
-        notifyListeners();
-        return false;
+      if (Platform.isAndroid) {
+        final androidInfo = await deviceInfoPlugin.androidInfo;
+        deviceId = androidInfo.id ?? 'unknown';
+        deviceName = androidInfo.model ?? 'Android Device';
+      } else if (Platform.isIOS) {
+        final iosInfo = await deviceInfoPlugin.iosInfo;
+        deviceId = iosInfo.identifierForVendor ?? 'unknown';
+        deviceName = iosInfo.utsname.machine ?? 'iPhone';
       }
 
-      // ✅ Batas maksimal 5 akun
-      if (accounts.length >= 5) {
-        _error = 'Maksimal 5 akun yang dapat login di perangkat ini.';
-        _isLoading = false;
-        notifyListeners();
-        return false;
-      }
+      final body = jsonEncode({
+        'email': email,
+        'password': password,
+        'device_id': deviceId,
+        'device_name': deviceName,
+        'fcm_token': 'dummy_fcm_token',
+      });
 
       final response = await http.post(
         Uri.parse(loginUrl),
@@ -92,8 +113,6 @@ class AuthProvider with ChangeNotifier {
           'isActivated': _isActivated,
         };
         await prefs.setString('account_${_email!}', jsonEncode(accountData));
-
-        // ✅ Tambahkan akun ke list karena sebelumnya belum ada (tapi sudah dipastikan di atas)
         accounts.add(_email!);
         await prefs.setStringList(kAccountsKey, accounts);
 
@@ -112,7 +131,6 @@ class AuthProvider with ChangeNotifier {
     return false;
   }
 
-  // Switch ke akun lain berdasarkan email
   Future<bool> switchAccount(String email) async {
     final prefs = await SharedPreferences.getInstance();
     final accountJson = prefs.getString('account_$email');
