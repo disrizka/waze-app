@@ -1,4 +1,4 @@
-package com.example.wa_blast
+package com.wave.biz
 
 import io.flutter.embedding.android.FlutterActivity
 

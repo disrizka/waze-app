@@ -8,6 +8,7 @@ void showAddAccountModal(BuildContext context) {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   bool isPasswordHidden = true;
+  bool isLoading = false;
 
   showDialog(
     context: context,
@@ -29,7 +30,9 @@ void showAddAccountModal(BuildContext context) {
                   Align(
                     alignment: Alignment.topRight,
                     child: IconButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: isLoading
+                          ? null
+                          : () => Navigator.pop(context),
                       icon: const Icon(LucideIcons.x),
                       color: Colors.grey,
                       tooltip: 'Cancel',
@@ -61,6 +64,7 @@ void showAddAccountModal(BuildContext context) {
                   const SizedBox(height: 24),
                   TextField(
                     controller: emailController,
+                    enabled: !isLoading,
                     keyboardType: TextInputType.emailAddress,
                     decoration: InputDecoration(
                       hintText: 'Email',
@@ -73,10 +77,10 @@ void showAddAccountModal(BuildContext context) {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 20),
                   TextField(
                     controller: passwordController,
+                    enabled: !isLoading,
                     obscureText: isPasswordHidden,
                     decoration: InputDecoration(
                       hintText: 'Password',
@@ -89,11 +93,13 @@ void showAddAccountModal(BuildContext context) {
                           size: 20,
                           color: Colors.grey,
                         ),
-                        onPressed: () {
-                          setState(() {
-                            isPasswordHidden = !isPasswordHidden;
-                          });
-                        },
+                        onPressed: isLoading
+                            ? null
+                            : () {
+                                setState(() {
+                                  isPasswordHidden = !isPasswordHidden;
+                                });
+                              },
                       ),
                       filled: true,
                       fillColor: AppColors.greyBackground,
@@ -107,8 +113,17 @@ void showAddAccountModal(BuildContext context) {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      icon: const Icon(LucideIcons.logIn),
-                      label: const Text('Login'),
+                      icon: isLoading
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(LucideIcons.logIn),
+                      label: Text(isLoading ? 'Memproses...' : 'Login'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
@@ -120,32 +135,42 @@ void showAddAccountModal(BuildContext context) {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      onPressed: () async {
-                        final email = emailController.text.trim();
-                        final password = passwordController.text.trim();
-                        if (email.isEmpty || password.isEmpty) return;
+                      onPressed: isLoading
+                          ? null
+                          : () async {
+                              final email = emailController.text.trim();
+                              final password = passwordController.text.trim();
+                              if (email.isEmpty || password.isEmpty) return;
 
-                        final auth = Provider.of<AuthProvider>(
-                          context,
-                          listen: false,
-                        );
+                              setState(() => isLoading = true);
 
-                        final success = await auth.login(email, password);
-                        if (success) {
-                          if (context.mounted) {
-                            Navigator.pop(context);
-                            Navigator.pushReplacementNamed(context, '/splash');
-                          }
-                        } else {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(auth.error ?? 'Login gagal'),
-                              ),
-                            );
-                          }
-                        }
-                      },
+                              final auth = Provider.of<AuthProvider>(
+                                context,
+                                listen: false,
+                              );
+
+                              final success = await auth.login(email, password);
+
+                              if (context.mounted) {
+                                if (success) {
+                                  Navigator.pop(context);
+                                  Navigator.pushReplacementNamed(
+                                    context,
+                                    '/splash',
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        auth.error ?? 'Login gagal',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              }
+
+                              setState(() => isLoading = false);
+                            },
                     ),
                   ),
                 ],

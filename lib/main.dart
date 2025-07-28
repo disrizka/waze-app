@@ -1,15 +1,47 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
+
+import 'firebase_options.dart';
+
 import 'package:wa_blast/providers/chat_detail_provider.dart';
 import 'package:wa_blast/providers/home_provider.dart';
 import 'package:wa_blast/providers/splash_provider.dart';
+import 'package:wa_blast/providers/auth_provider.dart';
 import 'package:wa_blast/screens/main_wrapper.dart';
-import 'providers/auth_provider.dart';
-import 'screens/login_screen.dart';
-import 'screens/splash_screen.dart';
+import 'package:wa_blast/screens/login_screen.dart';
+import 'package:wa_blast/screens/splash_screen.dart';
 
-void main() {
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  debugPrint('📩 Background notification: ${message.notification?.title}');
+}
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  await FirebaseMessaging.instance.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+
+  final fcmToken = await FirebaseMessaging.instance.getToken();
+  debugPrint('FCM Token: $fcmToken');
+
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    debugPrint('Foreground notification: ${message.notification?.title}');
+  });
+
+  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    debugPrint('Opened notification: ${message.notification?.title}');
+  });
+
   runApp(
     MultiProvider(
       providers: [

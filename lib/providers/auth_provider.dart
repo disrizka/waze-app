@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -75,13 +76,17 @@ class AuthProvider with ChangeNotifier {
         deviceName = iosInfo.utsname.machine ?? 'iPhone';
       }
 
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+
       final body = jsonEncode({
         'email': email,
         'password': password,
         'device_id': deviceId,
         'device_name': deviceName,
-        'fcm_token': 'dummy_fcm_token',
+        'fcm_token': fcmToken,
       });
+
+      debugPrint('payload: $body');
 
       final response = await http.post(
         Uri.parse(loginUrl),

@@ -124,20 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         elevation: 0,
         actions: [
-          IconButton(
-            icon: const Icon(
-              LucideIcons.refreshCcw,
-              color: AppColors.secondaryText,
-            ),
-
-            tooltip: 'Refresh',
-            onPressed: () {
-              Provider.of<HomeProvider>(
-                context,
-                listen: false,
-              ).fetchChats(context);
-            },
-          ),
+          SizedBox(),
           Consumer<AuthProvider>(
             builder: (context, auth, _) {
               final name = auth.name ?? '';
@@ -659,31 +646,40 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 10),
           Expanded(
-            child: homeProvider.isLoading || homeProvider.isSearching
-                ? _buildShimmer()
-                : homeProvider.hasError
-                ? const Center(child: Text('No message found'))
-                : filteredChats.isEmpty
-                ? const Center(child: Text('No results found'))
-                : ListView.builder(
-                    itemCount: filteredChats.length,
-                    itemBuilder: (context, index) {
-                      final chat = filteredChats[index];
-                      return ChatTile(
-                        chat: chat,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ChatDetailScreen(
-                                roomId: chat['idUserMessageRoom'].toString(),
+            child: RefreshIndicator(
+              color: Colors.green,
+              onRefresh: () async {
+                await Provider.of<HomeProvider>(
+                  context,
+                  listen: false,
+                ).fetchChats(context);
+              },
+              child: homeProvider.isLoading || homeProvider.isSearching
+                  ? _buildShimmer()
+                  : homeProvider.hasError
+                  ? const Center(child: Text('No message found'))
+                  : filteredChats.isEmpty
+                  ? const Center(child: Text('No results found'))
+                  : ListView.builder(
+                      itemCount: filteredChats.length,
+                      itemBuilder: (context, index) {
+                        final chat = filteredChats[index];
+                        return ChatTile(
+                          chat: chat,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ChatDetailScreen(
+                                  roomId: chat['idUserMessageRoom'].toString(),
+                                ),
                               ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+            ),
           ),
         ],
       ),

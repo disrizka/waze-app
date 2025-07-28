@@ -30,22 +30,21 @@ class _SplashScreenState extends State<SplashScreen> {
       backgroundColor: AppColors.white,
       body: Center(
         child: Shimmer.fromColors(
-          baseColor: AppColors.primary.withOpacity(0.2),
-          highlightColor: AppColors.primary.withOpacity(0.5),
+          baseColor: AppColors.primary.withOpacity(0.4),
+          highlightColor: AppColors.primary.withOpacity(0.7),
           direction: ShimmerDirection.ltr,
           period: const Duration(seconds: 3),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Branding bubble with shimmer
               Container(
                 padding: const EdgeInsets.all(30),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: LinearGradient(
                     colors: [
-                      AppColors.primary.withOpacity(0.2),
-                      AppColors.primary.withOpacity(0.4),
+                      AppColors.primary.withOpacity(0.3), // lebih pekat
+                      AppColors.primary.withOpacity(0.6),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -67,10 +66,14 @@ class _SplashScreenState extends State<SplashScreen> {
                   color: AppColors.primary,
                 ),
               ),
-              const SizedBox(height: 6),
               const Text(
-                'Auto-login in progress...',
-                style: TextStyle(fontSize: 14, color: AppColors.secondaryText),
+                'Loading . . .',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                  color: AppColors.primary,
+                ),
               ),
             ],
           ),
