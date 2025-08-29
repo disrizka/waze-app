@@ -1,684 +1,692 @@
+// lib/screens/home_screen.dart
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:wa_blast/widgets/chat_tile.dart';
-import 'package:wa_blast/widgets/modal_login.dart';
-import '../constants/app_colors.dart';
-import '../providers/auth_provider.dart';
-import '../providers/home_provider.dart';
-import 'chat_detail_screen.dart';
+import 'package:wa_blast/constants/app_colors.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  Widget build(BuildContext context) {
+    final green = AppColors.blue;
+    final textPrimary = const Color(0xFF1E1E1E);
+    final subText = const Color(0xFF7A7A7A);
+    final cardBorder = const Color(0xFFE6E6E6);
+
+    const double _cardWidth = 206;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // HEADER GRADIENT
+              _HeaderGradient(green: green, textPrimary: textPrimary),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _GridMenu(),
+              ),
+
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'Preview Report',
+                  style: TextStyle(
+                    color: const Color(0xFF4B5563),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // seragam, tidak terlalu panjang/pendek
+              SizedBox(
+                height: 118,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: 3,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (_, i) {
+                    switch (i) {
+                      case 0:
+                        return const SizedBox(
+                          width: _cardWidth,
+                          child: _StatCard(
+                            title: 'Income this day',
+                            amount: 'Rp. 200,000',
+                          ),
+                        );
+                      case 1:
+                        return const SizedBox(
+                          width: _cardWidth,
+                          child: _StatCard(
+                            title: 'Income this month',
+                            amount: 'Rp. 1,200,000,000',
+                          ),
+                        );
+                      default:
+                        return const SizedBox(
+                          width: _cardWidth,
+                          child: _StatCard(
+                            title: 'Income this year',
+                            amount: 'Rp. 14,500,000,000',
+                          ),
+                        );
+                    }
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _searchController = TextEditingController();
-  bool _didInit = false;
+class _HeaderGradient extends StatefulWidget {
+  final Color green;
+  final Color textPrimary;
 
-  Future<int> _getStoredAccountCount() async {
-    final prefs = await SharedPreferences.getInstance();
-    final accounts = prefs.getStringList('accounts');
-    return accounts?.length ?? 0;
-  }
+  const _HeaderGradient({required this.green, required this.textPrimary});
 
-  Future<List<String>> _getStoredAccounts() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getStringList('accounts') ?? [];
-  }
+  @override
+  State<_HeaderGradient> createState() => _HeaderGradientState();
+}
+
+class _HeaderGradientState extends State<_HeaderGradient> {
+  String _accountName = '';
+  String _accountUsername = '';
+  String _businessName = '';
+  String _businessUsername = '';
+  String _photoPath = '';
+  String _businessLogoPath = '';
 
   @override
   void initState() {
     super.initState();
-    final homeProvider = Provider.of<HomeProvider>(context, listen: false);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      homeProvider.fetchChats(context);
-    });
-
-    _searchController.addListener(() {
-      homeProvider.updateSearchQuery(_searchController.text);
-    });
+    _loadPrefs();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_didInit) {
-      _didInit = true;
-      Future.microtask(() {
-        final homeProvider = Provider.of<HomeProvider>(context, listen: false);
-        homeProvider.fetchChats(context);
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<String?> _getAccountName(String email) async {
+  Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString('account_$email');
-    if (jsonString == null) return null;
 
-    try {
-      final data = jsonDecode(jsonString);
-      return data['name'];
-    } catch (e) {
-      return null;
+    final name = prefs.getString('name') ?? '';
+    final userUsername = prefs.getString('username')?.trim();
+    final email = prefs.getString('email')?.trim();
+    final accountUsername = (userUsername != null && userUsername.isNotEmpty)
+        ? userUsername
+        : (email ?? '');
+
+    String businessName = prefs.getString('activeBizName') ?? '';
+    String businessUsername = prefs.getString('activeBizUsername') ?? '';
+    _photoPath = prefs.getString('photoPath') ?? '';
+    _businessLogoPath =
+        prefs.getString('activeBizLogoPath') ?? ''; // ⬅️ ambil logo
+
+    if (businessName.isEmpty || businessUsername.isEmpty) {
+      final businessJson = prefs.getString('business');
+      if (businessJson != null && businessJson.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(businessJson);
+          if (decoded is List && decoded.isNotEmpty) {
+            final first = Map<String, dynamic>.from(decoded.first as Map);
+            businessName =
+                (first['name'] ??
+                        first['business_name'] ??
+                        first['businessName'] ??
+                        '')
+                    .toString();
+            businessUsername =
+                (first['username'] ??
+                        first['business_username'] ??
+                        first['code'] ??
+                        '')
+                    .toString();
+            _businessLogoPath = (first['logoPath'] ?? first['logo'] ?? '')
+                .toString(); // ⬅️ fallback
+          }
+        } catch (_) {}
+      }
     }
-  }
 
-  Widget _buildShimmer() {
-    return ListView.builder(
-      itemCount: 8,
-      itemBuilder: (context, index) => ListTile(
-        leading: const CircleAvatar(backgroundColor: AppColors.shimmerBase),
-        title: Container(
-          height: 14,
-          width: 100,
-          color: AppColors.shimmerBase,
-          margin: const EdgeInsets.only(bottom: 4),
-        ),
-        subtitle: Container(
-          height: 12,
-          width: 80,
-          color: AppColors.shimmerBase,
-        ),
-        trailing: Container(
-          height: 12,
-          width: 20,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppColors.shimmerBase,
-          ),
-        ),
-      ),
-    );
+    setState(() {
+      _accountName = name;
+      _accountUsername = accountUsername.isNotEmpty ? accountUsername : '—';
+      _businessName = businessName.isNotEmpty ? businessName : '—';
+      _businessUsername = businessUsername.isNotEmpty ? businessUsername : '—';
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final homeProvider = Provider.of<HomeProvider>(context);
-    final filteredChats = homeProvider.filteredChats;
+    // ukuran & posisi agar menimpa 3/4 dari gradient
+    const double headerHeight = 150; // tinggi area gradient
+    const double cardHeight = 96; // tinggi kartu
+    final double overlapTop =
+        headerHeight - cardHeight * 0.79; // 1/4 di dalam gradient, 3/4 di luar
 
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: AppColors.white,
-        title: const Text(
-          'Chats',
-          style: TextStyle(
-            color: AppColors.primaryText,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        elevation: 0,
-        actions: [
-          SizedBox(),
-          Consumer<AuthProvider>(
-            builder: (context, auth, _) {
-              final name = auth.name ?? '';
-              final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
-
-              return FutureBuilder<int>(
-                future: _getStoredAccountCount(),
-                builder: (context, snapshot) {
-                  final accountCount = snapshot.data ?? 1;
-                  final isSingleAccount = accountCount <= 1;
-
-                  return PopupMenuButton<String>(
-                    onSelected: (value) async {
-                      switch (value) {
-                        case 'switch':
-                          final accounts = await _getStoredAccounts();
-
-                          if (isSingleAccount) {
-                            final confirm = await showDialog<bool>(
-                              context: context,
-                              builder: (context) {
-                                return AlertDialog(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  titlePadding: const EdgeInsets.fromLTRB(
-                                    24,
-                                    24,
-                                    24,
-                                    12,
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                  ),
-                                  actionsPadding: const EdgeInsets.only(
-                                    right: 16,
-                                    bottom: 12,
-                                  ),
-
-                                  title: Row(
-                                    children: const [
-                                      Icon(
-                                        LucideIcons.userPlus,
-                                        color: AppColors.primary,
-                                      ),
-                                      SizedBox(width: 12),
-                                      Text(
-                                        'Tambah Akun Lainnya?',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 18,
-                                          color: AppColors.primaryText,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-
-                                  content: const Text(
-                                    'Apakah kamu ingin menambahkan akun lainnya? Kamu bisa login dan berpindah akun kapan saja.',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: AppColors.secondaryText,
-                                    ),
-                                  ),
-
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.pop(context, false),
-                                      child: const Text(
-                                        'Batal',
-                                        style: TextStyle(color: Colors.black),
-                                      ),
-                                    ),
-                                    ElevatedButton.icon(
-                                      onPressed: () =>
-                                          Navigator.pop(context, true),
-                                      icon: const Icon(LucideIcons.plus),
-                                      label: const Text('Ya, Tambahkan'),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.primary,
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-
-                            if (confirm == true) {
-                              final rootContext = Navigator.of(
-                                context,
-                                rootNavigator: true,
-                              ).context;
-                              Future.microtask(() {
-                                showAddAccountModal(rootContext);
-                              });
-                            }
-                          } else {
-                            showModalBottomSheet(
-                              context: context,
-                              shape: const RoundedRectangleBorder(
-                                borderRadius: BorderRadius.vertical(
-                                  top: Radius.circular(16),
-                                ),
-                              ),
-                              backgroundColor: Colors.white,
-                              builder: (context) {
-                                return Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          const Expanded(
-                                            child: Text(
-                                              'Switch Account',
-                                              style: TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(LucideIcons.x),
-
-                                            onPressed: () =>
-                                                Navigator.pop(context),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 10),
-                                      ListView.builder(
-                                        shrinkWrap: true,
-                                        itemCount:
-                                            accounts.length +
-                                            (accounts.length < 5 ? 1 : 0),
-                                        itemBuilder: (context, index) {
-                                          if (index < accounts.length) {
-                                            final email = accounts[index];
-
-                                            return FutureBuilder<String?>(
-                                              future: _getAccountName(email),
-                                              builder: (context, snapshot) {
-                                                final name =
-                                                    snapshot.data ??
-                                                    'Nama tidak ditemukan';
-
-                                                return Padding(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        vertical: 6.0,
-                                                      ),
-                                                  child: ListTile(
-                                                    contentPadding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 12.0,
-                                                        ),
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            12,
-                                                          ),
-                                                    ),
-                                                    tileColor: Colors.grey[100],
-                                                    leading: CircleAvatar(
-                                                      backgroundColor:
-                                                          AppColors.primary,
-                                                      child: Text(
-                                                        email[0].toUpperCase(),
-                                                        style: const TextStyle(
-                                                          color: Colors.white,
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    title: Text(
-                                                      name,
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                      ),
-                                                    ),
-                                                    subtitle: Text(
-                                                      email,
-                                                      style: const TextStyle(
-                                                        color: Colors.grey,
-                                                      ),
-                                                    ),
-                                                    trailing: const Icon(
-                                                      LucideIcons.chevronRight,
-                                                      color: Colors.grey,
-                                                    ),
-                                                    onTap: () async {
-                                                      Navigator.pop(context);
-                                                      final success =
-                                                          await Provider.of<
-                                                                AuthProvider
-                                                              >(
-                                                                context,
-                                                                listen: false,
-                                                              )
-                                                              .switchAccount(
-                                                                email,
-                                                              );
-
-                                                      if (success) {
-                                                        Navigator.pushReplacementNamed(
-                                                          context,
-                                                          '/splash',
-                                                        );
-                                                      } else {
-                                                        final error =
-                                                            Provider.of<
-                                                                  AuthProvider
-                                                                >(
-                                                                  context,
-                                                                  listen: false,
-                                                                )
-                                                                .error;
-                                                        ScaffoldMessenger.of(
-                                                          context,
-                                                        ).showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                              error ??
-                                                                  'Gagal switch akun',
-                                                            ),
-                                                          ),
-                                                        );
-                                                      }
-                                                    },
-                                                  ),
-                                                );
-                                              },
-                                            );
-                                          } else {
-                                            // Add Account tile (if account count < 5)
-                                            return Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 6.0,
-                                                  ),
-                                              child: ListTile(
-                                                contentPadding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 12.0,
-                                                    ),
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                                tileColor: AppColors.primary
-                                                    .withOpacity(0.1),
-                                                leading: const Icon(
-                                                  LucideIcons.userPlus,
-                                                  color: AppColors.primary,
-                                                ),
-                                                title: const Text(
-                                                  'Tambahkan Akun Lainnya',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    color:
-                                                        AppColors.primaryText,
-                                                  ),
-                                                ),
-                                                trailing: const Icon(
-                                                  LucideIcons.chevronRight,
-                                                  color: AppColors.primary,
-                                                ),
-                                                onTap: () async {
-                                                  Navigator.pop(
-                                                    context,
-                                                  ); // tutup bottom sheet
-
-                                                  final rootContext =
-                                                      Navigator.of(
-                                                        context,
-                                                        rootNavigator: true,
-                                                      ).context;
-
-                                                  final confirm = await showDialog<bool>(
-                                                    context: context,
-                                                    builder: (context) {
-                                                      return AlertDialog(
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius:
-                                                              BorderRadius.circular(
-                                                                16,
-                                                              ),
-                                                        ),
-                                                        titlePadding:
-                                                            const EdgeInsets.fromLTRB(
-                                                              24,
-                                                              24,
-                                                              24,
-                                                              12,
-                                                            ),
-                                                        contentPadding:
-                                                            const EdgeInsets.symmetric(
-                                                              horizontal: 24,
-                                                            ),
-                                                        actionsPadding:
-                                                            const EdgeInsets.only(
-                                                              right: 16,
-                                                              bottom: 12,
-                                                            ),
-
-                                                        title: Row(
-                                                          children: const [
-                                                            Icon(
-                                                              LucideIcons
-                                                                  .userPlus,
-                                                              color: AppColors
-                                                                  .primary,
-                                                            ),
-                                                            SizedBox(width: 12),
-                                                            Text(
-                                                              'Tambah Akun Lainnya?',
-                                                              style: TextStyle(
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .bold,
-                                                                fontSize: 18,
-                                                                color: AppColors
-                                                                    .primaryText,
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-
-                                                        content: const Text(
-                                                          'Apakah kamu ingin menambahkan akun lainnya? Kamu bisa login dan berpindah akun kapan saja.',
-                                                          style: TextStyle(
-                                                            fontSize: 14,
-                                                            color: AppColors
-                                                                .secondaryText,
-                                                          ),
-                                                        ),
-
-                                                        actions: [
-                                                          TextButton(
-                                                            onPressed: () =>
-                                                                Navigator.pop(
-                                                                  context,
-                                                                  false,
-                                                                ),
-                                                            child: const Text(
-                                                              'Batal',
-                                                              style: TextStyle(
-                                                                color: Colors
-                                                                    .black,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                          ElevatedButton.icon(
-                                                            onPressed: () =>
-                                                                Navigator.pop(
-                                                                  context,
-                                                                  true,
-                                                                ),
-                                                            icon: const Icon(
-                                                              LucideIcons.plus,
-                                                            ),
-                                                            label: const Text(
-                                                              'Ya, Tambahkan',
-                                                            ),
-                                                            style: ElevatedButton.styleFrom(
-                                                              backgroundColor:
-                                                                  AppColors
-                                                                      .primary,
-                                                              foregroundColor:
-                                                                  Colors.white,
-                                                              shape: RoundedRectangleBorder(
-                                                                borderRadius:
-                                                                    BorderRadius.circular(
-                                                                      8,
-                                                                    ),
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      );
-                                                    },
-                                                  );
-
-                                                  if (confirm == true) {
-                                                    Future.microtask(() {
-                                                      showAddAccountModal(
-                                                        rootContext,
-                                                      );
-                                                    });
-                                                  }
-                                                },
-                                              ),
-                                            );
-                                          }
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            );
-                          }
-                          break;
-
-                        case 'logout':
-                          auth.logout(context);
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      PopupMenuItem(
-                        value: 'switch',
-                        child: Row(
-                          children: [
-                            Icon(
-                              isSingleAccount
-                                  ? LucideIcons.userPlus
-                                  : LucideIcons.users,
-                              color: Colors.black54,
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              isSingleAccount
-                                  ? 'Add Account'
-                                  : 'Switch Account',
-                            ),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'logout',
-                        child: Row(
-                          children: [
-                            Icon(LucideIcons.logOut, color: Colors.black54),
-                            SizedBox(width: 10),
-                            Text('Logout'),
-                          ],
-                        ),
-                      ),
-                    ],
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    color: Colors.white,
-                    offset: const Offset(0, 50),
-                    elevation: 8,
+    return Column(
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // GRADIENT HEADER (rounded bottom)
+            Container(
+              height: headerHeight,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF1FB4FF), // biru terang
+                    Color(0xFF23D38E), // hijau
+                  ],
+                  stops: [0.0, 1.0],
+                ),
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(28),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start, // tetap start (nempel atas)
+                children: [
+                  // LOGO
+                  SizedBox(
+                    width: 36,
+                    height: 36, // tinggi slot sama
                     child: Padding(
-                      padding: const EdgeInsets.only(right: 16.0),
-                      child: CircleAvatar(
-                        backgroundColor: AppColors.primary,
-                        child: Text(
-                          initial,
-                          style: const TextStyle(
+                      padding: const EdgeInsets.only(
+                        top: 2,
+                      ), // sedikit turun agar optik sejajar
+                      child: Image.asset(
+                        'assets/wave_logo_white.png',
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  ),
+
+                  const Spacer(),
+
+                  // BELL (tanpa IconButton bawaan supaya tidak ada padding internal)
+                  SizedBox(
+                    width: 36,
+                    height: 36, // sama dengan logo
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        top: 2,
+                      ), // samakan dengan logo
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () {},
+                        child: const Center(
+                          // pusatkan di slot 36x36, tapi slot-nya nempel atas
+                          child: Icon(
+                            LucideIcons.bell,
                             color: Colors.white,
-                            fontWeight: FontWeight.bold,
+                            size: 22,
                           ),
                         ),
                       ),
                     ),
-                  );
-                },
-              );
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: TextField(
-              controller: _searchController,
-              decoration: const InputDecoration(
-                hintText: 'Search by name',
-                prefixIcon: Icon(LucideIcons.search),
-                filled: true,
-                fillColor: AppColors.background,
-                contentPadding: EdgeInsets.all(12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(25)),
-                  borderSide: BorderSide.none,
+                  ),
+                ],
+              ),
+            ),
+
+            // KARTU MENGAMBANG: menimpa 3/4 tinggi di luar gradient
+            Positioned(
+              top: overlapTop,
+              left: 20,
+              right: 20,
+              child: Container(
+                height: cardHeight,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.10),
+                      blurRadius: 20,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    // Account User
+                    Expanded(
+                      child: _InfoBlock(
+                        caption: 'Account User',
+                        leading: CircleAvatar(
+                          radius: 18,
+                          backgroundColor: const Color(0xFFE9F6EE),
+                          child: _photoPath.isNotEmpty
+                              ? ClipOval(
+                                  child: Image.network(
+                                    _photoPath,
+                                    fit: BoxFit.cover,
+                                    width: 36,
+                                    height: 36,
+                                    errorBuilder: (ctx, error, stack) {
+                                      // fallback ke inisial user
+                                      final initial = (_accountName.isNotEmpty)
+                                          ? _accountName.trim()[0].toUpperCase()
+                                          : '?';
+                                      return Center(
+                                        child: Text(
+                                          initial,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.green,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                )
+                              : Center(
+                                  child: Text(
+                                    (_accountName.isNotEmpty)
+                                        ? _accountName.trim()[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                        title: _accountName,
+                        subtitle: 'id: $_accountUsername',
+                      ),
+                    ),
+
+                    // divider tipis
+                    Container(
+                      width: 1,
+                      height: 42,
+                      margin: const EdgeInsets.symmetric(horizontal: 12),
+                      color: const Color(0xFFEAEAEA),
+                    ),
+
+                    // Business
+                    Expanded(
+                      child: _InfoBlock(
+                        caption: 'Business',
+                        leading: CircleAvatar(
+                          radius: 18,
+                          backgroundColor: const Color(0xFFE9F0FF),
+                          child: _businessLogoPath.isNotEmpty
+                              ? ClipOval(
+                                  child: Image.network(
+                                    _businessLogoPath,
+                                    fit: BoxFit.cover,
+                                    width: 36,
+                                    height: 36,
+                                    errorBuilder: (ctx, error, stack) {
+                                      final initial = (_businessName.isNotEmpty)
+                                          ? _businessName
+                                                .trim()[0]
+                                                .toUpperCase()
+                                          : '?';
+                                      return Center(
+                                        child: Text(
+                                          initial,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.blue,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                )
+                              : Center(
+                                  child: Text(
+                                    (_businessName.isNotEmpty)
+                                        ? _businessName.trim()[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.blue,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                        title: _businessName,
+                        subtitle: 'id: $_businessUsername',
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
+          ],
+        ),
+
+        // Spacer agar konten di bawah tidak ketimpa kartu
+        SizedBox(height: cardHeight * 0.70 + 3),
+      ],
+    );
+  }
+}
+
+class _InfoBlock extends StatelessWidget {
+  final String caption;
+  final Widget leading;
+  final String title;
+  final String subtitle;
+
+  const _InfoBlock({
+    required this.caption,
+    required this.leading,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final captionColor = const Color(0xFF8A8A8A);
+    final titleColor = const Color(0xFF222222);
+    final subColor = const Color(0xFF9A9A9A);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              caption,
+              style: TextStyle(
+                color: captionColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Icon(LucideIcons.info, size: 14, color: Color(0xFFB0B0B0)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            leading,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: titleColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(color: subColor, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _GridMenu extends StatelessWidget {
+  const _GridMenu();
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <_MenuItemData>[
+      _MenuItemData('HR', LucideIcons.badgeCheck),
+      _MenuItemData('Product', LucideIcons.shoppingBag),
+      _MenuItemData('Sales', LucideIcons.banknote),
+      _MenuItemData('Purchase', LucideIcons.shoppingCart),
+      _MenuItemData('Report', LucideIcons.fileBarChart),
+      _MenuItemData('Setting', LucideIcons.settings),
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: items.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 22,
+        crossAxisSpacing: 22,
+        childAspectRatio: 0.90,
+      ),
+      itemBuilder: (_, i) => _MenuTile(data: items[i]),
+    );
+  }
+}
+
+class _MenuTile extends StatelessWidget {
+  final _MenuItemData data;
+  const _MenuTile({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          height: 78,
+          width: 78,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE9F0FF), // kebiruan lembut seperti desain
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF000000).withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
+          child: Icon(data.icon, size: 34, color: const Color(0xFF4E5D78)),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          data.label,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+        ),
+      ],
+    );
+  }
+}
+
+class _MenuItemData {
+  final String label;
+  final IconData icon;
+  const _MenuItemData(this.label, this.icon);
+}
+
+class _StatItem {
+  final String title;
+  final String amount;
+  const _StatItem(this.title, this.amount);
+}
+
+class _StatCarousel extends StatefulWidget {
+  final List<_StatItem> items;
+  const _StatCarousel({required this.items});
+
+  @override
+  State<_StatCarousel> createState() => _StatCarouselState();
+}
+
+class _StatCarouselState extends State<_StatCarousel> {
+  late final PageController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = PageController(
+      viewportFraction: 0.88,
+    ); // sedikit “peek” kartu sebelahnya
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // tinggi diset agar PageView punya ruang; kartu akan menyesuaikan tinggi minimum
+        SizedBox(
+          height: 100, // aman untuk 2 baris teks + icon
+          child: PageView.builder(
+            controller: _ctrl,
+            itemCount: widget.items.length,
+            physics: const BouncingScrollPhysics(),
+            padEnds: false,
+            itemBuilder: (_, i) {
+              final it = widget.items[i];
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: i == 0 ? 20 : 10,
+                  right: i == widget.items.length - 1 ? 20 : 10,
+                ),
+                child: _StatCard(title: it.title, amount: it.amount),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
+        // indikator slider sederhana
+        SizedBox(
+          height: 6,
+          child: StatefulBuilder(
+            builder: (context, setSB) {
+              _ctrl.addListener(() => setSB(() {}));
+              final page = _ctrl.hasClients ? _ctrl.page ?? 0.0 : 0.0;
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(widget.items.length, (i) {
+                  final active = (page - i).abs() < 0.5;
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: active ? 16 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: active
+                          ? const Color(0xFF4E5D78)
+                          : const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  );
+                }),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String title;
+  final String amount;
+
+  const _StatCard({required this.title, required this.amount});
+
+  @override
+  Widget build(BuildContext context) {
+    final displayAmount = _shortenCurrency(amount);
+
+    return Container(
+      constraints: const BoxConstraints(minHeight: 92),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(
+              color: Color(0xFFEFF4FF),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(LucideIcons.file, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _FilterChip(
-                  label: 'All',
-                  isActive: homeProvider.activeFilter == 'All',
-                  onTap: () => homeProvider.setActiveFilter('All'),
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF6B7280),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
+                    letterSpacing: 0.3,
+                  ),
                 ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Unread',
-                  isActive: homeProvider.activeFilter == 'Unread',
-                  onTap: () => homeProvider.setActiveFilter('Unread'),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Read',
-                  isActive: homeProvider.activeFilter == 'Read',
-                  onTap: () => homeProvider.setActiveFilter('Read'),
+                const SizedBox(height: 6),
+                Text(
+                  displayAmount, // <<— sudah dipendekkan
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF16A34A),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    height: 1.2,
+                    letterSpacing: 0.3,
+                  ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Expanded(
-            child: RefreshIndicator(
-              color: Colors.green,
-              onRefresh: () async {
-                await Provider.of<HomeProvider>(
-                  context,
-                  listen: false,
-                ).fetchChats(context);
-              },
-              child: homeProvider.isLoading || homeProvider.isSearching
-                  ? _buildShimmer()
-                  : homeProvider.hasError
-                  ? const Center(child: Text('No message found'))
-                  : filteredChats.isEmpty
-                  ? const Center(child: Text('No results found'))
-                  : ListView.builder(
-                      itemCount: filteredChats.length,
-                      itemBuilder: (context, index) {
-                        final chat = filteredChats[index];
-                        return ChatTile(
-                          chat: chat,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ChatDetailScreen(
-                                  roomId: chat['idUserMessageRoom'].toString(),
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
             ),
           ),
         ],
@@ -687,33 +695,28 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool isActive;
-  final VoidCallback onTap;
+String _shortenCurrency(String raw) {
+  // deteksi prefix "Rp"
+  final hasRp = raw.trim().toLowerCase().startsWith('rp');
+  // ambil hanya digit
+  final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+  if (digits.isEmpty) return raw;
 
-  const _FilterChip({
-    required this.label,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Chip(
-        label: Text(
-          label,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: isActive ? AppColors.white : AppColors.primaryText,
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        backgroundColor: isActive ? AppColors.primary : AppColors.chipInactive,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      ),
-    );
+  final n = double.tryParse(digits) ?? 0;
+  String s;
+  if (n >= 1e12) {
+    s = (n / 1e12).toStringAsFixed((n % 1e12 == 0) ? 0 : 2) + 'T';
+  } else if (n >= 1e9) {
+    s = (n / 1e9).toStringAsFixed((n % 1e9 == 0) ? 0 : 2) + 'B';
+  } else if (n >= 1e6) {
+    s = (n / 1e6).toStringAsFixed((n % 1e6 == 0) ? 0 : 2) + 'M';
+  } else if (n >= 1e3) {
+    s = (n / 1e3).toStringAsFixed((n % 1e3 == 0) ? 0 : 1) + 'K';
+  } else {
+    s = n.toStringAsFixed(0);
   }
+
+  // hapus trailing .0
+  s = s.replaceAll(RegExp(r'\.0(?=[KMBT])'), '');
+  return hasRp ? 'Rp. $s' : s;
 }

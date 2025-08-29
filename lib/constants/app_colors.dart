@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 
 class AppColors {
   // ==== PRIMARY COLORS ====
-  static const primary = Colors.green;
-  static const primaryDark = Colors.greenAccent;
-  static const green = Colors.green;
-  static const green400 = Color(0xFF66BB6A);
-  static const greenAccent = Colors.greenAccent;
+  static const primary = Color(0xFF42A5F5); // Soft Blue
+  static const primaryDark = Color(0xFF1E88E5); // Deeper Blue
+  static const blue = Color(0xFF42A5F5);
+  static const blue400 = Color(0xFF64B5F6); // lighter shade
+  static const blueAccent = Color(0xFF90CAF9); // accent soft blue
 
   // ==== TEXT COLORS ====
   static const textPrimary = Colors.black;
@@ -16,8 +16,8 @@ class AppColors {
   static const black = Colors.black;
 
   // ==== BACKGROUND COLORS ====
-  static const background = Color(0xFFEFEAE2);
-  static const inputBackground = Color(0xFFF0F0F0);
+  static const background = Color(0xFFF2F6FC); // very light blue background
+  static const inputBackground = Color(0xFFF5F9FF);
   static const greyBackground = Color(0xFFF3F4F6);
   static const card = Colors.white;
   static const white = Colors.white;
@@ -27,8 +27,8 @@ class AppColors {
   static const redAccent = Colors.redAccent;
 
   // ==== SHIMMER COLORS ====
-  static const shimmerBase = Color(0xFFD6D6D6);
-  static const shimmerHighlight = Color(0xFFEDEDED);
+  static const shimmerBase = Color(0xFFE3F2FD); // lightest blue
+  static const shimmerHighlight = Color(0xFFF0F7FF); // highlight softer
 
   // ==== COMPONENT / BORDER / UI COLORS ====
   static const border = Color(0xFFDDDDDD);

@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
+import 'package:wa_blast/screens/register_screen_wrapper.dart';
 
 import 'firebase_options.dart';
 
 import 'package:wa_blast/providers/chat_detail_provider.dart';
-import 'package:wa_blast/providers/home_provider.dart';
+import 'package:wa_blast/providers/chat_provider.dart';
 import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 import 'package:wa_blast/screens/main_wrapper.dart';
@@ -47,7 +48,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => SplashProvider()),
-        ChangeNotifierProvider(create: (_) => HomeProvider()),
+        ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => ChatDetailProvider()),
       ],
       child: const MyApp(),
@@ -61,12 +62,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Whatsapp Blast App',
+      title: 'Wave Upp',
       debugShowCheckedModeBanner: false,
       initialRoute: '/splash',
       routes: {
         '/splash': (ctx) => const SplashScreen(),
         '/login': (ctx) => const LoginScreen(),
+        '/register': (ctx) => const RegisterWrapper(),
         '/home': (ctx) => const MainWrapper(),
       },
     );
