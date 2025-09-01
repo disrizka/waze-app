@@ -1,12 +1,8 @@
 import 'dart:io';
 
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:wa_blast/constants/api_constant.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:wa_blast/services/api_service.dart';
 
 class AuthProvider with ChangeNotifier {
@@ -27,10 +23,17 @@ class AuthProvider with ChangeNotifier {
   bool get isActivated => _isActivated;
   bool get isLoading => _isLoading;
   String? get error => _error;
-
+  String? get currentUserEmail => _email;
   static const String kAccountsKey = 'accounts';
   static const String kActiveAccountKey = 'activeAccountEmail';
   String? get activeAccountEmail => _email;
+
+  Future<String?> getCurrentUserEmailFromPrefs() async {
+    if (_email != null && _email!.isNotEmpty) return _email;
+    final prefs = await SharedPreferences.getInstance();
+    // Prefer key aktif, fallback ke 'email' lama
+    return prefs.getString(kActiveAccountKey) ?? prefs.getString('email');
+  }
 
   Future<bool> login({
     required BuildContext context,
@@ -152,6 +155,7 @@ class AuthProvider with ChangeNotifier {
           'email': _email,
           'username': username,
           'photoPath': photoPath,
+          'isActivated': _isActivated,
           'activeBusiness': {
             'idBusiness': activeBizId,
             'name': activeBizName,
@@ -159,6 +163,7 @@ class AuthProvider with ChangeNotifier {
             'logoPath': activeBizLogoPath,
           },
         };
+
         await prefs.setString(
           'account_${_email!}',
           jsonEncode(accountSnapshot),
@@ -249,27 +254,137 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  bool _isJwtExpired(String token, {int leewaySeconds = 60}) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return false; // bukan JWT → abaikan
+      String _norm(String s) {
+        var out = s.replaceAll('-', '+').replaceAll('_', '/');
+        switch (out.length % 4) {
+          case 2:
+            out += '==';
+            break;
+          case 3:
+            out += '=';
+            break;
+        }
+        return out;
+      }
+
+      final payloadRaw = utf8.decode(base64Url.decode(_norm(parts[1])));
+      final payload = jsonDecode(payloadRaw) as Map<String, dynamic>;
+      final exp = (payload['exp'] as num?)?.toInt();
+      if (exp == null) return false;
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      return nowSec >= (exp - leewaySeconds);
+    } catch (_) {
+      return false; // kalau gagal decode, anggap tidak expired
+    }
+  }
+
   // Autologin saat app dibuka
-  Future<void> tryAutoLogin() async {
+  Future<void> tryAutoLogin(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
     final activeEmail = prefs.getString(kActiveAccountKey);
     if (activeEmail == null) return;
 
     final accountJson = prefs.getString('account_$activeEmail');
-    if (accountJson == null) return;
 
     try {
-      final accountData = jsonDecode(accountJson);
+      final accountData = accountJson != null ? jsonDecode(accountJson) : null;
 
-      _accessToken = accountData['accessToken'];
-      _refreshToken = accountData['refreshToken'];
-      _name = accountData['name'];
-      _email = accountData['email'];
-      _isActivated = accountData['isActivated'] ?? false;
+      // 1) Prefer accessToken dari prefs (biar selalu pakai yang terbaru)
+      _accessToken =
+          prefs.getString('accessToken') ??
+          (accountData != null ? accountData['accessToken'] as String? : null);
+
+      _refreshToken =
+          prefs.getString('refreshToken') ??
+          (accountData != null ? accountData['refreshToken'] as String? : null);
+
+      _name =
+          prefs.getString('name') ??
+          (accountData != null ? accountData['name'] as String? : null);
+      _email =
+          prefs.getString('email') ??
+          (accountData != null ? accountData['email'] as String? : null);
+
+      // isActivated: prefer prefs, fallback snapshot, default false
+      _isActivated =
+          prefs.getBool('isActivated') ??
+          (accountData != null
+              ? (accountData['isActivated'] as bool?)
+              : null) ??
+          false;
+
+      // 2) Jika tidak ada token sama sekali → berhenti
+      if ((_accessToken ?? '').isEmpty) {
+        notifyListeners();
+        return;
+      }
+
+      // 3) Jika token expired → refresh
+      if (_isJwtExpired(_accessToken!)) {
+        final refresh = _refreshToken ?? '';
+        if (refresh.isEmpty) {
+          await logoutWithoutNavigation();
+          notifyListeners();
+          return;
+        }
+
+        try {
+          final res = await ApiService.refreshAccessToken();
+          final raw = res.body;
+          debugPrint(
+            "REFRESH TOKEN ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
+          );
+
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            final j = jsonDecode(raw) as Map<String, dynamic>;
+            final newAccess = (j['access_token'] ?? '').toString();
+            if (newAccess.isEmpty) {
+              // gagal walau 200, aman-kan: logout
+              await logoutWithoutNavigation();
+              notifyListeners();
+              return;
+            }
+            // Simpan access token BARU
+            _accessToken = newAccess;
+            await prefs.setString('accessToken', newAccess);
+
+            // (Opsional) update di snapshot akun aktif agar tidak selalu refresh saat cold start
+            // -> kalau kamu ingin benar-benar tidak mengubah prefs lain, hapus blok opsional ini.
+            if (_email != null) {
+              final key = 'account_${_email!}';
+              final snapStr = prefs.getString(key);
+              if (snapStr != null) {
+                try {
+                  final snap = jsonDecode(snapStr) as Map<String, dynamic>;
+                  snap['accessToken'] = newAccess;
+                  await prefs.setString(key, jsonEncode(snap));
+                } catch (_) {}
+              }
+            }
+
+            // 4) Setelah token baru, fetch user terbaru & persist field user saja
+            await _fetchAndPersistCurrentUser(context);
+          } else {
+            // Refresh gagal → logout
+            await logoutWithoutNavigation();
+            notifyListeners();
+            return;
+          }
+        } catch (e, st) {
+          debugPrint('REFRESH TOKEN ❌ $e\n$st');
+          await logoutWithoutNavigation();
+          notifyListeners();
+          return;
+        }
+      }
 
       notifyListeners();
     } catch (e) {
-      debugPrint("AutoLogin gagal parsing: $e");
+      debugPrint("AutoLogin parsing error: $e");
     }
   }
 
@@ -344,14 +459,26 @@ class AuthProvider with ChangeNotifier {
   Future<bool> registerStep1({
     required String email,
     required String password,
+    String referralCode = "",
+    required String deviceId,
+    required String deviceName,
+    required String fcmToken,
   }) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final body = {"email": email, "password": password};
+      final body = {
+        "user": email,
+        "password": password,
+        "referral_code": referralCode,
+        "device_id": deviceId,
+        "device_name": deviceName,
+        "fcm_token": fcmToken,
+      };
 
+      // endpoint: waveup/user/register — public, jadi without token
       final res = await ApiService.postJson('/waveup/user/register', body);
       final raw = res.body;
       debugPrint(
@@ -359,51 +486,80 @@ class AuthProvider with ChangeNotifier {
       );
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
-        _isLoading = false;
-        notifyListeners();
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        final ok = await _persistFromAuthResponse(decoded, raw);
+        if (!ok) {
+          _error = 'Register step 1 berhasil tapi token kosong';
+          return false;
+        }
+        debugPrint('REGISTER STEP1 ✅ token & data disimpan');
         return true;
       } else {
-        // coba ambil message dari server
         try {
           final j = jsonDecode(raw);
-          _error = j['message'] ?? 'Register step 1 gagal (${res.statusCode})';
+          _error =
+              j['message']?.toString() ??
+              'Register step 1 gagal (${res.statusCode})';
         } catch (_) {
           _error = 'Register step 1 gagal (${res.statusCode})';
         }
+        return false;
       }
     } catch (e, st) {
       _error = 'Terjadi kesalahan: $e';
       debugPrint('REGISTER STEP1 ❌ $e\n$st');
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-
-    _isLoading = false;
-    notifyListeners();
-    return false;
   }
 
-  /// STEP 2 REGISTER: profile & business (+ optional logo)
   Future<bool> registerStep2({
+    required BuildContext context,
     required String firstName,
     required String lastName,
-    required String businessName,
-    File? businessLogo,
-    // opsional: kalau API butuh kirim kembali email/password dari step1, tambahkan param di sini
+    required String organisationName,
+    File? organisationLogo,
   }) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final fields = {
-        'first_name': firstName,
-        'last_name': lastName,
-        'business_name': businessName,
+      final prefs = await SharedPreferences.getInstance();
+      final token = _accessToken?.isNotEmpty == true
+          ? _accessToken!
+          : (prefs.getString('accessToken') ?? '');
+      if (token.isEmpty) {
+        _error =
+            'Access token tidak tersedia. Selesaikan Step 1 terlebih dahulu.';
+        return false;
+      }
+
+      // 1) Upload logo jika ada → dapat filename
+      String? uploadedFilename;
+      if (organisationLogo != null) {
+        uploadedFilename = await _uploadLogoAndGetFilename(organisationLogo);
+        if (uploadedFilename == null || uploadedFilename.isEmpty) {
+          _error = 'Failed to upload logo. Please try again.';
+          return false;
+        }
+      }
+
+      // 2) Hit register/finish (organisation_logo kirim filename string)
+      final fields = <String, String>{
+        'firstname': firstName,
+        'lastname': lastName,
+        'organisation_name': organisationName,
+        if (uploadedFilename != null) 'organisation_logo': uploadedFilename,
       };
 
       final res = await ApiService.postMultipart(
         '/waveup/user/register/finish',
         fields: fields,
-        files: businessLogo == null ? {} : {'business_logo': businessLogo.path},
+        files: const {},
+        withAccessToken: true,
       );
 
       final raw = res.body;
@@ -412,35 +568,125 @@ class AuthProvider with ChangeNotifier {
       );
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
-        // Beberapa backend langsung mengembalikan token + data user mirip /login
-        try {
-          final decoded = jsonDecode(raw) as Map<String, dynamic>;
-          final persisted = await _persistFromAuthResponse(decoded, raw);
-          _isLoading = false;
-          notifyListeners();
-          return persisted;
-        } catch (_) {
-          // kalau tidak ada struktur token/data/business, anggap sukses tanpa login otomatis
-          _isLoading = false;
-          notifyListeners();
-          return true;
+        final j = jsonDecode(raw) as Map<String, dynamic>;
+        final idBusiness = (j['idBusiness'] ?? '').toString();
+        if (idBusiness.isEmpty) {
+          _error = 'Register step 2 succeeded, but idBusiness is empty';
+          return false;
         }
+
+        // 3) Persist idBusiness & mark logged-in
+        await _saveActiveBusinessId(idBusiness);
+        _isActivated = true;
+        await prefs.setBool('isActivated', true);
+
+        // 4) Fetch user profile terbaru dan persist
+        await _fetchAndPersistCurrentUser(context);
+
+        // 5) Redirect
+        if (context.mounted) {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            '/splash',
+            (route) => false,
+          );
+        }
+
+        debugPrint(
+          'REGISTER STEP2 ✅ idBusiness=$idBusiness (logo=${uploadedFilename ?? '-'}) → refreshed user → /splash',
+        );
+        return true;
       } else {
         try {
           final j = jsonDecode(raw);
-          _error = j['message'] ?? 'Register step 2 gagal (${res.statusCode})';
+          _error =
+              j['message']?.toString() ??
+              'Register step 2 failed (${res.statusCode})';
         } catch (_) {
-          _error = 'Register step 2 gagal (${res.statusCode})';
+          _error = 'Register step 2 failed (${res.statusCode})';
         }
+        return false;
       }
     } catch (e, st) {
       _error = 'Terjadi kesalahan: $e';
       debugPrint('REGISTER STEP2 ❌ $e\n$st');
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
+  }
 
-    _isLoading = false;
-    notifyListeners();
-    return false;
+  Future<bool> _fetchAndPersistCurrentUser(BuildContext context) async {
+    try {
+      final res = await ApiService.get(context, '/user', withAccessToken: true);
+      final raw = res.body;
+      debugPrint(
+        "FETCH USER ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
+      );
+
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final j = jsonDecode(raw) as Map<String, dynamic>;
+        final userObj = (j['data'] ?? {}) as Map<String, dynamic>;
+        final prefs = await SharedPreferences.getInstance();
+
+        // derive fields
+        final firstname = (userObj['firstname'] ?? '') as String;
+        final lastname = (userObj['lastname'] ?? '') as String;
+        final fullName = '$firstname $lastname'.trim();
+        final email = (userObj['email'] ?? '') as String? ?? _email ?? '';
+        final username = (userObj['username'] ?? '') as String? ?? '';
+        final photoPath = (userObj['photoPath'] ?? '') as String? ?? '';
+        final phone = (userObj['phone'] ?? '').toString();
+        final hasPage = (userObj['hasPage'] ?? false) as bool;
+        final roleName = (userObj['userRoleName'] ?? '').toString();
+        final idUser = (userObj['idUser'] ?? '').toString();
+
+        // update in-memory
+        _name = fullName.isNotEmpty ? fullName : _name;
+        _email = email.isNotEmpty ? email : _email;
+
+        // persist single keys
+        await prefs.setString('user', jsonEncode(userObj));
+        if (_name != null) await prefs.setString('name', _name!);
+        if (_email != null) await prefs.setString('email', _email!);
+        await prefs.setString('username', username);
+        await prefs.setString('photoPath', photoPath);
+        await prefs.setString('phone', phone);
+        await prefs.setBool('hasPage', hasPage);
+        await prefs.setString('userRoleName', roleName);
+        await prefs.setString('idUser', idUser);
+
+        // update snapshot akun aktif
+        final activeEmail = _email ?? prefs.getString(kActiveAccountKey);
+        if (activeEmail != null) {
+          final key = 'account_$activeEmail';
+          final jsonStr = prefs.getString(key);
+          if (jsonStr != null) {
+            try {
+              final Map<String, dynamic> snap = jsonDecode(jsonStr);
+              snap['user'] = userObj;
+              snap['name'] = _name;
+              snap['email'] = _email;
+              snap['username'] = username;
+              snap['photoPath'] = photoPath;
+              await prefs.setString(key, jsonEncode(snap));
+            } catch (e) {
+              debugPrint('UPDATE SNAPSHOT USER ❌ $e');
+            }
+          }
+        }
+
+        notifyListeners();
+        return true;
+      } else {
+        debugPrint("FETCH USER ❌ status ${res.statusCode}");
+        return false;
+      }
+    } catch (e, st) {
+      debugPrint('FETCH USER ❌ $e\n$st');
+      return false;
+    }
   }
 
   /// Persist state & SharedPreferences dari payload AUTH (struktur mirip /login)
@@ -553,6 +799,56 @@ class AuthProvider with ChangeNotifier {
       _error = 'Gagal menyimpan data register: $e';
       debugPrint('_persistFromAuthResponse ❌ $e\n$st');
       return false;
+    }
+  }
+
+  // === Helper: upload file -> ambil data.filename ===
+  Future<String?> _uploadLogoAndGetFilename(File file) async {
+    try {
+      final res = await ApiService.postMultipart(
+        '/file/upload',
+        fields: const {}, // jika backend perlu field lain, tambahkan di sini
+        files: {'file': file.path}, // asumsi key = 'file'
+        withAccessToken: true, // pakai token dari prefs
+      );
+      final raw = res.body;
+      debugPrint(
+        "UPLOAD LOGO ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
+      );
+
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final j = jsonDecode(raw) as Map<String, dynamic>;
+        final data = (j['data'] ?? {}) as Map<String, dynamic>;
+        final filename = (data['filename'] ?? '').toString();
+        return filename.isEmpty ? null : filename;
+      }
+    } catch (e, st) {
+      debugPrint('UPLOAD LOGO ❌ $e\n$st');
+    }
+    return null;
+  }
+
+  Future<void> _saveActiveBusinessId(String idBusiness) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString('activeBizId', idBusiness);
+
+    final activeEmail = _email ?? prefs.getString(kActiveAccountKey);
+    if (activeEmail != null) {
+      final key = 'account_$activeEmail';
+      final jsonStr = prefs.getString(key);
+      if (jsonStr != null) {
+        try {
+          final Map<String, dynamic> snap = jsonDecode(jsonStr);
+          final Map<String, dynamic> activeBiz =
+              (snap['activeBusiness'] as Map?)?.cast<String, dynamic>() ?? {};
+          activeBiz['idBusiness'] = idBusiness;
+          snap['activeBusiness'] = activeBiz;
+          await prefs.setString(key, jsonEncode(snap));
+        } catch (e) {
+          debugPrint('Gagal update snapshot idBusiness: $e');
+        }
+      }
     }
   }
 }

@@ -15,9 +15,14 @@ class SplashProvider with ChangeNotifier {
     await Future.delayed(const Duration(seconds: 1));
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    await authProvider.tryAutoLogin();
+    await authProvider.tryAutoLogin(context);
 
-    if (authProvider.accessToken != null) {
+    final hasToken =
+        authProvider.accessToken != null &&
+        authProvider.accessToken!.isNotEmpty;
+    final isActivated = authProvider.isActivated;
+
+    if (hasToken && isActivated) {
       Navigator.pushReplacementNamed(context, '/home');
     } else {
       Navigator.pushReplacementNamed(context, '/login');

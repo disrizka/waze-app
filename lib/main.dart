@@ -59,17 +59,36 @@ void main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  Route _fadeRoute(RouteSettings settings, Widget page) {
+    return PageRouteBuilder(
+      settings: settings,
+      transitionDuration: const Duration(milliseconds: 500),
+      pageBuilder: (_, __, ___) => page,
+      transitionsBuilder: (_, animation, __, child) {
+        return FadeTransition(opacity: animation, child: child);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Wave Upp',
       debugShowCheckedModeBanner: false,
       initialRoute: '/splash',
-      routes: {
-        '/splash': (ctx) => const SplashScreen(),
-        '/login': (ctx) => const LoginScreen(),
-        '/register': (ctx) => const RegisterWrapper(),
-        '/home': (ctx) => const MainWrapper(),
+      onGenerateRoute: (settings) {
+        switch (settings.name) {
+          case '/splash':
+            return _fadeRoute(settings, const SplashScreen());
+          case '/login':
+            return _fadeRoute(settings, const LoginScreen());
+          case '/register':
+            return _fadeRoute(settings, RegisterWrapper());
+          case '/home':
+            return _fadeRoute(settings, const MainWrapper());
+          default:
+            return _fadeRoute(settings, const SplashScreen());
+        }
       },
     );
   }
