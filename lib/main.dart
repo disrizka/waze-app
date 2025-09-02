@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
+import 'package:wa_blast/providers/product_provider.dart';
+import 'package:wa_blast/screens/product_screen.dart';
 import 'package:wa_blast/screens/register_screen_wrapper.dart';
 
 import 'firebase_options.dart';
@@ -50,6 +52,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => SplashProvider()),
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => ChatDetailProvider()),
+        ChangeNotifierProvider(create: (_) => ProductProvider()),
       ],
       child: const MyApp(),
     ),
@@ -62,7 +65,7 @@ class MyApp extends StatelessWidget {
   Route _fadeRoute(RouteSettings settings, Widget page) {
     return PageRouteBuilder(
       settings: settings,
-      transitionDuration: const Duration(milliseconds: 500),
+      transitionDuration: const Duration(milliseconds: 300),
       pageBuilder: (_, __, ___) => page,
       transitionsBuilder: (_, animation, __, child) {
         return FadeTransition(opacity: animation, child: child);
@@ -73,7 +76,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Wave Upp',
+      title: 'Wave Up',
       debugShowCheckedModeBanner: false,
       initialRoute: '/splash',
       onGenerateRoute: (settings) {
@@ -86,6 +89,8 @@ class MyApp extends StatelessWidget {
             return _fadeRoute(settings, RegisterWrapper());
           case '/home':
             return _fadeRoute(settings, const MainWrapper());
+          case '/product':
+            return _fadeRoute(settings, const ProductScreen());
           default:
             return _fadeRoute(settings, const SplashScreen());
         }
