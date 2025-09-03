@@ -8,6 +8,59 @@ import 'package:provider/provider.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 
+class _DummyProduct {
+  final String name;
+  final int price; // dalam rupiah
+  final String image; // bisa network/asset
+  const _DummyProduct({
+    required this.name,
+    required this.price,
+    required this.image,
+  });
+}
+
+final List<_DummyProduct> _dummyProducts = const [
+  _DummyProduct(
+    name: 'Garlic Bread',
+    price: 15000,
+    image:
+        'https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=400',
+  ),
+  _DummyProduct(
+    name: 'Hot Cappucino',
+    price: 24000,
+    image:
+        'https://images.unsplash.com/photo-1504754524776-8f4f37790ca0?q=80&w=400',
+  ),
+  _DummyProduct(
+    name: 'Berry Sourdough',
+    price: 18000,
+    image:
+        'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?q=80&w=400',
+  ),
+  _DummyProduct(
+    name: 'Ice Latte',
+    price: 22000,
+    image:
+        'https://images.unsplash.com/photo-1541167760496-1628856ab772?q=80&w=400',
+  ),
+  _DummyProduct(
+    name: 'Ice Americano',
+    price: 20000,
+    image:
+        'https://images.unsplash.com/photo-1498804103079-a6351b050096?q=80&w=400',
+  ),
+];
+
+String _formatRp(int value) {
+  final f = NumberFormat.currency(
+    locale: 'id',
+    symbol: 'Rp. ',
+    decimalDigits: 0,
+  );
+  return f.format(value);
+}
+
 class ProductScreen extends StatelessWidget {
   const ProductScreen({super.key});
 
@@ -31,7 +84,8 @@ class ProductScreen extends StatelessWidget {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/splash'),
+          onPressed: () =>
+              Navigator.pushReplacementNamed(context, '/manage-product'),
         ),
       ),
       body: SafeArea(
@@ -43,17 +97,31 @@ class ProductScreen extends StatelessWidget {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              if (provider.isEmpty) {
-                return _EmptyState(colorPrimary: colorPrimary);
-              }
+              // if (provider.isEmpty) {
+              //   return _EmptyState(colorPrimary: colorPrimary);
+              // }
 
-              // TODO: List product when not empty
+              // Tampilkan dummy list (sementara), atau gunakan provider jika sudah ada data
+              final items = _dummyProducts;
+
               return ListView.separated(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24 + 56),
-                itemCount: provider.items.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (_, i) =>
-                    ListTile(title: Text(provider.items[i].name)),
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (_, i) {
+                  final p = items[i];
+                  return _ProductTile(
+                    title: p.name,
+                    priceLabel: _formatRp(p.price),
+                    image: p.image,
+                    onEdit: () {
+                      // TODO: ke halaman edit product / modal
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Edit "${p.name}"')),
+                      );
+                    },
+                  );
+                },
               );
             },
           ),
@@ -136,6 +204,97 @@ class _EmptyState extends StatelessWidget {
         ),
         const SizedBox(height: 24),
       ],
+    );
+  }
+}
+
+class _ProductTile extends StatelessWidget {
+  const _ProductTile({
+    required this.title,
+    required this.priceLabel,
+    required this.image,
+    this.onEdit,
+  });
+
+  final String title;
+  final String priceLabel;
+  final String image;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SquareImage(image: image),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF111827),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                priceLabel,
+                style: const TextStyle(color: Color(0xFF6B7280)),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        // 👉 dibungkus Align supaya di tengah vertikal
+        Align(
+          alignment: Alignment.center,
+          child: SizedBox(
+            height: 36,
+            child: ElevatedButton(
+              onPressed: onEdit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.blueButton,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text(
+                'Edit',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SquareImage extends StatelessWidget {
+  const _SquareImage({required this.image});
+  final String image;
+
+  @override
+  Widget build(BuildContext context) {
+    final isNetwork = image.startsWith('http');
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 90,
+        height: 90,
+        color: const Color(0xFFF3F4F6),
+        child: isNetwork
+            ? Image.network(image, fit: BoxFit.cover)
+            : Image.asset(image, fit: BoxFit.cover),
+      ),
     );
   }
 }

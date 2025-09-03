@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/providers/product_provider.dart';
+import 'package:wa_blast/screens/manage_product.dart';
 import 'package:wa_blast/screens/product_screen.dart';
 import 'package:wa_blast/screens/register_screen_wrapper.dart';
 
@@ -89,6 +90,8 @@ class MyApp extends StatelessWidget {
             return _fadeRoute(settings, RegisterWrapper());
           case '/home':
             return _fadeRoute(settings, const MainWrapper());
+          case '/manage-product':
+            return _fadeRoute(settings, const ManageProductScreen());
           case '/product':
             return _fadeRoute(settings, const ProductScreen());
           default:
