@@ -7,7 +7,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>Wave Biz</string>
+    <string>Wave Up</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -53,5 +53,11 @@
     <array>
       <string>remote-notification</string>
     </array>
+    <key>NSCameraUsageDescription</key>
+    <string>Aplikasi ini memerlukan akses kamera untuk mengambil foto logo bisnis Anda.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Aplikasi ini memerlukan akses galeri untuk memilih foto logo bisnis Anda.</string>
+    <key>NSUserNotificationUsageDescription</key>
+    <string>Aplikasi ini memerlukan izin untuk mengirimkan notifikasi kepada Anda.</string>
   </dict>
 </plist>

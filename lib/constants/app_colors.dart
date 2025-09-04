@@ -7,6 +7,7 @@ class AppColors {
   static const blue = Color(0xFF42A5F5);
   static const blue400 = Color(0xFF64B5F6); // lighter shade
   static const blueAccent = Color(0xFF90CAF9); // accent soft blue
+  static const blueButton = Color(0xFF426FD4);
 
   // ==== TEXT COLORS ====
   static const textPrimary = Colors.black;
