@@ -3,8 +3,17 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/providers/edit_profile_provider.dart';
+import 'package:wa_blast/providers/purchase_stepper_provider.dart';
+import 'package:wa_blast/screens/brand_list_screen.dart';
+import 'package:wa_blast/screens/category_list_screen.dart';
+import 'package:wa_blast/screens/detail_employee_screen.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/edit_purchase_screen.dart';
+import 'package:wa_blast/screens/leave_days_screen.dart';
+import 'package:wa_blast/screens/purchase/purchase_stepper_wrapper.dart';
+import 'package:wa_blast/screens/reimbursement_screen.dart';
+import 'package:wa_blast/screens/request_leave_days_screen.dart';
+import 'package:wa_blast/screens/request_reimbursement_screen.dart';
 
 import 'firebase_options.dart';
 
@@ -15,6 +24,7 @@ import 'package:wa_blast/providers/chat_provider.dart';
 import 'package:wa_blast/providers/chat_detail_provider.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/purchase_provider.dart';
+import 'package:wa_blast/providers/hr_provider.dart';
 
 // screens
 import 'package:wa_blast/screens/splash_screen.dart';
@@ -25,6 +35,7 @@ import 'package:wa_blast/screens/manage_product.dart';
 import 'package:wa_blast/screens/product_screen.dart';
 import 'package:wa_blast/screens/purchase_screen.dart';
 import 'package:wa_blast/screens/detail_purchase_screen.dart';
+import 'package:wa_blast/screens/hr_screen.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
@@ -65,6 +76,8 @@ void main() async {
         ChangeNotifierProvider(create: (_) => ProductProvider()),
         ChangeNotifierProvider(create: (_) => PurchaseProvider()),
         ChangeNotifierProvider(create: (_) => EditProfileProvider()),
+        ChangeNotifierProvider(create: (_) => HrProvider()),
+        ChangeNotifierProvider(create: (_) => PurchaseStepperProvider()),
       ],
       child: const MyApp(),
     ),
@@ -126,6 +139,10 @@ class MyApp extends StatelessWidget {
             return _fadeRoute(settings, const ManageProductScreen());
           case '/product':
             return _fadeRoute(settings, const ProductScreen());
+          case '/category':
+            return _fadeRoute(settings, const CategoryListScreen());
+          case '/brand':
+            return _fadeRoute(settings, const BrandListScreen());
           case '/purchase':
             return _fadeRoute(settings, const PurchaseScreen());
 
@@ -158,6 +175,85 @@ class MyApp extends StatelessWidget {
             }
           case '/edit-profile':
             return _fadeRoute(settings, const EditProfileScreen());
+          case '/hr':
+            return _fadeRoute(settings, const HrScreen());
+          case '/hr/detail':
+            {
+              final args = settings.arguments;
+              final index = (args is Map) ? args['index'] as int? : null;
+              if (index == null) {
+                return _fadeRoute(
+                  settings,
+                  const _RouteErrorScreen(
+                    message: 'Butuh argumen index employee',
+                  ),
+                );
+              }
+              return _fadeRoute(settings, DetailEmployeeScreen(index: index));
+            }
+          case '/hr/leave-days':
+            {
+              final args = settings.arguments;
+              final index = (args is Map) ? args['index'] as int? : null;
+              if (index == null) {
+                return _fadeRoute(
+                  settings,
+                  const _RouteErrorScreen(
+                    message: 'Butuh argumen index employee',
+                  ),
+                );
+              }
+              return _fadeRoute(settings, LeaveDaysScreen(index: index));
+            }
+
+          case '/hr/leave-days/request':
+            {
+              final args = settings.arguments;
+              final index = (args is Map) ? args['index'] as int? : null;
+              if (index == null) {
+                return _fadeRoute(
+                  settings,
+                  const _RouteErrorScreen(
+                    message: 'Butuh argumen index employee',
+                  ),
+                );
+              }
+              return _fadeRoute(settings, RequestLeaveDayScreen(index: index));
+            }
+          case '/hr/reimbursement':
+            {
+              final args = settings.arguments;
+              final index = (args is Map) ? args['index'] as int? : null;
+              if (index == null) {
+                return _fadeRoute(
+                  settings,
+                  const _RouteErrorScreen(
+                    message: 'Butuh argumen index employee',
+                  ),
+                );
+              }
+              return _fadeRoute(settings, ReimbursementScreen(index: index));
+            }
+          case '/hr/reimbursement/request':
+            {
+              final args = settings.arguments;
+              final index = (args is Map) ? args['index'] as int? : null;
+              if (index == null) {
+                return _fadeRoute(
+                  settings,
+                  const _RouteErrorScreen(
+                    message: 'Butuh argumen index employee',
+                  ),
+                );
+              }
+              return _fadeRoute(
+                settings,
+                RequestReimbursementScreen(index: index),
+              );
+            }
+          case '/purchase-stepper':
+            return _fadeRoute(settings, const PurchaseStepperWrapper());
+
           default:
             return _fadeRoute(settings, const SplashScreen());
         }
@@ -166,7 +262,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-/// layar kecil untuk error route (opsional, biar gak crash)
 class _RouteErrorScreen extends StatelessWidget {
   final String message;
   const _RouteErrorScreen({required this.message});
