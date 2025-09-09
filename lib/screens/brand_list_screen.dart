@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/providers/product_provider.dart';
+import 'package:wa_blast/widgets/app_snackbar.dart';
 
 import '../constants/app_colors.dart';
 
@@ -38,7 +39,7 @@ class BrandListScreen extends StatelessWidget {
           onRefresh: () => context.read<ProductProvider>().refresh(context),
           child: Consumer<ProductProvider>(
             builder: (context, provider, _) {
-              if (provider.isLoading) {
+              if (provider.loadingBrands) {
                 return const Center(child: CircularProgressIndicator());
               }
 
@@ -53,15 +54,17 @@ class BrandListScreen extends StatelessWidget {
               return ListView.separated(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24 + 56),
                 itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                separatorBuilder: (_, __) => const SizedBox(height: 16),
                 itemBuilder: (_, i) {
-                  final brand = items[i];
+                  final brand = items[i]; // asumsi punya .id & .name
                   return _BrandTile(
+                    id: brand.id,
                     title: brand.name,
                     onEdit: () {
-                      // Action to edit brand if necessary
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Edit "${brand.name}"')),
+                      showEditBrandSheet(
+                        context,
+                        brandId: brand.id,
+                        initialName: brand.name,
                       );
                     },
                   );
@@ -77,7 +80,7 @@ class BrandListScreen extends StatelessWidget {
           height: 48,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
+              backgroundColor: AppColors.primaryDark,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -105,17 +108,18 @@ class BrandListScreen extends StatelessWidget {
 }
 
 class _BrandTile extends StatelessWidget {
-  const _BrandTile({required this.title, this.onEdit});
+  const _BrandTile({required this.id, required this.title, this.onEdit});
 
+  final String id;
   final String title;
   final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        const Icon(Icons.tag, size: 40, color: Color(0xFF4C6EF5)),
+        const Icon(Icons.sell, size: 40, color: Color(0xFF4C6EF5)),
         const SizedBox(width: 14),
         Expanded(
           child: Text(
@@ -127,28 +131,24 @@ class _BrandTile extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        // Align(
-        //   alignment: Alignment.center,
-        //   child: SizedBox(
-        //     height: 36,
-        //     child: ElevatedButton(
-        //       onPressed: onEdit,
-        //       style: ElevatedButton.styleFrom(
-        //         backgroundColor: const Color(0xFF4C6EF5),
-        //         foregroundColor: Colors.white,
-        //         elevation: 0,
-        //         padding: const EdgeInsets.symmetric(horizontal: 16),
-        //         shape: RoundedRectangleBorder(
-        //           borderRadius: BorderRadius.circular(10),
-        //         ),
-        //       ),
-        //       child: const Text(
-        //         'Edit',
-        //         style: TextStyle(fontWeight: FontWeight.w600),
-        //       ),
-        //     ),
-        //   ),
-        // ),
+        SizedBox(
+          height: 36,
+          child: OutlinedButton(
+            onPressed: onEdit,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF4C6EF5),
+              side: const BorderSide(color: Color(0xFFE5E7EB)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+            ),
+            child: const Text(
+              'Edit',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -199,108 +199,225 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+enum BrandSheetMode { create, edit }
+
 Future<void> showAddBrandSheet(BuildContext context) {
   return showModalBottomSheet(
     context: context,
-    isScrollControlled: false,
+    isScrollControlled: true,
     backgroundColor: Colors.white,
+    useSafeArea: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (_) => const _AddBrandSheet(),
+    builder: (_) => const _BrandSheet(mode: BrandSheetMode.create),
   );
 }
 
-class _AddBrandSheet extends StatefulWidget {
-  const _AddBrandSheet();
-
-  @override
-  State<_AddBrandSheet> createState() => _AddBrandSheetState();
+Future<void> showEditBrandSheet(
+  BuildContext context, {
+  required String brandId,
+  required String initialName,
+}) {
+  return showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    useSafeArea: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (_) => _BrandSheet(
+      mode: BrandSheetMode.edit,
+      brandId: brandId,
+      initialName: initialName,
+    ),
+  );
 }
 
-class _AddBrandSheetState extends State<_AddBrandSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
+class _BrandSheet extends StatefulWidget {
+  const _BrandSheet({required this.mode, this.brandId, this.initialName});
 
-  bool get _isValid => _formKey.currentState?.validate() ?? false;
+  final BrandSheetMode mode;
+  final String? brandId;
+  final String? initialName;
+
+  @override
+  State<_BrandSheet> createState() => _BrandSheetState();
+}
+
+class _BrandSheetState extends State<_BrandSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+
+  bool _isValid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.initialName ?? '');
+    _nameController.addListener(_revalidate);
+    // validasi awal
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revalidate());
+  }
+
+  void _revalidate() {
+    final ok = (_formKey.currentState?.validate() ?? false);
+    if (ok != _isValid) setState(() => _isValid = ok);
+  }
 
   @override
   void dispose() {
+    _nameController.removeListener(_revalidate);
     _nameController.dispose();
     super.dispose();
   }
 
-  Future<void> _addBrand(BuildContext context) async {
-    if (_isValid) {
-      final brandName = _nameController.text.trim();
+  Future<void> _submit(BuildContext context) async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-      await context.read<ProductProvider>().addProductBrand(context, brandName);
+    final name = _nameController.text.trim();
+    final provider = context.read<ProductProvider>();
+
+    if (widget.mode == BrandSheetMode.create) {
+      await provider.addProductBrand(context, name);
+      if (!mounted) return;
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(
+      AppSnackbar.show(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Brand added successfully')));
+        type: AppSnackType.success,
+        title: 'Added',
+        message: 'Brand added successfully.',
+      );
+    } else {
+      // EDIT MODE
+      final id = widget.brandId!;
+      // Pastikan provider punya method ini, atau sesuaikan namanya.
+      await provider.updateProductBrand(context, id, name);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      AppSnackbar.show(
+        context,
+        type: AppSnackType.success,
+        title: name,
+        message: 'Brand updated successfully.',
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    final isEdit = widget.mode == BrandSheetMode.edit;
+    final header = isEdit ? 'Edit Brand' : 'New Brand';
+    final buttonText = isEdit ? 'Save changes' : 'Add new brand';
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'New Brand',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Brand Name',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _nameController,
-              validator: (value) => value?.trim().isEmpty ?? true
-                  ? 'Brand name is required'
-                  : null,
-              decoration: const InputDecoration(
-                hintText: 'E.g Apple',
-                filled: true,
-                fillColor: Color(0xFFF3F4F6),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 14,
-                ),
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 8,
+        bottom: bottomInset > 0 ? bottomInset : 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5E7EB),
+                borderRadius: BorderRadius.circular(99),
               ),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isValid
-                      ? AppColors.primary
-                      : const Color(0xFFE5E7EB),
-                  foregroundColor: _isValid
-                      ? Colors.white
-                      : const Color(0xFF9CA3AF),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  header,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                onPressed: _isValid ? () => _addBrand(context) : null,
-                child: const Text(
-                  'Add new brand',
+              ),
+              IconButton(
+                tooltip: 'Close',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Brand Name',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
-              ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _nameController,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) {
+                    if (_isValid) _submit(context);
+                  },
+                  validator: (value) => (value?.trim().isEmpty ?? true)
+                      ? 'Brand name is required'
+                      : null,
+                  decoration: const InputDecoration(
+                    hintText: 'E.g Apple',
+                    filled: true,
+                    fillColor: Color(0xFFF3F4F6),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    border: OutlineInputBorder(
+                      borderSide: BorderSide.none,
+                      borderRadius: BorderRadius.all(Radius.circular(12)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isValid
+                          ? AppColors.primaryDark
+                          : const Color(0xFFE5E7EB),
+                      foregroundColor: _isValid
+                          ? Colors.white
+                          : const Color(0xFF9CA3AF),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: _isValid ? () => _submit(context) : null,
+                    child: Text(
+                      buttonText,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+        ],
       ),
     );
   }
