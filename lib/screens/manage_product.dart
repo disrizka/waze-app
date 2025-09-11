@@ -8,7 +8,9 @@ class ManageProductScreen extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
+        backgroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           onPressed: () => Navigator.pushNamed(context, '/splash'),
@@ -30,11 +32,23 @@ class ManageProductScreen extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             _MenuTile(
               icon: Icons.list_alt_rounded,
               title: 'Product List',
               onTap: () => Navigator.pushNamed(context, '/product'),
+            ),
+            const SizedBox(height: 8),
+            _MenuTile(
+              icon: Icons.sell,
+              title: 'Brand List',
+              onTap: () => Navigator.pushNamed(context, '/brand'),
+            ), //produk list dulu
+            const SizedBox(height: 8),
+            _MenuTile(
+              icon: Icons.category,
+              title: 'Category List',
+              onTap: () => Navigator.pushNamed(context, '/category'),
             ),
             const SizedBox(height: 8),
             _MenuTile(

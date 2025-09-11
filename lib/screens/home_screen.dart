@@ -29,13 +29,13 @@ class HomeScreen extends StatelessWidget {
               // HEADER GRADIENT
               _HeaderGradient(green: green, textPrimary: textPrimary),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
                 child: _GridMenu(),
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 50),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 30),
                 child: Text(
                   'Preview Report',
                   style: TextStyle(
@@ -50,10 +50,10 @@ class HomeScreen extends StatelessWidget {
 
               // seragam, tidak terlalu panjang/pendek
               SizedBox(
-                height: 118,
+                height: 86,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 30),
                   physics: const BouncingScrollPhysics(),
                   itemCount: 3,
                   separatorBuilder: (_, __) => const SizedBox(width: 12),
@@ -460,18 +460,62 @@ class _InfoBlock extends StatelessWidget {
   }
 }
 
+class _MenuItemData {
+  final String label;
+  final String assetPath;
+  final VoidCallback? onTap;
+
+  const _MenuItemData(this.label, this.assetPath, {this.onTap});
+}
+
 class _GridMenu extends StatelessWidget {
   const _GridMenu();
 
   @override
   Widget build(BuildContext context) {
     final items = <_MenuItemData>[
-      _MenuItemData('HR', LucideIcons.badgeCheck),
-      _MenuItemData('Product', LucideIcons.shoppingBag),
-      _MenuItemData('Sales', LucideIcons.banknote),
-      _MenuItemData('Purchase', LucideIcons.shoppingCart),
-      _MenuItemData('Report', LucideIcons.fileBarChart),
-      _MenuItemData('Setting', LucideIcons.settings),
+      _MenuItemData(
+        'HR',
+        'assets/hr_icon.png',
+        onTap: () {
+          Navigator.pushNamed(context, '/hr');
+        },
+      ),
+      _MenuItemData(
+        'Product',
+        'assets/product_icon.png',
+        onTap: () {
+          Navigator.pushReplacementNamed(context, '/manage-product');
+        },
+      ),
+      _MenuItemData(
+        'Sales',
+        'assets/sales_icon.png',
+        onTap: () {
+          Navigator.of(context).pushNamed('/purchase-stepper');
+        },
+      ),
+      _MenuItemData(
+        'Purchase',
+        'assets/purchase_icon.png',
+        onTap: () {
+          Navigator.pushReplacementNamed(context, '/purchase');
+        },
+      ),
+      _MenuItemData(
+        'Report',
+        'assets/report_icon.png',
+        onTap: () {
+          print("Report tapped");
+        },
+      ),
+      _MenuItemData(
+        'Setting',
+        'assets/setting_icon.png',
+        onTap: () {
+          print("Setting tapped");
+        },
+      ),
     ];
 
     return GridView.builder(
@@ -480,8 +524,8 @@ class _GridMenu extends StatelessWidget {
       itemCount: items.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        mainAxisSpacing: 22,
-        crossAxisSpacing: 22,
+        mainAxisSpacing: 19,
+        crossAxisSpacing: 30,
         childAspectRatio: 0.90,
       ),
       itemBuilder: (_, i) => _MenuTile(data: items[i]),
@@ -497,36 +541,35 @@ class _MenuTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Container(
-          height: 78,
-          width: 78,
-          decoration: BoxDecoration(
-            color: const Color(0xFFE9F0FF), // kebiruan lembut seperti desain
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF000000).withOpacity(0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 6),
-              ),
-            ],
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: data.onTap,
+          child: SizedBox(
+            width: 78,
+            height: 78,
+            child: Image.asset(
+              data.assetPath,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) {
+                return const Icon(
+                  Icons.image_not_supported_outlined,
+                  size: 34,
+                  color: Color(0xFF4E5D78),
+                );
+              },
+            ),
           ),
-          child: Icon(data.icon, size: 34, color: const Color(0xFF4E5D78)),
         ),
         const SizedBox(height: 10),
         Text(
           data.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
         ),
       ],
     );
   }
-}
-
-class _MenuItemData {
-  final String label;
-  final IconData icon;
-  const _MenuItemData(this.label, this.icon);
 }
 
 class _StatItem {
@@ -629,33 +672,39 @@ class _StatCard extends StatelessWidget {
     final displayAmount = _shortenCurrency(amount);
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 92),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      constraints: const BoxConstraints(minHeight: 72), // lebih ramping
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 10,
+      ), // lebih kecil
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12), // sedikit lebih kecil radius
         border: Border.all(color: const Color(0xFFE0E0E0)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 6),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 28,
+            height: 28, // avatar lebih kecil
             decoration: const BoxDecoration(
               color: Color(0xFFEFF4FF),
               shape: BoxShape.circle,
             ),
-            child: const Icon(LucideIcons.file, size: 18),
+            child: const Icon(
+              LucideIcons.file,
+              size: 14,
+              color: Color(0xFF4E5D78),
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -663,27 +712,23 @@ class _StatCard extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Color(0xFF6B7280),
-                    fontSize: 13,
+                    fontSize: 12, // sedikit lebih kecil
                     fontWeight: FontWeight.w600,
-                    height: 1.2,
-                    letterSpacing: 0.3,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
-                  displayAmount, // <<— sudah dipendekkan
+                  displayAmount,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Color(0xFF16A34A),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    height: 1.2,
-                    letterSpacing: 0.3,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14, // lebih kecil
                   ),
                 ),
               ],
