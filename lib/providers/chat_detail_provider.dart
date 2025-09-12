@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../widgets/app_snackbar.dart'; // 👈 import the custom snackbar
 
 class ChatDetailProvider with ChangeNotifier {
   bool _isLoading = true;
@@ -76,16 +77,29 @@ class ChatDetailProvider with ChangeNotifier {
 
       if (response.statusCode == 200) {
         await fetchChatDetail(context, roomId);
+        // Optional success feedback
+        // AppSnackbar.show(
+        //   context,
+        //   type: AppSnackType.success,
+        //   title: 'Message Sent',
+        //   message: 'Your message has been delivered successfully.',
+        // );
       } else {
-        debugPrint('[SEND ERROR] Gagal mengirim: ${response.statusCode}');
-        ScaffoldMessenger.of(
+        debugPrint('[SEND ERROR] Failed to send: ${response.statusCode}');
+        AppSnackbar.show(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Gagal mengirim pesan')));
+          type: AppSnackType.error,
+          title: 'Send Failed',
+          message: 'Unable to send message. Please try again.',
+        );
       }
     } catch (e) {
       debugPrint('[SEND EXCEPTION] $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Terjadi kesalahan saat mengirim pesan')),
+      AppSnackbar.show(
+        context,
+        type: AppSnackType.error,
+        title: 'Error',
+        message: 'An unexpected error occurred while sending the message.',
       );
     }
   }

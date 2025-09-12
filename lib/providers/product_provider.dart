@@ -3,8 +3,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import 'package:wa_blast/constants/api_constant.dart';
 import 'package:wa_blast/services/api_service.dart';
 
 /// =========================
@@ -107,21 +105,41 @@ class ProductPrice {
 }
 
 @immutable
+class SkuAttribute {
+  final String name;
+  final String value;
+  const SkuAttribute({required this.name, required this.value});
+
+  factory SkuAttribute.fromJson(Map<String, dynamic> j) => SkuAttribute(
+    name: j['name']?.toString() ?? '',
+    value: j['value']?.toString() ?? '',
+  );
+}
+
+@immutable
 class ProductSku {
   final String idProductSku;
   final String code;
   final int price;
+  final List<SkuAttribute> attributes; // ✅ tambahkan
 
   const ProductSku({
     required this.idProductSku,
     required this.code,
     required this.price,
+    this.attributes = const [],
   });
 
   factory ProductSku.fromJson(Map<String, dynamic> j) => ProductSku(
     idProductSku: j['idProductSku']?.toString() ?? '',
     code: j['code'] ?? '',
     price: (j['price'] is num) ? (j['price'] as num).toInt() : 0,
+    attributes: (j['attributes'] is List)
+        ? (j['attributes'] as List)
+              .whereType<Map<String, dynamic>>()
+              .map(SkuAttribute.fromJson)
+              .toList(growable: false)
+        : const <SkuAttribute>[],
   );
 }
 
@@ -149,36 +167,46 @@ class Product {
     required this.productPrices,
   });
 
-  factory Product.fromJson(Map<String, dynamic> j) => Product(
-    idProduct: j['idProduct']?.toString() ?? '',
-    name: j['name'] ?? '',
-    description: j['description'] ?? '',
-    isHide: j['isHide'] == true,
-    productBrand: (j['productBrand'] is Map<String, dynamic>)
-        ? ProductBrand.fromJson(j['productBrand'] as Map<String, dynamic>)
-        : null,
-    productCategory: (j['productCategory'] is Map<String, dynamic>)
-        ? ProductCategory.fromJson(j['productCategory'] as Map<String, dynamic>)
-        : null,
-    productImages: (j['productImages'] is List)
-        ? (j['productImages'] as List)
-              .whereType<Map<String, dynamic>>()
-              .map(ProductImage.fromJson)
-              .toList(growable: false)
-        : const <ProductImage>[],
-    productSkus: (j['productSkus'] is List)
-        ? (j['productSkus'] as List)
-              .whereType<Map<String, dynamic>>()
-              .map(ProductSku.fromJson)
-              .toList(growable: false)
-        : const <ProductSku>[],
-    productPrices: (j['productPrices'] is List)
-        ? (j['productPrices'] as List)
-              .whereType<Map<String, dynamic>>()
-              .map(ProductPrice.fromJson)
-              .toList(growable: false)
-        : const <ProductPrice>[],
-  );
+  factory Product.fromJson(Map<String, dynamic> j) {
+    final pricesListRaw = (j['productPrices'] is List)
+        ? j['productPrices']
+        : (j['prices'] is List)
+        ? j['prices']
+        : const [];
+
+    final productPrices = (pricesListRaw as List)
+        .whereType<Map<String, dynamic>>()
+        .map(ProductPrice.fromJson)
+        .toList(growable: false);
+
+    return Product(
+      idProduct: j['idProduct']?.toString() ?? '',
+      name: j['name'] ?? '',
+      description: j['description'] ?? '',
+      isHide: j['isHide'] == true,
+      productBrand: (j['productBrand'] is Map<String, dynamic>)
+          ? ProductBrand.fromJson(j['productBrand'] as Map<String, dynamic>)
+          : null,
+      productCategory: (j['productCategory'] is Map<String, dynamic>)
+          ? ProductCategory.fromJson(
+              j['productCategory'] as Map<String, dynamic>,
+            )
+          : null,
+      productImages: (j['productImages'] is List)
+          ? (j['productImages'] as List)
+                .whereType<Map<String, dynamic>>()
+                .map(ProductImage.fromJson)
+                .toList(growable: false)
+          : const <ProductImage>[],
+      productSkus: (j['productSkus'] is List)
+          ? (j['productSkus'] as List)
+                .whereType<Map<String, dynamic>>()
+                .map(ProductSku.fromJson)
+                .toList(growable: false)
+          : const <ProductSku>[],
+      productPrices: productPrices,
+    );
+  }
 
   String? get primaryImageUrl {
     if (productImages.isEmpty) return null;
@@ -435,6 +463,34 @@ class ProductProvider with ChangeNotifier {
     }
   }
 
+  Future<Product?> fetchProductDetail(
+    BuildContext context,
+    String idProduct,
+  ) async {
+    final bizId = await _getBusinessId();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return null;
+    }
+
+    try {
+      final jsonMap = await _getJson(
+        context,
+        path: '/waveup/$bizId/product/$idProduct',
+      );
+      if (jsonMap == null ||
+          jsonMap['status'] != 200 ||
+          jsonMap['data'] is! Map<String, dynamic>) {
+        _lastError = 'Failed to get product detail';
+        return null;
+      }
+      return Product.fromJson(jsonMap['data'] as Map<String, dynamic>);
+    } catch (e) {
+      _lastError = '$e';
+      return null;
+    }
+  }
+
   /// =========================
   /// UPLOAD & CREATE
   /// =========================
@@ -671,6 +727,117 @@ class ProductProvider with ChangeNotifier {
       debugPrint("[updateProductCategory] Exception: $e");
     }
     return false;
+  }
+
+  Future<bool> updateProduct({
+    required BuildContext context,
+    required String idProduct,
+    required String name,
+    required String description,
+    required String productBrandId,
+    required String productCategoryId,
+    required List<NewImage> images,
+    required List<NewSku> skus,
+    required List<NewPrice> prices,
+  }) async {
+    try {
+      final bizId = await _getBusinessId();
+      if (bizId == null || bizId.isEmpty) {
+        _lastError = "Business ID is not available.";
+        return false;
+      }
+
+      final payload = {
+        'name': name,
+        'description': description,
+        'product_brand_id': productBrandId,
+        'product_category_id': productCategoryId,
+        // payload sama dengan add product:
+        'images': images.map((e) => e.toJson()).toList(),
+        'skus': skus.map((e) => e.toJson()).toList(),
+        'prices': prices.map((e) => e.toJson()).toList(),
+      };
+
+      if (kDebugMode) {
+        // Debug payload
+        debugPrint('[ProductProvider] UPDATE payload: ${jsonEncode(payload)}');
+      }
+
+      final res = await ApiService.post(
+        context,
+        '/waveup/$bizId/product/$idProduct',
+        payload,
+        withAccessToken: true,
+      );
+
+      if (kDebugMode) {
+        // Debug response (sesuaikan properti res yang tersedia di ApiService kamu)
+        debugPrint('[ProductProvider] UPDATE status: ${res.statusCode}');
+        debugPrint('[ProductProvider] UPDATE body  : ${res.body}');
+      }
+
+      final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
+
+      if (ok) {
+        // optional: refresh list agar UI selalu terbaru
+        // ignore: use_build_context_synchronously
+        await fetchProducts(context);
+        return true;
+      } else {
+        _lastError = res.body ?? 'Failed to update product';
+        return false;
+      }
+    } catch (e) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[ProductProvider] UPDATE error: $e');
+      }
+      return false;
+    }
+  }
+
+  /// =========================
+  /// DELETE FUNCTIONS
+  /// =========================
+
+  Future<bool> deleteProduct(BuildContext context, String idProduct) async {
+    final bizId = await _getBusinessId();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return false;
+    }
+
+    try {
+      final path = '/waveup/$bizId/product/remove/$idProduct';
+      debugPrint("[deleteProduct] GET $path");
+
+      final jsonMap = await _getJson(context, path: path);
+
+      if (jsonMap == null) {
+        _lastError = 'Empty response';
+        return false;
+      }
+
+      final apiStatus = (jsonMap['status'] is num)
+          ? (jsonMap['status'] as num).toInt()
+          : -1;
+      final message = jsonMap['message']?.toString();
+
+      debugPrint("[deleteProduct] body: $jsonMap");
+
+      if (apiStatus == 200) {
+        // refresh list product setelah delete
+        await fetchProducts(context);
+        return true;
+      } else {
+        _lastError = message ?? 'Failed to delete product';
+        return false;
+      }
+    } catch (e) {
+      _lastError = e.toString();
+      debugPrint("[deleteProduct] Exception: $e");
+      return false;
+    }
   }
 
   /// Refresh fleksibel

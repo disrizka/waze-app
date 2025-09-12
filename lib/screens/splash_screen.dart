@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/constants/app_colors.dart';
@@ -30,51 +29,15 @@ class _SplashScreenState extends State<SplashScreen> {
       backgroundColor: AppColors.white,
       body: Center(
         child: Shimmer.fromColors(
-          baseColor: AppColors.primary.withOpacity(0.4),
-          highlightColor: AppColors.primary.withOpacity(0.7),
+          baseColor: AppColors.primary.withOpacity(0.6),
+          highlightColor: Colors.greenAccent.withOpacity(0.8),
           direction: ShimmerDirection.ltr,
-          period: const Duration(seconds: 3),
+          period: const Duration(seconds: 1),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                padding: const EdgeInsets.all(30),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [
-                      AppColors.primary.withOpacity(0.3), // lebih pekat
-                      AppColors.primary.withOpacity(0.6),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-                child: const Icon(
-                  LucideIcons.messageCircle,
-                  size: 72,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Wave Biz',
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                  color: AppColors.primary,
-                ),
-              ),
-              const Text(
-                'Loading . . .',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                  color: AppColors.primary,
-                ),
-              ),
+              Image.asset('assets/wave_up_logo.png', fit: BoxFit.contain),
+              const SizedBox(height: 24),
             ],
           ),
         ),
