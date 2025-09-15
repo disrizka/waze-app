@@ -42,6 +42,18 @@ class DS {
     color: AppColors.disabledFg,
   );
 
+  static const tsBody = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+    color: AppColors.textPrimary,
+  );
+
+  static const tsBodyMuted = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+    color: AppColors.disabledFg,
+  );
+
   // Buttons
   static ButtonStyle primaryBtn({bool enabled = true}) =>
       ElevatedButton.styleFrom(

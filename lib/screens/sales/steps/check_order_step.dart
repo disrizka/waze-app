@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:wa_blast/providers/sales_provider.dart';
 
 import '../../../constants/app_colors.dart';
 import '../../../constants/design_system.dart';
-import '../../../providers/purchase_stepper_provider.dart';
 import '../../../widgets/stepper_header.dart';
 
 class CheckOrderStep extends StatelessWidget {
@@ -12,7 +12,7 @@ class CheckOrderStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final prov = context.watch<PurchaseStepperProvider>();
+    final prov = context.watch<SalesProvider>();
     return Column(
       children: [
         if (withHeader)

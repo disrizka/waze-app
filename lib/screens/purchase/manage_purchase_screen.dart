@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class ManageProductScreen extends StatelessWidget {
-  const ManageProductScreen({super.key});
+class ManagePurchaseScreen extends StatelessWidget {
+  const ManagePurchaseScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -15,7 +15,7 @@ class ManageProductScreen extends StatelessWidget {
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           onPressed: () => Navigator.pushNamed(context, '/splash'),
         ),
-        title: const Text('Manage Product'),
+        title: const Text('Manage Purchase'),
         centerTitle: false,
         elevation: 0,
       ),
@@ -34,31 +34,16 @@ class ManageProductScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             _MenuTile(
-              icon: Icons.list_alt_rounded,
-              title: 'Product List',
-              onTap: () => Navigator.pushNamed(context, '/product'),
+              icon: Icons.receipt_long_rounded,
+              title: 'Purchase List',
+              onTap: () => Navigator.pushNamed(context, '/purchase/list'),
             ),
             const SizedBox(height: 8),
             _MenuTile(
-              icon: Icons.sell,
-              title: 'Brand List',
-              onTap: () => Navigator.pushNamed(context, '/brand'),
-            ), //produk list dulu
-            const SizedBox(height: 8),
-            _MenuTile(
-              icon: Icons.category,
-              title: 'Category List',
-              onTap: () => Navigator.pushNamed(context, '/category'),
+              icon: Icons.factory,
+              title: 'Supplier List',
+              onTap: () => Navigator.pushNamed(context, '/purchase/supplier'),
             ),
-            // const SizedBox(height: 8),
-            // _MenuTile(
-            //   icon: Icons.inventory_2_rounded,
-            //   title: 'Stock Product',
-            //   onTap: () {
-            //     // TODO: wire up when route is ready
-            //     // Navigator.pushNamed(context, '/stock-product');
-            //   },
-            // ),
           ],
         ),
       ),

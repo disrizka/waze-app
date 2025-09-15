@@ -270,7 +270,7 @@ class DetailPurchaseScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.pushNamed(
                   context,
-                  '/edit_purchase',
+                  '/edit-purchase',
                   arguments: {'code': item.code},
                 );
               },

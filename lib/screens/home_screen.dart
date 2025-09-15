@@ -492,7 +492,7 @@ class _GridMenu extends StatelessWidget {
         'Sales',
         'assets/sales_icon.png',
         onTap: () {
-          Navigator.of(context).pushNamed('/purchase-stepper');
+          Navigator.of(context).pushNamed('/sales');
         },
       ),
       _MenuItemData(

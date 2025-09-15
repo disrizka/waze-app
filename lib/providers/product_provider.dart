@@ -285,6 +285,14 @@ class ProductProvider with ChangeNotifier {
   bool _loadingProducts = false;
   PageMeta? _pageProducts;
 
+  // --- Product Detail
+  Product? _productDetail;
+  bool _loadingDetail = false;
+  final Map<String, Product> _detailCache = {}; // cache per id
+
+  Product? get productDetail => _productDetail;
+  bool get loadingDetail => _loadingDetail;
+
   // --- Brands
   final List<ProductBrand> _brands = [];
   bool _loadingBrands = false;
@@ -349,11 +357,13 @@ class ProductProvider with ChangeNotifier {
     bool? products,
     bool? brands,
     bool? categories,
+    bool? detail,
     bool notify = true,
   }) {
     if (products != null) _loadingProducts = products;
     if (brands != null) _loadingBrands = brands;
     if (categories != null) _loadingCategories = categories;
+    if (detail != null) _loadingDetail = detail;
     if (notify) notifyListeners();
   }
 
@@ -465,29 +475,69 @@ class ProductProvider with ChangeNotifier {
 
   Future<Product?> fetchProductDetail(
     BuildContext context,
-    String idProduct,
-  ) async {
+    String idProduct, {
+    bool preferCache = true,
+  }) async {
     final bizId = await _getBusinessId();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
+      debugPrint("[fetchProductDetail] ❌ Business ID null/empty");
       return null;
     }
 
     try {
-      final jsonMap = await _getJson(
-        context,
-        path: '/waveup/$bizId/product/$idProduct',
-      );
-      if (jsonMap == null ||
-          jsonMap['status'] != 200 ||
+      if (preferCache && _detailCache.containsKey(idProduct)) {
+        _productDetail = _detailCache[idProduct];
+        debugPrint("[fetchProductDetail] ✅ Cache hit for id=$idProduct");
+        notifyListeners();
+      } else {
+        debugPrint("[fetchProductDetail] 🔍 Cache miss for id=$idProduct");
+      }
+
+      final path = '/waveup/$bizId/product/$idProduct';
+      debugPrint("[fetchProductDetail] 🌐 GET $path");
+
+      _setLoading(detail: true);
+      final jsonMap = await _getJson(context, path: path);
+
+      if (jsonMap == null) {
+        _lastError = 'Null JSON response';
+        debugPrint("[fetchProductDetail] ❌ Response is null");
+        return _productDetail;
+      }
+
+      if (jsonMap['status'] != 200 ||
           jsonMap['data'] is! Map<String, dynamic>) {
         _lastError = 'Failed to get product detail';
-        return null;
+        debugPrint(
+          "[fetchProductDetail] ❌ Invalid status/data "
+          "(status=${jsonMap['status']})",
+        );
+        return _productDetail;
       }
-      return Product.fromJson(jsonMap['data'] as Map<String, dynamic>);
-    } catch (e) {
+
+      // 🔹 print semua data mentah dari API
+      final rawData = jsonMap['data'] as Map<String, dynamic>;
+      debugPrint("[fetchProductDetail] 📦 Full data: ${jsonEncode(rawData)}");
+
+      final fresh = Product.fromJson(rawData);
+      debugPrint(
+        "[fetchProductDetail] ✅ Parsed product: "
+        "${fresh.idProduct} - ${fresh.name}",
+      );
+
+      _productDetail = fresh;
+      _detailCache[idProduct] = fresh;
+      notifyListeners();
+      return fresh;
+    } catch (e, st) {
       _lastError = '$e';
-      return null;
+      debugPrint("[fetchProductDetail] ❌ Exception: $e");
+      debugPrint("$st");
+      return _productDetail;
+    } finally {
+      _setLoading(detail: false);
+      debugPrint("[fetchProductDetail] 🔄 Done (loading=false)");
     }
   }
 
@@ -779,9 +829,16 @@ class ProductProvider with ChangeNotifier {
       final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
 
       if (ok) {
-        // optional: refresh list agar UI selalu terbaru
-        // ignore: use_build_context_synchronously
+        // refresh list agar UI terbaru
         await fetchProducts(context);
+
+        // refresh detail bila yang sedang dibuka adalah produk yang sama
+        if (_productDetail?.idProduct == idProduct) {
+          await fetchProductDetail(context, idProduct, preferCache: false);
+        } else {
+          // setidaknya invalidasi cache id ini
+          _detailCache.remove(idProduct);
+        }
         return true;
       } else {
         _lastError = res.body ?? 'Failed to update product';
@@ -828,6 +885,13 @@ class ProductProvider with ChangeNotifier {
       if (apiStatus == 200) {
         // refresh list product setelah delete
         await fetchProducts(context);
+
+        // bersihkan cache detail bila yang dihapus adalah yg sedang dibuka
+        _detailCache.remove(idProduct);
+        if (_productDetail?.idProduct == idProduct) {
+          _productDetail = null;
+          notifyListeners();
+        }
         return true;
       } else {
         _lastError = message ?? 'Failed to delete product';
@@ -836,6 +900,245 @@ class ProductProvider with ChangeNotifier {
     } catch (e) {
       _lastError = e.toString();
       debugPrint("[deleteProduct] Exception: $e");
+      return false;
+    }
+  }
+
+  Future<bool> deleteProductBrand(BuildContext context, String brandId) async {
+    final bizId = await _getBusinessId();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return false;
+    }
+
+    try {
+      final path = '/waveup/$bizId/product-brand/remove/$brandId';
+      debugPrint("[deleteProductBrand] GET $path");
+
+      final jsonMap = await _getJson(context, path: path);
+
+      if (jsonMap == null) {
+        _lastError = 'Empty response';
+        return false;
+      }
+
+      final apiStatus = (jsonMap['status'] is num)
+          ? (jsonMap['status'] as num).toInt()
+          : -1;
+      final message = jsonMap['message']?.toString();
+      debugPrint("[deleteProductBrand] body: $jsonMap");
+
+      if (apiStatus == 200) {
+        // Optimistic update: hapus dari list lokal
+        _brands.removeWhere((b) => b.id == brandId);
+        notifyListeners();
+
+        // Refresh dari server biar sinkron
+        await fetchProductBrands(context);
+        return true;
+      } else {
+        _lastError = message ?? 'Failed to delete brand';
+        return false;
+      }
+    } catch (e) {
+      _lastError = e.toString();
+      debugPrint("[deleteProductBrand] Exception: $e");
+      return false;
+    }
+  }
+
+  Future<bool> deleteProductCategory(
+    BuildContext context,
+    String categoryId,
+  ) async {
+    final bizId = await _getBusinessId();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return false;
+    }
+
+    try {
+      final path = '/waveup/$bizId/product-category/remove/$categoryId';
+      debugPrint("[deleteProductCategory] GET $path");
+
+      final jsonMap = await _getJson(context, path: path);
+
+      if (jsonMap == null) {
+        _lastError = 'Empty response';
+        return false;
+      }
+
+      final apiStatus = (jsonMap['status'] is num)
+          ? (jsonMap['status'] as num).toInt()
+          : -1;
+      final message = jsonMap['message']?.toString();
+      debugPrint("[deleteProductCategory] body: $jsonMap");
+
+      if (apiStatus == 200) {
+        // Optimistic update: hapus dari list lokal
+        _categories.removeWhere((c) => c.id == categoryId);
+        notifyListeners();
+
+        // Refresh dari server biar sinkron
+        await fetchProductCategories(context);
+        return true;
+      } else {
+        _lastError = message ?? 'Failed to delete category';
+        return false;
+      }
+    } catch (e) {
+      _lastError = e.toString();
+      debugPrint("[deleteProductCategory] Exception: $e");
+      return false;
+    }
+  }
+
+  // === ProductProvider: tambahkan di bagian "UPLOAD & CREATE" (atau tepat sebelum EDIT) ===
+
+  Future<ProductBrand?> createBrandNoFetch(
+    BuildContext context,
+    String name, {
+    bool insertIntoProvider = true,
+  }) async {
+    final bizId = await _getBusinessId();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return null;
+    }
+
+    try {
+      final payload = {'name': name};
+      final res = await ApiService.post(
+        context,
+        '/waveup/$bizId/product-brand',
+        payload,
+        withAccessToken: true,
+      );
+
+      if (res == null || res.body.isEmpty) return null;
+      final j = json.decode(res.body);
+      if (j is! Map || (j['status'] as int?) != 200) {
+        _lastError = 'Failed to add brand: ${res.statusCode} ${res.body}';
+        return null;
+      }
+      final data = j['data'] as Map<String, dynamic>?;
+      if (data == null) return null;
+
+      final created = ProductBrand.fromJson(data);
+
+      if (insertIntoProvider) {
+        _brands.add(created);
+        notifyListeners();
+      }
+
+      return created;
+    } catch (e) {
+      _lastError = '$e';
+      return null;
+    }
+  }
+
+  Future<ProductCategory?> createCategoryNoFetch(
+    BuildContext context,
+    String name, {
+    bool insertIntoProvider = true,
+  }) async {
+    final bizId = await _getBusinessId();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return null;
+    }
+
+    try {
+      final payload = {'name': name};
+      final res = await ApiService.post(
+        context,
+        '/waveup/$bizId/product-category',
+        payload,
+        withAccessToken: true,
+      );
+
+      if (res == null || res.body.isEmpty) return null;
+      final j = json.decode(res.body);
+      if (j is! Map || (j['status'] as int?) != 200) {
+        _lastError = 'Failed to add category: ${res.statusCode} ${res.body}';
+        return null;
+      }
+      final data = j['data'] as Map<String, dynamic>?;
+      if (data == null) return null;
+
+      final created = ProductCategory.fromJson(data);
+
+      if (insertIntoProvider) {
+        _categories.add(created);
+        notifyListeners();
+      }
+
+      return created;
+    } catch (e) {
+      _lastError = '$e';
+      return null;
+    }
+  }
+
+  Future<bool> addProductExactPayload({
+    required BuildContext context,
+    required String name,
+    required String description,
+    required String productBrandId,
+    required String productCategoryId,
+    required List<Map<String, dynamic>>
+    images, // [{"image": "...", "position": 1}]
+    required List<Map<String, dynamic>> skus, // lihat _onSubmit di bawah
+    required List<Map<String, dynamic>>? prices, // null jika multi price off
+  }) async {
+    final bizId = await _getBusinessId();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return false;
+    }
+
+    // payload persis seperti spesifikasi
+    final payload = <String, dynamic>{
+      'name': name,
+      'description': description,
+      'product_brand_id': productBrandId,
+      'product_category_id': productCategoryId,
+      'images': images,
+      'skus': skus,
+      'prices': prices, // boleh null
+    };
+
+    try {
+      debugPrint("[addProductExactPayload] Payload: ${jsonEncode(payload)}");
+
+      final res = await ApiService.post(
+        context,
+        '/waveup/$bizId/product',
+        payload,
+        withAccessToken: true,
+      );
+
+      if (res != null) {
+        debugPrint("[addProductExactPayload] Code: ${res.statusCode}");
+        debugPrint("[addProductExactPayload] Body: ${res.body}");
+      } else {
+        debugPrint("[addProductExactPayload] Response is null");
+      }
+
+      final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
+      if (ok) {
+        await fetchProducts(
+          context,
+        ); // refresh list agar layar utama up-to-date
+        return true;
+      } else {
+        _lastError = 'Failed to add product: ${res?.statusCode} ${res?.body}';
+        return false;
+      }
+    } catch (e) {
+      _lastError = '$e';
+      debugPrint("[addProductExactPayload] Exception: $e");
       return false;
     }
   }
@@ -852,5 +1155,11 @@ class ProductProvider with ChangeNotifier {
     if (brands) futures.add(fetchProductBrands(context));
     if (categories) futures.add(fetchProductCategories(context));
     await Future.wait(futures);
+  }
+
+  void clearProductDetail({String? id}) {
+    if (id != null) _detailCache.remove(id);
+    _productDetail = null;
+    notifyListeners();
   }
 }
