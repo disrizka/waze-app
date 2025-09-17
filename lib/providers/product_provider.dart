@@ -1,230 +1,12 @@
+// lib/providers/product_provider.dart
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wa_blast/core/provider_helper.dart';
+import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/services/api_service.dart';
-
-/// =========================
-/// MODELS (API GET PARSING)
-/// =========================
-
-@immutable
-class PageMeta {
-  final int currentPage;
-  final int rowPerPage;
-  final int totalPages;
-  final int totalRows;
-
-  const PageMeta({
-    required this.currentPage,
-    required this.rowPerPage,
-    required this.totalPages,
-    required this.totalRows,
-  });
-
-  factory PageMeta.fromJson(Map<String, dynamic> j) => PageMeta(
-    currentPage: (j['current_page'] ?? 0) as int,
-    rowPerPage: (j['row_per_page'] ?? 0) as int,
-    totalPages: (j['total_pages'] ?? 0) as int,
-    totalRows: (j['total_rows'] ?? 0) as int,
-  );
-}
-
-@immutable
-class ProductBrand {
-  final String idProductBrand;
-  final String name;
-
-  const ProductBrand({required this.idProductBrand, required this.name});
-
-  String get id => idProductBrand; // ✅ alias agar UI bisa pakai .id
-
-  factory ProductBrand.fromJson(Map<String, dynamic> j) => ProductBrand(
-    idProductBrand: j['idProductBrand']?.toString() ?? '',
-    name: j['name']?.toString() ?? '',
-  );
-}
-
-@immutable
-class ProductCategory {
-  final String idProductCategory;
-  final String name;
-
-  const ProductCategory({required this.idProductCategory, required this.name});
-
-  String get id => idProductCategory; // (opsional) konsistensi
-
-  factory ProductCategory.fromJson(Map<String, dynamic> j) => ProductCategory(
-    idProductCategory: j['idProductCategory']?.toString() ?? '',
-    name: j['name']?.toString() ?? '',
-  );
-}
-
-@immutable
-class ProductImage {
-  final String idProductImage;
-  final String image; // filename
-  final String imagePath; // full url
-  final int position;
-
-  const ProductImage({
-    required this.idProductImage,
-    required this.image,
-    required this.imagePath,
-    required this.position,
-  });
-
-  factory ProductImage.fromJson(Map<String, dynamic> j) => ProductImage(
-    idProductImage: j['idProductImage']?.toString() ?? '',
-    image: j['image']?.toString() ?? '',
-    imagePath: j['imagePath']?.toString() ?? '',
-    position: (j['position'] is num)
-        ? (j['position'] as num).toInt()
-        : 0, // ✅ aman
-  );
-}
-
-@immutable
-class ProductPrice {
-  final String idProductPrice;
-  final int minQty;
-  final int price;
-
-  const ProductPrice({
-    required this.idProductPrice,
-    required this.minQty,
-    required this.price,
-  });
-
-  factory ProductPrice.fromJson(Map<String, dynamic> j) => ProductPrice(
-    idProductPrice: j['idProductPrice']?.toString() ?? '',
-    minQty: (j['minQty'] is num) ? (j['minQty'] as num).toInt() : 0, // ✅ aman
-    price: (j['price'] is num) ? (j['price'] as num).toInt() : 0,
-  );
-}
-
-@immutable
-class SkuAttribute {
-  final String name;
-  final String value;
-  const SkuAttribute({required this.name, required this.value});
-
-  factory SkuAttribute.fromJson(Map<String, dynamic> j) => SkuAttribute(
-    name: j['name']?.toString() ?? '',
-    value: j['value']?.toString() ?? '',
-  );
-}
-
-@immutable
-class ProductSku {
-  final String idProductSku;
-  final String code;
-  final int price;
-  final List<SkuAttribute> attributes; // ✅ tambahkan
-
-  const ProductSku({
-    required this.idProductSku,
-    required this.code,
-    required this.price,
-    this.attributes = const [],
-  });
-
-  factory ProductSku.fromJson(Map<String, dynamic> j) => ProductSku(
-    idProductSku: j['idProductSku']?.toString() ?? '',
-    code: j['code'] ?? '',
-    price: (j['price'] is num) ? (j['price'] as num).toInt() : 0,
-    attributes: (j['attributes'] is List)
-        ? (j['attributes'] as List)
-              .whereType<Map<String, dynamic>>()
-              .map(SkuAttribute.fromJson)
-              .toList(growable: false)
-        : const <SkuAttribute>[],
-  );
-}
-
-@immutable
-class Product {
-  final String idProduct;
-  final String name;
-  final String description;
-  final bool isHide;
-  final ProductBrand? productBrand;
-  final ProductCategory? productCategory;
-  final List<ProductImage> productImages;
-  final List<ProductSku> productSkus;
-  final List<ProductPrice> productPrices;
-
-  const Product({
-    required this.idProduct,
-    required this.name,
-    required this.description,
-    required this.isHide,
-    required this.productBrand,
-    required this.productCategory,
-    required this.productImages,
-    required this.productSkus,
-    required this.productPrices,
-  });
-
-  factory Product.fromJson(Map<String, dynamic> j) {
-    final pricesListRaw = (j['productPrices'] is List)
-        ? j['productPrices']
-        : (j['prices'] is List)
-        ? j['prices']
-        : const [];
-
-    final productPrices = (pricesListRaw as List)
-        .whereType<Map<String, dynamic>>()
-        .map(ProductPrice.fromJson)
-        .toList(growable: false);
-
-    return Product(
-      idProduct: j['idProduct']?.toString() ?? '',
-      name: j['name'] ?? '',
-      description: j['description'] ?? '',
-      isHide: j['isHide'] == true,
-      productBrand: (j['productBrand'] is Map<String, dynamic>)
-          ? ProductBrand.fromJson(j['productBrand'] as Map<String, dynamic>)
-          : null,
-      productCategory: (j['productCategory'] is Map<String, dynamic>)
-          ? ProductCategory.fromJson(
-              j['productCategory'] as Map<String, dynamic>,
-            )
-          : null,
-      productImages: (j['productImages'] is List)
-          ? (j['productImages'] as List)
-                .whereType<Map<String, dynamic>>()
-                .map(ProductImage.fromJson)
-                .toList(growable: false)
-          : const <ProductImage>[],
-      productSkus: (j['productSkus'] is List)
-          ? (j['productSkus'] as List)
-                .whereType<Map<String, dynamic>>()
-                .map(ProductSku.fromJson)
-                .toList(growable: false)
-          : const <ProductSku>[],
-      productPrices: productPrices,
-    );
-  }
-
-  String? get primaryImageUrl {
-    if (productImages.isEmpty) return null;
-    final sorted = [...productImages]
-      ..sort((a, b) => a.position.compareTo(b.position));
-    return (sorted.first.imagePath.isNotEmpty) ? sorted.first.imagePath : null;
-  }
-
-  int? get basePrice {
-    if (productSkus.isNotEmpty) return productSkus.first.price;
-    if (productPrices.isNotEmpty) {
-      final sorted = [...productPrices]
-        ..sort((a, b) => a.minQty.compareTo(b.minQty));
-      return sorted.first.price;
-    }
-    return null;
-  }
-}
 
 /// =========================
 /// MODELS (CREATE PAYLOAD)
@@ -304,7 +86,6 @@ class ProductProvider with ChangeNotifier {
   PageMeta? _pageCategories;
 
   String? _lastError;
-  String? _cachedBizId;
 
   List<Product> get products => List.unmodifiable(_products);
   List<ProductBrand> get brands => List.unmodifiable(_brands);
@@ -323,36 +104,6 @@ class ProductProvider with ChangeNotifier {
 
   String? get lastError => _lastError;
 
-  /// =========================
-  /// HELPERS
-  /// =========================
-
-  Future<String?> _getBusinessId({bool refresh = false}) async {
-    if (!refresh && _cachedBizId != null && _cachedBizId!.isNotEmpty) {
-      return _cachedBizId;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    final v = prefs.getString('activeBizId');
-    _cachedBizId = v;
-    return v;
-  }
-
-  Future<Map<String, dynamic>?> _getJson(
-    BuildContext context, {
-    required String path,
-  }) async {
-    try {
-      final res = await ApiService.get(context, path, withAccessToken: true);
-      if (res == null || res.body.isEmpty) return null;
-      final decoded = json.decode(res.body);
-      if (decoded is Map<String, dynamic>) return decoded;
-    } catch (e) {
-      _lastError = "$e";
-      debugPrint("[ProductProvider] GET $path error: $e");
-    }
-    return null;
-  }
-
   void _setLoading({
     bool? products,
     bool? brands,
@@ -368,11 +119,11 @@ class ProductProvider with ChangeNotifier {
   }
 
   /// =========================
-  /// FETCH FUNCTIONS
+  /// FETCH FUNCTIONS (pakai helper)
   /// =========================
 
   Future<void> fetchProducts(BuildContext context) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _products.clear();
       notifyListeners();
@@ -381,30 +132,29 @@ class ProductProvider with ChangeNotifier {
 
     _setLoading(products: true);
     try {
-      final jsonMap = await _getJson(context, path: '/waveup/$bizId/product');
-      if (jsonMap == null ||
-          jsonMap['status'] != 200 ||
-          jsonMap['data'] is! List) {
+      final result = await FetchHelper.fetchList<Product>(
+        context: context,
+        path: '/waveup/$bizId/product',
+        parser: Product.fromJson,
+      );
+
+      if (result == null) {
         _products.clear();
         _pageProducts = null;
         return;
       }
-      final list = (jsonMap['data'] as List).whereType<Map<String, dynamic>>();
-      final parsed = list.map(Product.fromJson).toList(growable: false);
 
       _products
         ..clear()
-        ..addAll(parsed);
-      _pageProducts = (jsonMap['page'] is Map<String, dynamic>)
-          ? PageMeta.fromJson(jsonMap['page'] as Map<String, dynamic>)
-          : null;
+        ..addAll(result.items);
+      _pageProducts = result.page;
     } finally {
       _setLoading(products: false);
     }
   }
 
   Future<void> fetchProductBrands(BuildContext context) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _brands.clear();
       notifyListeners();
@@ -413,33 +163,29 @@ class ProductProvider with ChangeNotifier {
 
     _setLoading(brands: true);
     try {
-      final jsonMap = await _getJson(
-        context,
+      final result = await FetchHelper.fetchList<ProductBrand>(
+        context: context,
         path: '/waveup/$bizId/product-brand',
+        parser: ProductBrand.fromJson,
       );
-      if (jsonMap == null ||
-          jsonMap['status'] != 200 ||
-          jsonMap['data'] is! List) {
+
+      if (result == null) {
         _brands.clear();
         _pageBrands = null;
         return;
       }
-      final list = (jsonMap['data'] as List).whereType<Map<String, dynamic>>();
-      final parsed = list.map(ProductBrand.fromJson).toList(growable: false);
 
       _brands
         ..clear()
-        ..addAll(parsed);
-      _pageBrands = (jsonMap['page'] is Map<String, dynamic>)
-          ? PageMeta.fromJson(jsonMap['page'] as Map<String, dynamic>)
-          : null;
+        ..addAll(result.items);
+      _pageBrands = result.page;
     } finally {
       _setLoading(brands: false);
     }
   }
 
   Future<void> fetchProductCategories(BuildContext context) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _categories.clear();
       notifyListeners();
@@ -448,26 +194,22 @@ class ProductProvider with ChangeNotifier {
 
     _setLoading(categories: true);
     try {
-      final jsonMap = await _getJson(
-        context,
+      final result = await FetchHelper.fetchList<ProductCategory>(
+        context: context,
         path: '/waveup/$bizId/product-category',
+        parser: ProductCategory.fromJson,
       );
-      if (jsonMap == null ||
-          jsonMap['status'] != 200 ||
-          jsonMap['data'] is! List) {
+
+      if (result == null) {
         _categories.clear();
         _pageCategories = null;
         return;
       }
-      final list = (jsonMap['data'] as List).whereType<Map<String, dynamic>>();
-      final parsed = list.map(ProductCategory.fromJson).toList(growable: false);
 
       _categories
         ..clear()
-        ..addAll(parsed);
-      _pageCategories = (jsonMap['page'] is Map<String, dynamic>)
-          ? PageMeta.fromJson(jsonMap['page'] as Map<String, dynamic>)
-          : null;
+        ..addAll(result.items);
+      _pageCategories = result.page;
     } finally {
       _setLoading(categories: false);
     }
@@ -478,7 +220,7 @@ class ProductProvider with ChangeNotifier {
     String idProduct, {
     bool preferCache = true,
   }) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       debugPrint("[fetchProductDetail] ❌ Business ID null/empty");
@@ -498,7 +240,7 @@ class ProductProvider with ChangeNotifier {
       debugPrint("[fetchProductDetail] 🌐 GET $path");
 
       _setLoading(detail: true);
-      final jsonMap = await _getJson(context, path: path);
+      final jsonMap = await ApiJson.getMap(context, path);
 
       if (jsonMap == null) {
         _lastError = 'Null JSON response';
@@ -510,20 +252,17 @@ class ProductProvider with ChangeNotifier {
           jsonMap['data'] is! Map<String, dynamic>) {
         _lastError = 'Failed to get product detail';
         debugPrint(
-          "[fetchProductDetail] ❌ Invalid status/data "
-          "(status=${jsonMap['status']})",
+          "[fetchProductDetail] ❌ Invalid status/data (status=${jsonMap['status']})",
         );
         return _productDetail;
       }
 
-      // 🔹 print semua data mentah dari API
       final rawData = jsonMap['data'] as Map<String, dynamic>;
       debugPrint("[fetchProductDetail] 📦 Full data: ${jsonEncode(rawData)}");
 
       final fresh = Product.fromJson(rawData);
       debugPrint(
-        "[fetchProductDetail] ✅ Parsed product: "
-        "${fresh.idProduct} - ${fresh.name}",
+        "[fetchProductDetail] ✅ Parsed product: ${fresh.idProduct} - ${fresh.name}",
       );
 
       _productDetail = fresh;
@@ -545,7 +284,6 @@ class ProductProvider with ChangeNotifier {
   /// UPLOAD & CREATE
   /// =========================
 
-  /// Upload 1 file gambar ke /file/upload, return filename dari response (data.filename)
   Future<String?> uploadProductImage(BuildContext context, File file) async {
     final body = await ApiService.uploadFile(file.path);
 
@@ -555,7 +293,6 @@ class ProductProvider with ChangeNotifier {
       final data = body['data'] as Map<String, dynamic>;
       return data['filename']?.toString();
     }
-
     return null;
   }
 
@@ -569,7 +306,7 @@ class ProductProvider with ChangeNotifier {
     required List<NewSku> skus,
     required List<NewPrice> prices,
   }) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       return false;
@@ -586,7 +323,6 @@ class ProductProvider with ChangeNotifier {
     };
 
     try {
-      // 👀 Debug payload
       debugPrint("[addProduct] Payload: ${jsonEncode(payload)}");
 
       final res = await ApiService.post(
@@ -607,7 +343,6 @@ class ProductProvider with ChangeNotifier {
       if (!ok) {
         _lastError = 'Failed to add product: ${res?.statusCode} ${res?.body}';
       } else {
-        // refresh list products setelah create
         await fetchProducts(context);
       }
       return ok;
@@ -619,7 +354,7 @@ class ProductProvider with ChangeNotifier {
   }
 
   Future<bool> addProductBrand(BuildContext context, String name) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       return false;
@@ -627,18 +362,19 @@ class ProductProvider with ChangeNotifier {
 
     try {
       final payload = {'name': name};
-      final res = await ApiService.post(
+      final j = await ApiJson.postMap(
         context,
         '/waveup/$bizId/product-brand',
         payload,
+        withAccessToken: true,
       );
 
-      final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
+      final ok = j != null && (j['status'] as int?) == 200;
       if (ok) {
         await fetchProductBrands(context);
         return true;
       } else {
-        _lastError = 'Failed to add brand: ${res?.statusCode}';
+        _lastError = 'Failed to add brand: ${j?['message'] ?? '-'}';
       }
     } catch (e) {
       _lastError = "$e";
@@ -647,7 +383,7 @@ class ProductProvider with ChangeNotifier {
   }
 
   Future<bool> addProductCategory(BuildContext context, String name) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       return false;
@@ -655,30 +391,19 @@ class ProductProvider with ChangeNotifier {
 
     try {
       final payload = {'name': name};
-
-      // Debug biar gampang trace
-      debugPrint("[addProductCategory] Payload: ${jsonEncode(payload)}");
-
-      final res = await ApiService.post(
+      final j = await ApiJson.postMap(
         context,
         '/waveup/$bizId/product-category',
         payload,
-        // samakan dengan addProductBrand (tanpa withAccessToken explicit jika default sudah handle)
+        withAccessToken: true,
       );
 
-      if (res != null) {
-        debugPrint("[addProductCategory] Response Code: ${res.statusCode}");
-        debugPrint("[addProductCategory] Response Body: ${res.body}");
-      } else {
-        debugPrint("[addProductCategory] Response is null");
-      }
-
-      final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
+      final ok = j != null && (j['status'] as int?) == 200;
       if (ok) {
         await fetchProductCategories(context);
         return true;
       } else {
-        _lastError = 'Failed to add category: ${res?.statusCode} ${res?.body}';
+        _lastError = 'Failed to add category: ${j?['message'] ?? '-'}';
       }
     } catch (e) {
       _lastError = "$e";
@@ -687,45 +412,110 @@ class ProductProvider with ChangeNotifier {
     return false;
   }
 
-  //EDIT
+  // === CREATE (no fetch) ===
+
+  Future<ProductBrand?> createBrandNoFetch(
+    BuildContext context,
+    String name, {
+    bool insertIntoProvider = true,
+  }) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return null;
+    }
+
+    try {
+      final j = await ApiJson.postMap(context, '/waveup/$bizId/product-brand', {
+        'name': name,
+      }, withAccessToken: true);
+      if (j == null || (j['status'] as int?) != 200) {
+        _lastError = 'Failed to add brand: ${j?['message'] ?? '-'}';
+        return null;
+      }
+      final data = j['data'] as Map<String, dynamic>?;
+      if (data == null) return null;
+
+      final created = ProductBrand.fromJson(data);
+
+      if (insertIntoProvider) {
+        _brands.add(created);
+        notifyListeners();
+      }
+      return created;
+    } catch (e) {
+      _lastError = '$e';
+      return null;
+    }
+  }
+
+  Future<ProductCategory?> createCategoryNoFetch(
+    BuildContext context,
+    String name, {
+    bool insertIntoProvider = true,
+  }) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return null;
+    }
+
+    try {
+      final j = await ApiJson.postMap(
+        context,
+        '/waveup/$bizId/product-category',
+        {'name': name},
+        withAccessToken: true,
+      );
+      if (j == null || (j['status'] as int?) != 200) {
+        _lastError = 'Failed to add category: ${j?['message'] ?? '-'}';
+        return null;
+      }
+      final data = j['data'] as Map<String, dynamic>?;
+      if (data == null) return null;
+
+      final created = ProductCategory.fromJson(data);
+
+      if (insertIntoProvider) {
+        _categories.add(created);
+        notifyListeners();
+      }
+      return created;
+    } catch (e) {
+      _lastError = '$e';
+      return null;
+    }
+  }
+
+  /// =========================
+  /// EDIT / UPDATE
+  /// =========================
 
   Future<bool> updateProductBrand(
     BuildContext context,
     String brandId,
     String name,
   ) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       return false;
     }
 
     try {
-      final payload = {'name': name};
-      debugPrint("[updateProductBrand] Payload: ${jsonEncode(payload)}");
-
-      // Pakai ApiService.put jika tersedia; jika tidak, ganti ke post
-      // dengan method override sesuai server-mu.
-      final res = await ApiService.post(
+      final j = await ApiJson.postMap(
         context,
         '/waveup/$bizId/product-brand/$brandId',
-        payload,
+        {'name': name},
         withAccessToken: true,
       );
 
-      if (res != null) {
-        debugPrint("[updateProductBrand] Response Code: ${res.statusCode}");
-        debugPrint("[updateProductBrand] Response Body: ${res.body}");
-      } else {
-        debugPrint("[updateProductBrand] Response is null");
-      }
-
-      final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
+      final ok = j != null && (j['status'] as int?) == 200;
       if (ok) {
-        await fetchProductBrands(context); // refresh list
+        await fetchProductBrands(context);
         return true;
       } else {
-        _lastError = 'Failed to update brand: ${res?.statusCode} ${res?.body}';
+        _lastError = 'Failed to update brand: ${j?['message'] ?? '-'}';
       }
     } catch (e) {
       _lastError = "$e";
@@ -739,38 +529,26 @@ class ProductProvider with ChangeNotifier {
     String categoryId,
     String name,
   ) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       return false;
     }
 
     try {
-      final payload = {'name': name};
-      debugPrint("[updateProductCategory] Payload: ${jsonEncode(payload)}");
-
-      // Jika punya ApiService.put gunakan ini:
-      final res = await ApiService.post(
+      final j = await ApiJson.postMap(
         context,
         '/waveup/$bizId/product-category/$categoryId',
-        payload,
+        {'name': name},
         withAccessToken: true,
       );
 
-      if (res != null) {
-        debugPrint("[updateProductCategory] Code: ${res.statusCode}");
-        debugPrint("[updateProductCategory] Body: ${res.body}");
-      } else {
-        debugPrint("[updateProductCategory] Response is null");
-      }
-
-      final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
+      final ok = j != null && (j['status'] as int?) == 200;
       if (ok) {
         await fetchProductCategories(context);
         return true;
       } else {
-        _lastError =
-            'Failed to update category: ${res?.statusCode} ${res?.body}';
+        _lastError = 'Failed to update category: ${j?['message'] ?? '-'}';
       }
     } catch (e) {
       _lastError = "$e";
@@ -790,26 +568,24 @@ class ProductProvider with ChangeNotifier {
     required List<NewSku> skus,
     required List<NewPrice> prices,
   }) async {
-    try {
-      final bizId = await _getBusinessId();
-      if (bizId == null || bizId.isEmpty) {
-        _lastError = "Business ID is not available.";
-        return false;
-      }
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      return false;
+    }
 
+    try {
       final payload = {
         'name': name,
         'description': description,
         'product_brand_id': productBrandId,
         'product_category_id': productCategoryId,
-        // payload sama dengan add product:
         'images': images.map((e) => e.toJson()).toList(),
         'skus': skus.map((e) => e.toJson()).toList(),
         'prices': prices.map((e) => e.toJson()).toList(),
       };
 
       if (kDebugMode) {
-        // Debug payload
         debugPrint('[ProductProvider] UPDATE payload: ${jsonEncode(payload)}');
       }
 
@@ -820,28 +596,23 @@ class ProductProvider with ChangeNotifier {
         withAccessToken: true,
       );
 
-      if (kDebugMode) {
-        // Debug response (sesuaikan properti res yang tersedia di ApiService kamu)
-        debugPrint('[ProductProvider] UPDATE status: ${res.statusCode}');
-        debugPrint('[ProductProvider] UPDATE body  : ${res.body}');
-      }
-
       final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
 
-      if (ok) {
-        // refresh list agar UI terbaru
-        await fetchProducts(context);
+      if (kDebugMode) {
+        debugPrint('[ProductProvider] UPDATE status: ${res?.statusCode}');
+        debugPrint('[ProductProvider] UPDATE body  : ${res?.body}');
+      }
 
-        // refresh detail bila yang sedang dibuka adalah produk yang sama
+      if (ok) {
+        await fetchProducts(context);
         if (_productDetail?.idProduct == idProduct) {
           await fetchProductDetail(context, idProduct, preferCache: false);
         } else {
-          // setidaknya invalidasi cache id ini
           _detailCache.remove(idProduct);
         }
         return true;
       } else {
-        _lastError = res.body ?? 'Failed to update product';
+        _lastError = res?.body ?? 'Failed to update product';
         return false;
       }
     } catch (e) {
@@ -858,7 +629,7 @@ class ProductProvider with ChangeNotifier {
   /// =========================
 
   Future<bool> deleteProduct(BuildContext context, String idProduct) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       return false;
@@ -868,7 +639,7 @@ class ProductProvider with ChangeNotifier {
       final path = '/waveup/$bizId/product/remove/$idProduct';
       debugPrint("[deleteProduct] GET $path");
 
-      final jsonMap = await _getJson(context, path: path);
+      final jsonMap = await ApiJson.getMap(context, path);
 
       if (jsonMap == null) {
         _lastError = 'Empty response';
@@ -883,10 +654,8 @@ class ProductProvider with ChangeNotifier {
       debugPrint("[deleteProduct] body: $jsonMap");
 
       if (apiStatus == 200) {
-        // refresh list product setelah delete
         await fetchProducts(context);
 
-        // bersihkan cache detail bila yang dihapus adalah yg sedang dibuka
         _detailCache.remove(idProduct);
         if (_productDetail?.idProduct == idProduct) {
           _productDetail = null;
@@ -905,7 +674,7 @@ class ProductProvider with ChangeNotifier {
   }
 
   Future<bool> deleteProductBrand(BuildContext context, String brandId) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       return false;
@@ -915,7 +684,7 @@ class ProductProvider with ChangeNotifier {
       final path = '/waveup/$bizId/product-brand/remove/$brandId';
       debugPrint("[deleteProductBrand] GET $path");
 
-      final jsonMap = await _getJson(context, path: path);
+      final jsonMap = await ApiJson.getMap(context, path);
 
       if (jsonMap == null) {
         _lastError = 'Empty response';
@@ -929,11 +698,9 @@ class ProductProvider with ChangeNotifier {
       debugPrint("[deleteProductBrand] body: $jsonMap");
 
       if (apiStatus == 200) {
-        // Optimistic update: hapus dari list lokal
         _brands.removeWhere((b) => b.id == brandId);
         notifyListeners();
 
-        // Refresh dari server biar sinkron
         await fetchProductBrands(context);
         return true;
       } else {
@@ -951,7 +718,7 @@ class ProductProvider with ChangeNotifier {
     BuildContext context,
     String categoryId,
   ) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       return false;
@@ -961,7 +728,7 @@ class ProductProvider with ChangeNotifier {
       final path = '/waveup/$bizId/product-category/remove/$categoryId';
       debugPrint("[deleteProductCategory] GET $path");
 
-      final jsonMap = await _getJson(context, path: path);
+      final jsonMap = await ApiJson.getMap(context, path);
 
       if (jsonMap == null) {
         _lastError = 'Empty response';
@@ -975,11 +742,9 @@ class ProductProvider with ChangeNotifier {
       debugPrint("[deleteProductCategory] body: $jsonMap");
 
       if (apiStatus == 200) {
-        // Optimistic update: hapus dari list lokal
         _categories.removeWhere((c) => c.id == categoryId);
         notifyListeners();
 
-        // Refresh dari server biar sinkron
         await fetchProductCategories(context);
         return true;
       } else {
@@ -993,93 +758,9 @@ class ProductProvider with ChangeNotifier {
     }
   }
 
-  // === ProductProvider: tambahkan di bagian "UPLOAD & CREATE" (atau tepat sebelum EDIT) ===
-
-  Future<ProductBrand?> createBrandNoFetch(
-    BuildContext context,
-    String name, {
-    bool insertIntoProvider = true,
-  }) async {
-    final bizId = await _getBusinessId();
-    if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
-      return null;
-    }
-
-    try {
-      final payload = {'name': name};
-      final res = await ApiService.post(
-        context,
-        '/waveup/$bizId/product-brand',
-        payload,
-        withAccessToken: true,
-      );
-
-      if (res == null || res.body.isEmpty) return null;
-      final j = json.decode(res.body);
-      if (j is! Map || (j['status'] as int?) != 200) {
-        _lastError = 'Failed to add brand: ${res.statusCode} ${res.body}';
-        return null;
-      }
-      final data = j['data'] as Map<String, dynamic>?;
-      if (data == null) return null;
-
-      final created = ProductBrand.fromJson(data);
-
-      if (insertIntoProvider) {
-        _brands.add(created);
-        notifyListeners();
-      }
-
-      return created;
-    } catch (e) {
-      _lastError = '$e';
-      return null;
-    }
-  }
-
-  Future<ProductCategory?> createCategoryNoFetch(
-    BuildContext context,
-    String name, {
-    bool insertIntoProvider = true,
-  }) async {
-    final bizId = await _getBusinessId();
-    if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
-      return null;
-    }
-
-    try {
-      final payload = {'name': name};
-      final res = await ApiService.post(
-        context,
-        '/waveup/$bizId/product-category',
-        payload,
-        withAccessToken: true,
-      );
-
-      if (res == null || res.body.isEmpty) return null;
-      final j = json.decode(res.body);
-      if (j is! Map || (j['status'] as int?) != 200) {
-        _lastError = 'Failed to add category: ${res.statusCode} ${res.body}';
-        return null;
-      }
-      final data = j['data'] as Map<String, dynamic>?;
-      if (data == null) return null;
-
-      final created = ProductCategory.fromJson(data);
-
-      if (insertIntoProvider) {
-        _categories.add(created);
-        notifyListeners();
-      }
-
-      return created;
-    } catch (e) {
-      _lastError = '$e';
-      return null;
-    }
-  }
+  /// =========================
+  /// PAYLOAD EXACT (untuk case khusus)
+  /// =========================
 
   Future<bool> addProductExactPayload({
     required BuildContext context,
@@ -1089,16 +770,15 @@ class ProductProvider with ChangeNotifier {
     required String productCategoryId,
     required List<Map<String, dynamic>>
     images, // [{"image": "...", "position": 1}]
-    required List<Map<String, dynamic>> skus, // lihat _onSubmit di bawah
+    required List<Map<String, dynamic>> skus,
     required List<Map<String, dynamic>>? prices, // null jika multi price off
   }) async {
-    final bizId = await _getBusinessId();
+    final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _lastError = "Business ID is not available.";
       return false;
     }
 
-    // payload persis seperti spesifikasi
     final payload = <String, dynamic>{
       'name': name,
       'description': description,
@@ -1128,9 +808,7 @@ class ProductProvider with ChangeNotifier {
 
       final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
       if (ok) {
-        await fetchProducts(
-          context,
-        ); // refresh list agar layar utama up-to-date
+        await fetchProducts(context);
         return true;
       } else {
         _lastError = 'Failed to add product: ${res?.statusCode} ${res?.body}';
@@ -1143,7 +821,10 @@ class ProductProvider with ChangeNotifier {
     }
   }
 
-  /// Refresh fleksibel
+  /// =========================
+  /// MISC
+  /// =========================
+
   Future<void> refresh(
     BuildContext context, {
     bool products = true,

@@ -1,4 +1,14 @@
+// lib/providers/purchase_provider.dart
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+import 'package:wa_blast/models/supplier_model.dart';
+import 'package:wa_blast/services/api_service.dart';
+
+import '../core/provider_helper.dart';
 
 /// Status order
 enum PurchaseStatus { inProgress, completed, canceled }
@@ -112,6 +122,373 @@ class PurchaseItem {
 }
 
 class PurchaseProvider extends ChangeNotifier {
+  // ====== SUPPLIERS STATE ======
+  final List<Supplier> _suppliers = [];
+  PageMeta? _pageSuppliers;
+  bool _loadingSuppliers = false;
+  String? _supplierError;
+
+  List<Supplier> get suppliers => List.unmodifiable(_suppliers);
+  PageMeta? get pageSuppliers => _pageSuppliers;
+  bool get loadingSuppliers => _loadingSuppliers;
+  String? get supplierError => _supplierError;
+
+  // Detail
+  Supplier? _supplierDetail;
+  bool _loadingSupplierDetail = false;
+  String? _supplierDetailError;
+
+  Supplier? get supplierDetail => _supplierDetail;
+  bool get loadingSupplierDetail => _loadingSupplierDetail;
+  String? get supplierDetailError => _supplierDetailError;
+
+  // Delete (GET remove)
+  final Set<String> _deletingSupplierIds = {};
+  String? _deleteSupplierError;
+
+  Set<String> get deletingSupplierIds => _deletingSupplierIds;
+  String? get deleteSupplierError => _deleteSupplierError;
+
+  // ====== Setters (private) ======
+  void _setLoading({bool? suppliers}) {
+    if (suppliers != null) _loadingSuppliers = suppliers;
+    notifyListeners();
+  }
+
+  void _setSupplierError(String? message) {
+    _supplierError = message;
+    notifyListeners();
+  }
+
+  void _setLoadingDetail(bool v) {
+    _loadingSupplierDetail = v;
+    notifyListeners();
+  }
+
+  void _setSupplierDetailError(String? msg) {
+    _supplierDetailError = msg;
+    notifyListeners();
+  }
+
+  void _setDeleting(String id, bool isDeleting) {
+    if (isDeleting) {
+      _deletingSupplierIds.add(id);
+    } else {
+      _deletingSupplierIds.remove(id);
+    }
+    notifyListeners();
+  }
+
+  void _setDeleteSupplierError(String? msg) {
+    _deleteSupplierError = msg;
+    notifyListeners();
+  }
+
+  // =========================
+  // GET SUPPLIER LIST (API) - pakai FetchHelper
+  // =========================
+  Future<void> fetchSuppliers(BuildContext context) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _suppliers.clear();
+      _pageSuppliers = null;
+      _setSupplierError('Business ID is missing.');
+      return;
+    }
+
+    _setSupplierError(null);
+    _setLoading(suppliers: true);
+
+    try {
+      final result = await FetchHelper.fetchList<Supplier>(
+        context: context,
+        path: '/waveup/$bizId/supplier',
+        parser: Supplier.fromJson,
+      );
+
+      if (result == null) {
+        _suppliers.clear();
+        _pageSuppliers = null;
+        return;
+      }
+
+      _suppliers
+        ..clear()
+        ..addAll(result.items);
+      _pageSuppliers = result.page;
+    } catch (e) {
+      _suppliers.clear();
+      _pageSuppliers = null;
+      _setSupplierError(e.toString());
+    } finally {
+      _setLoading(suppliers: false);
+    }
+  }
+
+  // =========================
+  // GET SUPPLIER DETAIL - pakai ApiJson.getMap
+  // =========================
+  Future<void> fetchSupplierDetail(
+    BuildContext context,
+    String supplierId,
+  ) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _supplierDetail = null;
+      _setSupplierDetailError('Business ID is missing.');
+      return;
+    }
+
+    _setSupplierDetailError(null);
+    _setLoadingDetail(true);
+
+    try {
+      final path = '/waveup/$bizId/supplier/$supplierId';
+      final jsonMap = await ApiJson.getMap(context, path);
+
+      if (jsonMap == null ||
+          (jsonMap['status'] as num?)?.toInt() != 200 ||
+          jsonMap['data'] is! Map) {
+        _supplierDetail = null;
+        _setSupplierDetailError('Unexpected response format.');
+        return;
+      }
+
+      _supplierDetail = Supplier.fromJson(
+        jsonMap['data'] as Map<String, dynamic>,
+      );
+      notifyListeners();
+    } catch (e) {
+      _supplierDetail = null;
+      _setSupplierDetailError(e.toString());
+    } finally {
+      _setLoadingDetail(false);
+    }
+  }
+
+  // =========================
+  // REMOVE SUPPLIER (GET) - pakai ApiJson.getMap
+  // =========================
+  Future<bool> removeSupplier(BuildContext context, String supplierId) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _setDeleteSupplierError('Business ID is missing.');
+      return false;
+    }
+
+    _setDeleteSupplierError(null);
+    _setDeleting(supplierId, true);
+
+    try {
+      final path = '/waveup/$bizId/supplier/remove/$supplierId';
+      final jsonMap = await ApiJson.getMap(context, path);
+
+      if (jsonMap == null || (jsonMap['status'] as num?)?.toInt() != 200) {
+        _setDeleteSupplierError(
+          (jsonMap?['message'] as String?) ?? 'Delete failed',
+        );
+        return false;
+      }
+
+      // sukses -> hapus dari cache list
+      _suppliers.removeWhere((s) => s.idSupplier == supplierId);
+
+      if (_supplierDetail?.idSupplier == supplierId) {
+        _supplierDetail = null;
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _setDeleteSupplierError(e.toString());
+      return false;
+    } finally {
+      _setDeleting(supplierId, false);
+    }
+  }
+
+  // =========================
+  // ADD / UPDATE SUPPLIER (POST) - pakai ApiJson.postMap
+  // =========================
+
+  /// Upload satu file logo supplier via ApiService.uploadFile(String path).
+  /// Harapannya response:
+  /// { "status": 200, "data": { "filename": "<stored-filename>" } }
+  Future<String?> _uploadSupplierLogo(BuildContext context, File file) async {
+    try {
+      final body = await ApiService.uploadFile(file.path);
+      if (body != null && body['status'] == 200) {
+        final data = body['data'];
+        if (data is Map<String, dynamic>) {
+          final filename = data['filename']?.toString();
+          if (filename != null && filename.isNotEmpty) return filename;
+        }
+        if (data is String && data.isNotEmpty) return data;
+      }
+    } catch (e) {
+      debugPrint("[addSupplier] upload logo error: $e");
+    }
+    return null;
+  }
+
+  Future<bool> addSupplier({
+    required BuildContext context,
+    required String name,
+    File? logoFile, // optional
+    String? phone,
+    String? email,
+    required int cityId,
+    String? address,
+  }) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _supplierDetailError = "Business ID is not available.";
+      notifyListeners();
+      return false;
+    }
+
+    String? logoFilename;
+    if (logoFile != null) {
+      logoFilename = await _uploadSupplierLogo(context, logoFile);
+      if (logoFilename == null || logoFilename.isEmpty) {
+        _supplierDetailError = "Failed to upload logo file.";
+        notifyListeners();
+        return false;
+      }
+    }
+
+    final payload = <String, dynamic>{
+      'name': name,
+      'logo': logoFilename, // boleh null jika tidak upload
+      'phone': phone,
+      'email': email,
+      'city_id': cityId,
+      'address': address,
+    }..removeWhere((k, v) => v == null);
+
+    try {
+      if (kDebugMode) {
+        debugPrint("[addSupplier] Payload: ${jsonEncode(payload)}");
+      }
+
+      final j = await ApiJson.postMap(
+        context,
+        '/waveup/$bizId/supplier',
+        payload,
+        withAccessToken: true,
+      );
+
+      if (j == null) {
+        _supplierDetailError = 'Empty response';
+        notifyListeners();
+        return false;
+      }
+
+      final status = (j['status'] as num?)?.toInt();
+      if (status != 200) {
+        _supplierDetailError =
+            j['message']?.toString() ?? 'Unexpected response';
+        notifyListeners();
+        return false;
+      }
+
+      if (j['data'] is Map<String, dynamic>) {
+        final created = Supplier.fromJson(j['data'] as Map<String, dynamic>);
+        _suppliers.insert(0, created);
+        _supplierDetail = created;
+        notifyListeners();
+      } else {
+        // fallback refresh list
+        await fetchSuppliers(context);
+      }
+
+      return true;
+    } catch (e) {
+      _supplierDetailError = '$e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> updateSupplier({
+    required BuildContext context,
+    required String idSupplier,
+    required String name,
+    File? logoFile, // optional
+    String? phone,
+    String? email,
+    required int cityId,
+    String? address,
+  }) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _supplierDetailError = "Business ID is not available.";
+      notifyListeners();
+      return false;
+    }
+
+    String? logoFilename;
+    if (logoFile != null) {
+      logoFilename = await _uploadSupplierLogo(context, logoFile);
+      if (logoFilename == null || logoFilename.isEmpty) {
+        _supplierDetailError = "Failed to upload logo file.";
+        notifyListeners();
+        return false;
+      }
+    }
+
+    final payload = <String, dynamic>{
+      'name': name,
+      if (logoFilename != null) 'logo': logoFilename, // hanya kirim jika ganti
+      'phone': phone,
+      'email': email,
+      'city_id': cityId,
+      'address': address,
+    }..removeWhere((k, v) => v == null);
+
+    try {
+      final j = await ApiJson.postMap(
+        context,
+        '/waveup/$bizId/supplier/$idSupplier', // atau PUT jika backend mendukung
+        payload,
+        withAccessToken: true,
+      );
+
+      if (j == null) {
+        _supplierDetailError = 'Empty response';
+        notifyListeners();
+        return false;
+      }
+
+      final status = (j['status'] as num?)?.toInt();
+      if (status != 200) {
+        _supplierDetailError =
+            j['message']?.toString() ?? 'Unexpected response';
+        notifyListeners();
+        return false;
+      }
+
+      if (j['data'] is Map<String, dynamic>) {
+        final updated = Supplier.fromJson(j['data'] as Map<String, dynamic>);
+        final idx = _suppliers.indexWhere((e) => e.idSupplier == idSupplier);
+        if (idx != -1) _suppliers[idx] = updated;
+        _supplierDetail = updated;
+        notifyListeners();
+      } else {
+        await fetchSuppliers(context);
+      }
+
+      return true;
+    } catch (e) {
+      _supplierDetailError = '$e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Optional: flag agar UI bisa cek ketersediaan
+  bool get respondsToUpdateSupplier => true;
+
   // ====== Dummy katalog produk ======
   final List<Product> _products = const [
     Product(
@@ -156,7 +533,7 @@ class PurchaseProvider extends ChangeNotifier {
       quantity: 3,
       totalAmount: 54000,
       status: PurchaseStatus.inProgress,
-      servicedByName: 'Mirna Sari', // fallback jika nama prefs kosong
+      servicedByName: 'Mirna Sari',
       servicedById: 'ID 2004882',
       servicedByAvatarUrl:
           'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&q=60',
@@ -277,9 +654,6 @@ class PurchaseProvider extends ChangeNotifier {
   }
 
   // ====== Kontrol qty/baris ======
-
-  /// Set qty baris [lineIndex] pada order [code].
-  /// Jika qty==0 -> baris dihapus.
   void setLineQty(String code, int lineIndex, int qty) {
     final idx = _items.indexWhere((e) => e.code == code);
     if (idx == -1) return;
@@ -314,7 +688,6 @@ class PurchaseProvider extends ChangeNotifier {
     setLineQty(code, lineIndex, (item.lines[lineIndex].qty - 1).clamp(0, 9999));
   }
 
-  /// Tambah produk ke order: jika sudah ada -> qty+1, kalau belum -> buat baris qty=1.
   void addProductToOrder(String code, Product product) {
     final idx = _items.indexWhere((e) => e.code == code);
     if (idx == -1) return;
@@ -342,8 +715,6 @@ class PurchaseProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Ambil qty untuk produk bernama [productName] di order [code].
-  /// Berguna untuk menampilkan tombol "Add" -> "Added".
   int getQtyForProduct(String code, String productName) {
     final item = getByCode(code);
     if (item == null) return 0;

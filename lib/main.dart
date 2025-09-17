@@ -246,7 +246,7 @@ class MyApp extends StatelessWidget {
           case '/purchase/list':
             return _fadeRoute(settings, const PurchaseScreen());
           case '/purchase/supplier':
-            return _fadeRoute(settings, const SupplierListScreen());
+            return _fadeRoute(settings, const SupplierScreen());
           case '/detail-purchase':
             {
               final args = settings.arguments;
