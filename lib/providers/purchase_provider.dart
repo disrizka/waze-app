@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:wa_blast/models/city_model.dart';
 
 import 'package:wa_blast/models/supplier_model.dart';
 import 'package:wa_blast/services/api_service.dart';
@@ -149,6 +150,26 @@ class PurchaseProvider extends ChangeNotifier {
   Set<String> get deletingSupplierIds => _deletingSupplierIds;
   String? get deleteSupplierError => _deleteSupplierError;
 
+  final List<City> _cities = [];
+  PageMeta? _pageCities;
+  bool _loadingCities = false;
+  String? _citiesError;
+
+  List<City> get cities => List.unmodifiable(_cities);
+  PageMeta? get pageCities => _pageCities;
+  bool get loadingCities => _loadingCities;
+  String? get citiesError => _citiesError;
+
+  void _setCitiesError(String? msg) {
+    _citiesError = msg;
+    notifyListeners();
+  }
+
+  void _setLoadingCities(bool v) {
+    _loadingCities = v;
+    notifyListeners();
+  }
+
   // ====== Setters (private) ======
   void _setLoading({bool? suppliers}) {
     if (suppliers != null) _loadingSuppliers = suppliers;
@@ -263,6 +284,53 @@ class PurchaseProvider extends ChangeNotifier {
       _setSupplierDetailError(e.toString());
     } finally {
       _setLoadingDetail(false);
+    }
+  }
+
+  /// GET CITIES: /waveup/{bizId}/city
+  Future<void> fetchCities(BuildContext context) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _cities..clear();
+      _pageCities = null;
+      _setCitiesError('Business ID is missing.');
+      return;
+    }
+
+    _setCitiesError(null);
+    _setLoadingCities(true);
+    try {
+      final result = await FetchHelper.fetchList<City>(
+        context: context,
+        path: '/waveup/$bizId/city',
+        parser: City.fromJson,
+        // kalau FetchHelper mendukung query, bisa tambahkan row_per_page lebih besar:
+        // query: {'row_per_page': 200},
+      );
+
+      if (result == null) {
+        _cities.clear();
+        _pageCities = null;
+        return;
+      }
+
+      // optional: sort by province, then name
+      result.items.sort((a, b) {
+        final p = a.provinceName.compareTo(b.provinceName);
+        return p != 0 ? p : a.name.compareTo(b.name);
+      });
+
+      _cities
+        ..clear()
+        ..addAll(result.items);
+      _pageCities = result.page;
+      notifyListeners();
+    } catch (e) {
+      _cities.clear();
+      _pageCities = null;
+      _setCitiesError(e.toString());
+    } finally {
+      _setLoadingCities(false);
     }
   }
 

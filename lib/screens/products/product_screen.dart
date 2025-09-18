@@ -8,10 +8,12 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/constants/app_colors.dart';
+import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
-import 'package:wa_blast/screens/products/add_product_sheet.dart';
-import 'package:wa_blast/screens/products/edit_product_sheet.dart';
+import 'package:wa_blast/screens/products/create_edit_sheet/add_product_sheet.dart';
+import 'package:wa_blast/screens/products/create_edit_sheet/edit_product_sheet.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
+import 'package:wa_blast/widgets/empty_state.dart';
 import 'package:wa_blast/widgets/variant_section_dynamic.dart';
 
 String _formatRp(int value) {
@@ -33,21 +35,161 @@ class PickerOption {
   PickerOption({required this.id, required this.label, this.subtitle});
 }
 
-class ProductScreen extends StatelessWidget {
+// =====================
+// ProductScreen (with Search & Advanced Filter)
+// =====================
+class ProductScreen extends StatefulWidget {
   const ProductScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final colorPrimary = _resolvePrimary(context);
+  State<ProductScreen> createState() => _ProductScreenState();
+}
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+class _ProductScreenState extends State<ProductScreen> {
+  final TextEditingController _searchC = TextEditingController();
+  Timer? _debounce;
+
+  // filter state
+  _ProductFilters _filters = const _ProductFilters();
+
+  // range cache (dibangun dari data produk saat ini)
+  int _globalMinPrice = 0;
+  int _globalMaxPrice = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // initial fetch
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final prov = context.read<ProductProvider>();
-      prov.fetchProducts(context);
+      await prov.fetchProducts(context);
       // preload dropdown data sekali
-      prov.fetchProductBrands(context);
-      prov.fetchProductCategories(context);
+      await Future.wait([
+        prov.fetchProductBrands(context),
+        prov.fetchProductCategories(context),
+      ]);
+      _rebuildGlobalRange();
     });
+  }
 
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchC.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String _) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      setState(() {
+        _filters = _filters.copyWith(query: _searchC.text);
+      });
+    });
+  }
+
+  void _openAdvancedFilter(ProductProvider prov) async {
+    // Pastikan range terbaru dihitung dari data yang ada
+    _rebuildGlobalRange();
+
+    final result = await showModalBottomSheet<_ProductFilters>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _AdvancedFilterSheet(
+        initial: _filters,
+        globalMin: _globalMinPrice.toDouble(),
+        globalMax: _globalMaxPrice.toDouble(),
+      ),
+    );
+
+    if (result != null) {
+      setState(() => _filters = result);
+    }
+  }
+
+  // Ambil harga representatif produk:
+  // basePrice ?? min(sku.price) ?? 0
+  int _priceOf(Product p) {
+    if (p.basePrice != null) return p.basePrice!;
+    final skuPrices = p.productSkus.map((s) => s.price).toList();
+    if (skuPrices.isEmpty) return 0;
+    skuPrices.sort();
+    return skuPrices.first;
+  }
+
+  void _rebuildGlobalRange() {
+    final items = context.read<ProductProvider>().products;
+    if (items.isEmpty) {
+      _globalMinPrice = 0;
+      _globalMaxPrice = 0;
+      return;
+    }
+    int minP = 1 << 30;
+    int maxP = 0;
+    for (final p in items) {
+      final price = _priceOf(p);
+      if (price < minP) minP = price;
+      if (price > maxP) maxP = price;
+    }
+    if (minP == (1 << 30)) minP = 0;
+    // kalau semua 0, tetap 0-0 biar slider disabled feelnya tetap bisa diubah nanti
+    _globalMinPrice = minP;
+    _globalMaxPrice = maxP;
+    // kalau filter belum pernah diset range-nya, sync ke global
+    if (_filters.minPrice == null && _filters.maxPrice == null) {
+      _filters = _filters.copyWith(
+        minPrice: _globalMinPrice,
+        maxPrice: _globalMaxPrice,
+      );
+    }
+  }
+
+  List<Product> _applyFilters(List<Product> source, ProductProvider prov) {
+    final q = (_filters.query ?? '').trim().toLowerCase();
+    final brandId = _filters.brandId;
+    final catId = _filters.categoryId;
+    final minP = _filters.minPrice ?? _globalMinPrice;
+    final maxP = _filters.maxPrice ?? _globalMaxPrice;
+
+    bool matchQuery(Product p) {
+      if (q.isEmpty) return true;
+      final nameHit = (p.name).toLowerCase().contains(q);
+      final skuHit = p.productSkus.any(
+        (s) => (s.code).toLowerCase().contains(q),
+      );
+      return nameHit || skuHit;
+    }
+
+    bool matchBrand(Product p) {
+      if (brandId == null || brandId.isEmpty) return true;
+      return p.productBrand?.idProductBrand == brandId;
+    }
+
+    bool matchCategory(Product p) {
+      if (catId == null || catId.isEmpty) return true;
+      return p.productCategory?.idProductCategory == catId;
+    }
+
+    bool matchPrice(Product p) {
+      final price = _priceOf(p);
+      return price >= minP && price <= maxP;
+    }
+
+    return source.where((p) {
+      return matchQuery(p) &&
+          matchBrand(p) &&
+          matchCategory(p) &&
+          matchPrice(p);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -69,25 +211,112 @@ class ProductScreen extends StatelessWidget {
         ),
       ),
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: () =>
-              context.read<ProductProvider>().fetchProducts(context),
-          child: Consumer<ProductProvider>(
-            builder: (context, provider, _) {
-              if (provider.loadingProducts) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final items = provider.products;
-              if (items.isEmpty) {
-                return _EmptyState(colorPrimary: colorPrimary);
-              }
-              return ListView.separated(
+        child: Consumer<ProductProvider>(
+          builder: (context, provider, _) {
+            // Top controls (search + advanced)
+            final topControls = Padding(
+              padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchC,
+                      onChanged: _onSearchChanged,
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        hintText: 'Search by name or SKU',
+                        isDense: true,
+                        filled: true,
+                        fillColor: const Color(0xFFF3F4F6),
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE5E7EB),
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: const BorderSide(
+                            color: Color(0xFFCBD5E1),
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    height: 42,
+                    width: 42,
+                    child: ElevatedButton(
+                      onPressed: () => _openAdvancedFilter(provider),
+                      style: ElevatedButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        backgroundColor: AppColors.blueButton,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Icon(Icons.tune_rounded, size: 20),
+                    ),
+                  ),
+                ],
+              ),
+            );
+
+            if (provider.loadingProducts) {
+              return Column(
+                children: const [
+                  SizedBox(height: 8),
+                  // tetap tampilkan kontrol agar user bisa lihat
+                  // (walau datanya masih loading)
+                ],
+              );
+            }
+
+            // filter + list
+            final all = provider.products;
+            if (all.isEmpty) {
+              return RefreshIndicator(
+                onRefresh: () => provider.fetchProducts(context),
+                child: ListView(
+                  children: [
+                    topControls,
+                    const SizedBox(height: 60),
+                    EmptyState(
+                      title: 'No Product',
+                      description: 'Please add new product',
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            // pastikan range di-build saat data ada
+            _rebuildGlobalRange();
+
+            final items = _applyFilters(all, provider);
+
+            return RefreshIndicator(
+              onRefresh: () => provider.fetchProducts(context),
+              child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24 + 56),
-                itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemCount: items.length + 1, // +1 baris untuk search controls
+                separatorBuilder: (_, i) {
+                  // setelah controls, baru kasih spacing antar item
+                  if (i == 0) return const SizedBox(height: 8);
+                  return const SizedBox(height: 12);
+                },
                 itemBuilder: (_, i) {
-                  final p = items[i];
-                  final priceLabel = _formatRp(p.basePrice ?? 0);
+                  if (i == 0) return topControls;
+
+                  final p = items[i - 1];
+                  final priceLabel = _formatRp(_priceOf(p));
                   final img = p.primaryImageUrl ?? 'assets/empty_box.png';
                   return _ProductTile(
                     title: p.name,
@@ -185,9 +414,9 @@ class ProductScreen extends StatelessWidget {
                     },
                   );
                 },
-              );
-            },
-          ),
+              ),
+            );
+          },
         ),
       ),
       bottomNavigationBar: SafeArea(
@@ -205,8 +434,7 @@ class ProductScreen extends StatelessWidget {
             ),
             onPressed: () async {
               await showAddProductSheet(context);
-              // refresh setelah create (jika sukses)
-              // ignore: use_build_context_synchronously
+              if (!mounted) return;
               context.read<ProductProvider>().fetchProducts(context);
             },
             child: const Text(
@@ -218,55 +446,51 @@ class ProductScreen extends StatelessWidget {
       ),
     );
   }
-
-  Color _resolvePrimary(BuildContext context) {
-    final themePrimary = Theme.of(context).colorScheme.primary;
-    if (themePrimary != const Color(0xff6200ee)) return themePrimary;
-    return const Color(0xFF4C6EF5);
-  }
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.colorPrimary});
-  final Color colorPrimary;
+// =====================
+// Filter model
+// =====================
+@immutable
+class _ProductFilters {
+  final String? query; // name / sku
+  final String? brandId; // idProductBrand
+  final String? categoryId; // idProductCategory
+  final int? minPrice; // inclusive
+  final int? maxPrice; // inclusive
 
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Center(
-          child: Image.asset(
-            'assets/empty_box.png',
-            width: 180,
-            height: 180,
-            fit: BoxFit.contain,
-          ),
-        ),
-        const SizedBox(height: 24),
-        const Center(
-          child: Text(
-            'No Product',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF111827),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        const Center(
-          child: Text(
-            'Please to create and add your product\nto the application',
-            textAlign: TextAlign.center,
-            style: TextStyle(height: 1.4, color: Color(0xFF6B7280)),
-          ),
-        ),
-        const SizedBox(height: 24),
-      ],
+  const _ProductFilters({
+    this.query,
+    this.brandId,
+    this.categoryId,
+    this.minPrice,
+    this.maxPrice,
+  });
+
+  _ProductFilters copyWith({
+    String? query,
+    String? brandId,
+    String? categoryId,
+    int? minPrice,
+    int? maxPrice,
+    bool clearBrand = false,
+    bool clearCategory = false,
+  }) {
+    return _ProductFilters(
+      query: query ?? this.query,
+      brandId: clearBrand ? null : (brandId ?? this.brandId),
+      categoryId: clearCategory ? null : (categoryId ?? this.categoryId),
+      minPrice: minPrice ?? this.minPrice,
+      maxPrice: maxPrice ?? this.maxPrice,
     );
   }
+
+  bool get isDefault =>
+      (query == null || query!.isEmpty) &&
+      (brandId == null || brandId!.isEmpty) &&
+      (categoryId == null || categoryId!.isEmpty) &&
+      minPrice == null &&
+      maxPrice == null;
 }
 
 class _ProductTile extends StatelessWidget {
@@ -740,7 +964,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final primary = _resolvePrimary(context);
     final padBottom = MediaQuery.of(context).viewInsets.bottom;
 
     return Padding(
@@ -1279,7 +1502,7 @@ class _EditProductSheetState extends State<_EditProductSheet> {
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _isValid
-                          ? primary
+                          ? AppColors.primary
                           : const Color(0xFFE5E7EB),
                       foregroundColor: _isValid
                           ? Colors.white
@@ -1314,12 +1537,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
       child: const Icon(Icons.close_rounded, color: Colors.white, size: 16),
     ),
   );
-
-  Color _resolvePrimary(BuildContext context) {
-    final themePrimary = Theme.of(context).colorScheme.primary;
-    if (themePrimary != const Color(0xff6200ee)) return themePrimary;
-    return const Color(0xFF4C6EF5);
-  }
 }
 
 /// Reusable Field
@@ -1758,13 +1975,15 @@ class _SelectFieldTile extends StatelessWidget {
     required this.valueText,
     required this.onTap,
     this.errorText,
+    this.showLabel = true, // ⬅️ baru
   });
 
   final String label;
   final String placeholder;
-  final String? valueText; // null → belum dipilih
+  final String? valueText;
   final VoidCallback onTap;
   final String? errorText;
+  final bool showLabel; // ⬅️ baru
 
   @override
   Widget build(BuildContext context) {
@@ -1772,14 +1991,15 @@ class _SelectFieldTile extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF111827),
+        if (showLabel) // ⬅️ tampilkan label hanya jika diminta
+          Text(
+            label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF111827),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
+        if (showLabel) const SizedBox(height: 8),
         InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(10),
@@ -2045,6 +2265,300 @@ class _MenuRow extends StatelessWidget {
               color: Color(0xFF9CA3AF),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// =====================
+// Bottom sheet: Advanced Filter (brand & category pakai bottom sheet picker)
+// =====================
+class _AdvancedFilterSheet extends StatefulWidget {
+  const _AdvancedFilterSheet({
+    required this.initial,
+    required this.globalMin,
+    required this.globalMax,
+  });
+
+  final _ProductFilters initial;
+  final double globalMin;
+  final double globalMax;
+
+  @override
+  State<_AdvancedFilterSheet> createState() => _AdvancedFilterSheetState();
+}
+
+class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
+  String? _brandId;
+  String? _categoryId;
+  late RangeValues _range;
+
+  @override
+  void initState() {
+    super.initState();
+    _brandId = widget.initial.brandId;
+    _categoryId = widget.initial.categoryId;
+
+    final gMin = widget.globalMin;
+    final gMax = widget.globalMax <= widget.globalMin
+        ? widget.globalMin + 1
+        : widget.globalMax;
+
+    final initMin = (widget.initial.minPrice?.toDouble() ?? gMin).clamp(
+      gMin,
+      gMax,
+    );
+    final initMax = (widget.initial.maxPrice?.toDouble() ?? gMax).clamp(
+      gMin,
+      gMax,
+    );
+    _range = RangeValues(initMin, initMax);
+  }
+
+  String _formatRpD(double v) => _formatRp(v.round());
+
+  String? _brandName(ProductProvider prov, String? id) {
+    if (id == null) return null;
+    final i = prov.brands.indexWhere((b) => b.idProductBrand == id);
+    return i == -1 ? null : prov.brands[i].name;
+  }
+
+  String? _categoryName(ProductProvider prov, String? id) {
+    if (id == null) return null;
+    final i = prov.categories.indexWhere((c) => c.idProductCategory == id);
+    return i == -1 ? null : prov.categories[i].name;
+  }
+
+  Future<void> _pickBrand(BuildContext context) async {
+    // gunakan helper yang sudah ada
+    final picked = await pickBrandId(context, selectedId: _brandId);
+    if (!mounted) return;
+    setState(() => _brandId = picked); // null jika user batal → clear
+  }
+
+  Future<void> _pickCategory(BuildContext context) async {
+    final picked = await pickCategoryId(context, selectedId: _categoryId);
+    if (!mounted) return;
+    setState(() => _categoryId = picked); // null jika user batal → clear
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prov = context.watch<ProductProvider>();
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, controller) {
+        return Column(
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5E7EB),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Advanced Filter',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(
+                      context,
+                      const _ProductFilters(), // reset semua
+                    ),
+                    child: Text('Reset', style: TextStyle(color: Colors.black)),
+                  ),
+                  const SizedBox(width: 6),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(
+                        context,
+                        _ProductFilters(
+                          brandId: _brandId,
+                          categoryId: _categoryId,
+                          minPrice: _range.start.round(),
+                          maxPrice: _range.end.round(),
+                          query: widget.initial.query,
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.blueButton,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text('Apply'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+                children: [
+                  // ----- BRAND (pakai bottom sheet) -----
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Brand',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF111827),
+                          ),
+                        ),
+                      ),
+                      if (_brandId != null)
+                        TextButton(
+                          onPressed: () => setState(() => _brandId = null),
+                          child: const Text('Clear'),
+                        ),
+                    ],
+                  ),
+                  _SelectFieldTile(
+                    label: 'Brand',
+                    showLabel: false,
+                    placeholder: 'All brands',
+                    valueText: _brandName(prov, _brandId),
+                    onTap: () => _pickBrand(context),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // ----- CATEGORY (pakai bottom sheet) -----
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Category',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF111827),
+                          ),
+                        ),
+                      ),
+                      if (_categoryId != null)
+                        TextButton(
+                          onPressed: () => setState(() => _categoryId = null),
+                          child: const Text('Clear'),
+                        ),
+                    ],
+                  ),
+                  _SelectFieldTile(
+                    label: 'Category',
+                    showLabel: false,
+                    placeholder: 'All categories',
+                    valueText: _categoryName(prov, _categoryId),
+                    onTap: () => _pickCategory(context),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ----- PRICE RANGE -----
+                  const Text(
+                    'Price Range',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _formatRpD(_range.start),
+                        style: const TextStyle(color: Color(0xFF6B7280)),
+                      ),
+                      Text(
+                        _formatRpD(_range.end),
+                        style: const TextStyle(color: Color(0xFF6B7280)),
+                      ),
+                    ],
+                  ),
+                  RangeSlider(
+                    activeColor: AppColors.blueButton,
+                    values: _range,
+                    min: widget.globalMin,
+                    max: widget.globalMax <= widget.globalMin
+                        ? widget.globalMin + 1
+                        : widget.globalMax,
+                    divisions: 100,
+                    labels: RangeLabels(
+                      _formatRpD(_range.start),
+                      _formatRpD(_range.end),
+                    ),
+                    onChanged: (v) => setState(() => _range = v),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// kecil: dropdown box styling konsisten
+class _DropdownBox<T> extends StatelessWidget {
+  const _DropdownBox({
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    this.hint,
+  });
+
+  final T? value;
+  final List<DropdownMenuItem<T?>> items;
+  final ValueChanged<T?> onChanged;
+  final String? hint;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<T?>(
+      value: value,
+      isDense: true,
+      isExpanded: true,
+      items: items,
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        hintText: hint,
+        isDense: true,
+        filled: true,
+        fillColor: const Color(0xFFF3F4F6),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+          borderRadius: BorderRadius.circular(10),
         ),
       ),
     );

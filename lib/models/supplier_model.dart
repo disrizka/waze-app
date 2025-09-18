@@ -1,3 +1,5 @@
+import 'package:wa_blast/models/city_model.dart';
+
 class Supplier {
   final String idSupplier;
   final String name;
@@ -31,31 +33,6 @@ class Supplier {
           ? City.fromJson(json['city'] as Map<String, dynamic>)
           : null,
       address: json['address'] as String?,
-    );
-  }
-}
-
-class City {
-  final int id;
-  final String name;
-  final int provinceId;
-  final Province? province;
-
-  City({
-    required this.id,
-    required this.name,
-    required this.provinceId,
-    this.province,
-  });
-
-  factory City.fromJson(Map<String, dynamic> json) {
-    return City(
-      id: (json['id'] as num?)?.toInt() ?? 0,
-      name: (json['name'] as String?) ?? '',
-      provinceId: (json['province_id'] as num?)?.toInt() ?? 0,
-      province: (json['Province'] is Map<String, dynamic>)
-          ? Province.fromJson(json['Province'] as Map<String, dynamic>)
-          : null,
     );
   }
 }

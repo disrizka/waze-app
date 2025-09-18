@@ -3,8 +3,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
+import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
-import 'package:wa_blast/screens/products/edit_product_sheet.dart';
+import 'package:wa_blast/screens/products/create_edit_sheet/edit_product_sheet.dart';
 import 'package:wa_blast/screens/products/product_screen.dart'
     show openEditProductById;
 import 'package:wa_blast/widgets/app_snackbar.dart';

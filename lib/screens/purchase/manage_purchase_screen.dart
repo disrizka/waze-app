@@ -13,7 +13,7 @@ class ManagePurchaseScreen extends StatelessWidget {
         backgroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushNamed(context, '/splash'),
+          onPressed: () => Navigator.pushReplacementNamed(context, '/home'),
         ),
         title: const Text('Manage Purchase'),
         centerTitle: false,
@@ -42,6 +42,12 @@ class ManagePurchaseScreen extends StatelessWidget {
             _MenuTile(
               icon: Icons.factory,
               title: 'Supplier List',
+              onTap: () => Navigator.pushNamed(context, '/purchase/supplier'),
+            ),
+            const SizedBox(height: 8),
+            _MenuTile(
+              icon: Icons.store,
+              title: 'Store List',
               onTap: () => Navigator.pushNamed(context, '/purchase/supplier'),
             ),
           ],
