@@ -1,7 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
+import 'package:wa_blast/providers/sales_provider.dart';
 import '../constants/design_system.dart';
-import '../providers/purchase_stepper_provider.dart';
 
 class StepperHeader extends StatelessWidget {
   final int activeIndex; // 0,1,2
@@ -9,7 +9,7 @@ class StepperHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final prov = context.read<PurchaseStepperProvider>();
+    final prov = context.read<SalesProvider>();
     const labels = ['Select Product', 'Check Order', 'Payment'];
 
     return Container(

@@ -1,95 +1,198 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-bool _askedCorePermsOnce = false;
+/// ===== Guard agar tidak dipanggil berkali-kali di satu sesi app
+bool _askingInProgress = false;
+bool _askedOnceThisRun = false;
 
-/// Cek semua izin yang kita butuh (notifikasi, kamera, galeri/storage).
-Future<bool> _areCorePermissionsGranted() async {
-  final notif = await Permission.notification.status;
-  final cam = await Permission.camera.status;
-  final photos = await Permission.photos.status; // iOS & Android 13+
-  final store = await Permission.storage.status; // Android ≤12
+/// Fast cache agar tidak harus buka SharedPreferences sebelum UI tampil
+bool? _dialogShownCache;
 
-  final notiOK = notif.isGranted || notif.isLimited;
-  final camOK = cam.isGranted;
-  // anggap OK jika photos granted/limited (A13+/iOS), atau storage granted (legacy)
-  final galOK = photos.isGranted || photos.isLimited || store.isGranted;
+/// Cek dukungan notifikasi (Android < 13 tidak perlu minta permission notifikasi)
+bool get _shouldAskNotification {
+  if (Platform.isAndroid) {
+    // Android 13+ perlu POST_NOTIFICATIONS
+    return true; // permission_handler akan no-op di versi lama
+  }
+  // iOS/iPadOS perlu izin notifikasi
+  return Platform.isIOS;
+}
+
+/// Cek semua izin penting, dijalankan paralel + timeout agar tidak blok
+Future<bool> _areCorePermissionsGrantedFast({
+  Duration timeout = const Duration(milliseconds: 800),
+}) async {
+  Future<PermissionStatus> safeStatus(Permission p) async {
+    try {
+      return await p.status;
+    } catch (_) {
+      return PermissionStatus.denied;
+    }
+  }
+
+  final futures = <Future>[];
+
+  if (_shouldAskNotification) futures.add(safeStatus(Permission.notification));
+  futures.add(safeStatus(Permission.camera));
+
+  if (Platform.isIOS) {
+    futures.add(safeStatus(Permission.photos));
+  } else {
+    futures.add(safeStatus(Permission.photos)); // Android 13+
+    futures.add(safeStatus(Permission.storage)); // Android ≤12
+  }
+
+  List results;
+  try {
+    results = await Future.wait(futures).timeout(timeout);
+  } on TimeoutException {
+    // Kalau timeout, anggap belum lengkap agar kita bisa lanjut tanpa hang
+    return false;
+  }
+
+  int i = 0;
+  PermissionStatus? notif, cam, photos, storage;
+
+  if (_shouldAskNotification) {
+    notif = results[i++] as PermissionStatus;
+  }
+  cam = results[i++] as PermissionStatus;
+  if (Platform.isIOS) {
+    photos = results[i++] as PermissionStatus;
+  } else {
+    photos = results[i++] as PermissionStatus; // Android 13+
+    storage = results[i++] as PermissionStatus; // Android ≤12
+  }
+
+  final notiOK =
+      !_shouldAskNotification || (notif!.isGranted || notif.isLimited);
+  final camOK = cam!.isGranted;
+  final galOK = Platform.isIOS
+      ? (photos!.isGranted || photos.isLimited)
+      : ((photos!.isGranted || photos.isLimited) ||
+            (storage?.isGranted ?? false));
 
   return notiOK && camOK && galOK;
 }
 
-/// Minta semua izin inti, dengan jeda kecil antar sheet OS biar mulus.
-Future<void> _requestAllCorePermissions({
-  Duration gap = const Duration(milliseconds: 500),
+/// Minta izin satu per satu dengan jeda kecil, tapi beri watchdog agar tidak macet
+Future<void> _requestAllCorePermissionsLight({
+  Duration gap = const Duration(milliseconds: 250),
+  Duration watchdog = const Duration(seconds: 6),
 }) async {
   Future<void> pause() => Future.delayed(gap);
 
-  // 1) Notifikasi
-  if (!await Permission.notification.isPermanentlyDenied) {
-    await Permission.notification.request();
-    await pause();
+  Future<void> doRequests() async {
+    if (_shouldAskNotification &&
+        !await Permission.notification.isPermanentlyDenied) {
+      await Permission.notification.request();
+      await pause();
+    }
+    if (!await Permission.camera.isPermanentlyDenied) {
+      await Permission.camera.request();
+      await pause();
+    }
+
+    if (Platform.isIOS) {
+      if (!await Permission.photos.isPermanentlyDenied) {
+        await Permission.photos.request();
+        await pause();
+      }
+    } else {
+      if (!await Permission.photos.isPermanentlyDenied) {
+        await Permission.photos.request();
+        await pause();
+      }
+      if (!await Permission.storage.isPermanentlyDenied) {
+        await Permission.storage.request();
+        await pause();
+      }
+    }
   }
 
-  // 2) Kamera
-  if (!await Permission.camera.isPermanentlyDenied) {
-    await Permission.camera.request();
-    await pause();
-  }
+  // Watchdog supaya tidak menggantung kalau OS sheet/flow bermasalah
+  await Future.any([doRequests(), Future.delayed(watchdog)]);
+}
 
-  // 3) Galeri / Storage
-  if (Platform.isIOS) {
-    if (!await Permission.photos.isPermanentlyDenied) {
-      await Permission.photos.request();
-      await pause();
+/// Panggil INI dari screen awal, tapi TIDAK langsung await di initState.
+/// Ini akan menunggu first frame dulu → kecilkan risiko “stuck splash”.
+///
+/// Contoh pemakaian:
+///   @override
+///   void initState() {
+///     super.initState();
+///     scheduleAskCorePermissions(context);
+///   }
+void scheduleAskCorePermissions(BuildContext context) {
+  if (_askedOnceThisRun || _askingInProgress) return;
+  _askingInProgress = true;
+
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    // Delay kecil memberi waktu layout/hero/anim memulai → UI terasa ringan
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!context.mounted) {
+      _askingInProgress = false;
+      return;
     }
-  } else {
-    // Android 13+: READ_MEDIA_IMAGES → photos
-    if (!await Permission.photos.isPermanentlyDenied) {
-      await Permission.photos.request();
-      await pause();
+
+    try {
+      // Ambil flag dialogShown TANPA memblokir UI
+      _dialogShownCache ??= await _readDialogShownFlagSafe();
+
+      // Kalau semua izin sudah OK, tidak usah apa-apa
+      if (await _areCorePermissionsGrantedFast()) {
+        _askedOnceThisRun = true;
+        _askingInProgress = false;
+        return;
+      }
+
+      // Hanya tampilkan dialog sekali per instalasi (persisten), dan sekali per sesi
+      if ((_dialogShownCache ?? false) == false) {
+        final ok = await showCorePermissionsDialog(context);
+        // Tulis preferensi TANPA menunggu (tidak memblokir)
+        unawaited(_writeDialogShownFlagSafe(true));
+
+        if (ok == true) {
+          // Tunggu animasi dialog tuntas
+          await WidgetsBinding.instance.endOfFrame;
+          await Future.delayed(const Duration(milliseconds: 80));
+
+          await _requestAllCorePermissionsLight();
+
+          // Bila masih belum granted dan context masih hidup → arahkan ke Settings
+          if (!await _areCorePermissionsGrantedFast() && context.mounted) {
+            await showOpenSettingsSheet(context);
+          }
+        }
+      }
+    } catch (_) {
+      // Jika ada error, jangan sampai mengganggu UI; biarkan lewat
+    } finally {
+      _askedOnceThisRun = true;
+      _askingInProgress = false;
     }
-    // Android ≤12: storage legacy
-    if (!await Permission.storage.isPermanentlyDenied) {
-      await Permission.storage.request();
-      await pause();
-    }
+  });
+}
+
+/// ==== I/O helpers (non-blocking jalur UI) ====
+Future<bool?> _readDialogShownFlagSafe() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('corePermDialogShown') ?? false;
+  } catch (_) {
+    return false;
   }
 }
 
-/// Panggil dari initState: tampilkan dialog sekali, lalu minta izin SETELAH dialog ditutup.
-Future<void> maybeAskCorePermissions(BuildContext context) async {
-  debugPrint('[perm] maybeAskCorePermissions called');
-  if (_askedCorePermsOnce) return;
-  _askedCorePermsOnce = true;
-
-  final prefs = await SharedPreferences.getInstance();
-  final shown = prefs.getBool('corePermDialogShown') ?? false;
-
-  if (await _areCorePermissionsGranted()) return;
-
-  if (!shown && context.mounted) {
-    final ok = await showCorePermissionsDialog(
-      context,
-    ); // dialog pop true/false
-    debugPrint('[perm] dialog result = $ok');
-    await prefs.setBool('corePermDialogShown', true);
-
-    if (ok == true) {
-      // Pastikan frame pop selesai, baru minta izin (hindari nabrak animasi dialog)
-      await WidgetsBinding.instance.endOfFrame;
-      await Future.delayed(const Duration(milliseconds: 80));
-
-      debugPrint('[perm] requesting…');
-      await _requestAllCorePermissions();
-      debugPrint('[perm] request finished');
-
-      // Jika masih ada yang permanen ditolak, arahkan ke Settings
-      if (!await _areCorePermissionsGranted() && context.mounted) {
-        await showOpenSettingsSheet(context);
-      }
-    }
+Future<void> _writeDialogShownFlagSafe(bool v) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('corePermDialogShown', v);
+  } catch (_) {
+    // abaikan
   }
 }
 
