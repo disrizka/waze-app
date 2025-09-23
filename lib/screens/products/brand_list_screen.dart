@@ -2,19 +2,43 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
+import 'package:wa_blast/widgets/empty_state.dart';
 
 import '../../constants/app_colors.dart';
 
-class BrandListScreen extends StatelessWidget {
+class BrandListScreen extends StatefulWidget {
   const BrandListScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  State<BrandListScreen> createState() => _BrandListScreenState();
+}
+
+class _BrandListScreenState extends State<BrandListScreen> {
+  final TextEditingController _searchC = TextEditingController();
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ProductProvider>().fetchProductBrands(context);
     });
-    final colorPrimary = _resolvePrimary(context);
+    _searchC.addListener(() {
+      final next = _searchC.text.trim();
+      if (next != _query) {
+        setState(() => _query = next);
+      }
+    });
+  }
 
+  @override
+  void dispose() {
+    _searchC.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -35,63 +59,13 @@ class BrandListScreen extends StatelessWidget {
         ),
       ),
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: () => context.read<ProductProvider>().refresh(context),
-          child: Consumer<ProductProvider>(
-            builder: (context, provider, _) {
-              if (provider.loadingBrands) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final items = provider.brands;
-
-              if (items.isEmpty) {
-                return _EmptyState(colorPrimary: colorPrimary);
-              }
-
-              return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24 + 56),
-                itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 16),
-                itemBuilder: (_, i) {
-                  final brand = items[i]; // asumsi punya .id & .name
-                  return _BrandTile(
-                    id: brand.id,
-                    title: brand.name,
-                    onEdit: () {
-                      showEditBrandSheet(
-                        context,
-                        brandId: brand.id,
-                        initialName: brand.name,
-                      );
-                    },
-                    onDelete: () async {
-                      final confirmed = await _confirmDelete(
-                        context,
-                        title: 'Delete Brand',
-                        message:
-                            'Are you sure you want to delete "${brand.name}"? This action cannot be undone.',
-                      );
-                      if (confirmed != true) return;
-
-                      await context.read<ProductProvider>().deleteProductBrand(
-                        context,
-                        brand.id,
-                      );
-
-                      if (!context.mounted) return;
-                      AppSnackbar.show(
-                        context,
-                        type: AppSnackType.success,
-                        title: 'Deleted',
-                        message: 'Brand has been deleted.',
-                      );
-                    },
-                  );
-                },
-              );
-            },
-          ),
+        child: Consumer<ProductProvider>(
+          builder: (context, provider, _) {
+            return RefreshIndicator(
+              onRefresh: () => context.read<ProductProvider>().refresh(context),
+              child: _buildBody(provider),
+            );
+          },
         ),
       ),
       bottomNavigationBar: SafeArea(
@@ -120,10 +94,163 @@ class BrandListScreen extends StatelessWidget {
     );
   }
 
-  Color _resolvePrimary(BuildContext context) {
-    final themePrimary = Theme.of(context).colorScheme.primary;
-    if (themePrimary != const Color(0xff6200ee)) return themePrimary;
-    return const Color(0xFF4C6EF5);
+  Widget _buildBody(ProductProvider provider) {
+    if (provider.loadingBrands) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final all = provider.brands;
+    final lowerQ = _query.toLowerCase();
+    final filtered = (lowerQ.isEmpty)
+        ? all
+        : all.where((b) => (b.name).toLowerCase().contains(lowerQ)).toList();
+
+    // Jika belum ada brand sama sekali dan tidak sedang mencari
+    if (all.isEmpty && _query.isEmpty) {
+      return ListView(
+        padding: EdgeInsets.zero,
+        children: const [
+          _SearchHeader(),
+          SizedBox(height: 8),
+          EmptyState(title: 'No Brand', description: 'Please add new brand'),
+          SizedBox(height: 200), // biar bisa pull to refresh
+        ],
+      );
+    }
+
+    // Tampilkan list dengan header search sebagai item pertama
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24 + 56),
+      itemCount: filtered.length + 1, // +1 untuk header search
+      separatorBuilder: (_, __) => const SizedBox(height: 16),
+      itemBuilder: (_, index) {
+        if (index == 0) {
+          return _SearchHeader(
+            controller: _searchC,
+            onClear: () {
+              _searchC.clear();
+            },
+          );
+        }
+
+        // Jika tidak ada hasil pencarian
+        if (filtered.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 32),
+            child: _NoResultTile(query: _query),
+          );
+        }
+
+        final brand = filtered[index - 1];
+        return _BrandTile(
+          id: brand.id,
+          title: brand.name,
+          onEdit: () {
+            showEditBrandSheet(
+              context,
+              brandId: brand.id,
+              initialName: brand.name,
+            );
+          },
+          onDelete: () async {
+            final confirmed = await _confirmDelete(
+              context,
+              title: 'Delete Brand',
+              message:
+                  'Are you sure you want to delete "${brand.name}"? This action cannot be undone.',
+            );
+            if (confirmed != true) return;
+
+            await context.read<ProductProvider>().deleteProductBrand(
+              context,
+              brand.id,
+            );
+
+            if (!context.mounted) return;
+            AppSnackbar.show(
+              context,
+              type: AppSnackType.success,
+              title: 'Deleted',
+              message: 'Brand has been deleted.',
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _SearchHeader extends StatelessWidget {
+  const _SearchHeader({this.controller, this.onClear});
+
+  final TextEditingController? controller;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        TextField(
+          controller: controller,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            hintText: 'Search brand name…',
+            filled: true,
+            fillColor: const Color(0xFFF3F4F6),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
+            border: const OutlineInputBorder(
+              borderSide: BorderSide.none,
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+            prefixIcon: const Icon(Icons.search_rounded),
+            suffixIcon: (controller != null && controller!.text.isNotEmpty)
+                ? IconButton(
+                    tooltip: 'Clear',
+                    onPressed: onClear,
+                    icon: const Icon(Icons.close_rounded),
+                  )
+                : null,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NoResultTile extends StatelessWidget {
+  const _NoResultTile({required this.query});
+  final String query;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search_off_rounded),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'No results for “$query”.',
+              style: const TextStyle(
+                color: Color(0xFF6B7280),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -157,7 +284,7 @@ class _BrandTile extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        // Tombol Edit
+        // Edit
         SizedBox(
           height: 36,
           child: OutlinedButton(
@@ -177,7 +304,7 @@ class _BrandTile extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
-        // Tombol Delete
+        // Delete
         SizedBox(
           height: 36,
           child: OutlinedButton.icon(
@@ -196,51 +323,6 @@ class _BrandTile extends StatelessWidget {
             ),
           ),
         ),
-      ],
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.colorPrimary});
-  final Color colorPrimary;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      // supaya RefreshIndicator bisa bekerja
-      crossAxisAlignment: CrossAxisAlignment.center,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // Gambar di tengah
-        Center(
-          child: Image.asset(
-            'assets/empty_box.png',
-            width: 180,
-            height: 180,
-            fit: BoxFit.contain,
-          ),
-        ),
-        const SizedBox(height: 24),
-        const Center(
-          child: Text(
-            'No Brands',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF111827),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        const Center(
-          child: Text(
-            'Please to create and add your brand\nto the application',
-            textAlign: TextAlign.center,
-            style: TextStyle(height: 1.4, color: Color(0xFF6B7280)),
-          ),
-        ),
-        const SizedBox(height: 24),
       ],
     );
   }

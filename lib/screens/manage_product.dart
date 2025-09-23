@@ -13,7 +13,7 @@ class ManageProductScreen extends StatelessWidget {
         backgroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushNamed(context, '/splash'),
+          onPressed: () => Navigator.pushReplacementNamed(context, '/home'),
         ),
         title: const Text('Manage Product'),
         centerTitle: false,
