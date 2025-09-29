@@ -1,25 +1,52 @@
-class City {
-  final int id;
-  final String name;
-  final int provinceId;
-  final String provinceName;
+// lib/models/city_model.dart
 
-  City({
-    required this.id,
-    required this.name,
-    required this.provinceId,
-    required this.provinceName,
-  });
+class Province {
+  final String id;
+  final String name;
+
+  const Province({required this.id, required this.name});
+
+  factory Province.fromJson(Map<String, dynamic> j) {
+    return Province(id: _asString(j['id']), name: _asString(j['name']));
+  }
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name};
+
+  @override
+  String toString() => 'Province(id: $id, name: $name)';
+}
+
+class City {
+  final String id;
+  final String name;
+  final Province province;
+
+  const City({required this.id, required this.name, required this.province});
 
   factory City.fromJson(Map<String, dynamic> j) {
+    final rawProv = j['province'] ?? j['Province'] ?? const {};
     return City(
-      id: (j['id'] as num).toInt(),
-      name: (j['name'] as String).trim(),
-      provinceId: (j['province_id'] as num).toInt(),
-      provinceName:
-          (j['Province'] is Map && (j['Province']['name'] ?? '') is String)
-          ? (j['Province']['name'] as String).trim()
-          : '',
+      id: _asString(j['id']), // <-- tidak lagi cast ke num
+      name: _asString(j['name']),
+      province: Province.fromJson(
+        (rawProv is Map<String, dynamic>) ? rawProv : const {},
+      ),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'province': province.toJson(),
+  };
+
+  @override
+  String toString() => 'City(id: $id, name: $name, province: ${province.name})';
+}
+
+/// -------- helpers ----------
+String _asString(dynamic v, {String fallback = ''}) {
+  if (v == null) return fallback;
+  final s = v.toString().trim();
+  return s.isEmpty ? fallback : s;
 }

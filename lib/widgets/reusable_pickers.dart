@@ -7,6 +7,7 @@ import 'package:wa_blast/models/supplier_model.dart';
 import 'package:wa_blast/providers/purchase_provider.dart' hide Product;
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/providers/store_provider.dart' hide City;
 
 /// ------------------------------------------------------------------
 /// GENERIC CORE
@@ -430,7 +431,7 @@ class SelectFieldTile extends StatelessWidget {
 /// City
 Future<PickerResult<City>?> showCityPickerSheet(
   BuildContext context, {
-  String? selectedId, // NEW
+  String? selectedId, // highlight city terpilih
 }) async {
   final prov = context.read<PurchaseProvider>();
   if (prov.cities.isEmpty && !prov.loadingCities) {
@@ -442,15 +443,19 @@ Future<PickerResult<City>?> showCityPickerSheet(
     title: 'Select City',
     searchHint: 'Search city or province…',
     emptyMessage: 'City list is empty',
-    selectedId: selectedId, // NEW
+    selectedId: selectedId,
     loadItems: () async {
       final list = context.read<PurchaseProvider>().cities;
       return list
           .map(
             (c) => PickerResult<City>(
-              id: '${c.id}',
+              id: c.id, // <- String (bukan int)
               label: c.name,
-              subtitle: c.provinceName.isEmpty ? null : c.provinceName,
+              subtitle: (c.province.name.isNotEmpty)
+                  ? c
+                        .province
+                        .name // <- ambil dari province.name
+                  : null,
               data: c,
             ),
           )
@@ -607,6 +612,55 @@ Future<PickerResult<ProductSku>?> showSkuPickerSheet(
     selectedId: selectedId, // highlight
     // pencarian & render dilakukan oleh _GenericPickerSheet dari reusable picker
     loadItems: () async => items,
+  );
+}
+
+/// Store Location
+Future<PickerResult<StoreLocation>?> showStorePickerSheet(
+  BuildContext context, {
+  String? selectedId, // highlight store terpilih
+}) async {
+  final sp = context.read<StoreProvider>();
+
+  // Pastikan list store sudah ter-fetch
+  if (sp.stores.isEmpty && !sp.loadingList) {
+    await sp.fetchStoreLocations(context);
+  }
+
+  String _subtitle(StoreLocation s) {
+    final parts = <String>[];
+    if ((s.business?.name ?? '').isNotEmpty) parts.add(s.business!.name);
+    if ((s.city?.name ?? '').isNotEmpty) {
+      // Jika ada province di modelmu: tampilkan "City, Province"
+      final prov = s.city?.province?.name;
+      parts.add(
+        prov != null && prov.isNotEmpty
+            ? '${s.city!.name}, $prov'
+            : s.city!.name,
+      );
+    }
+    return parts.join(' • ');
+  }
+
+  return showPickerSheet<StoreLocation>(
+    context,
+    title: 'Select Store Location',
+    searchHint: 'Search store…',
+    emptyMessage: 'Store list is empty',
+    selectedId: selectedId,
+    loadItems: () async {
+      final list = context.read<StoreProvider>().stores;
+      return list
+          .map(
+            (s) => PickerResult<StoreLocation>(
+              id: s.idStoreLocation,
+              label: s.name,
+              subtitle: _subtitle(s),
+              data: s,
+            ),
+          )
+          .toList(growable: false);
+    },
   );
 }
 

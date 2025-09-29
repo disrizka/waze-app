@@ -1,28 +1,30 @@
+// lib/screens/store/store_list_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:wa_blast/providers/product_provider.dart';
+
+import 'package:wa_blast/constants/app_colors.dart';
+import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
 import 'package:wa_blast/widgets/empty_state.dart';
+import 'package:wa_blast/widgets/reusable_pickers.dart';
 
-import '../../constants/app_colors.dart';
-
-class CategoryListScreen extends StatefulWidget {
-  const CategoryListScreen({super.key});
+class StoreListScreen extends StatefulWidget {
+  const StoreListScreen({super.key});
 
   @override
-  State<CategoryListScreen> createState() => _CategoryListScreenState();
+  State<StoreListScreen> createState() => _StoreListScreenState();
 }
 
-class _CategoryListScreenState extends State<CategoryListScreen> {
+class _StoreListScreenState extends State<StoreListScreen> {
   final TextEditingController _searchC = TextEditingController();
   String _query = '';
 
   @override
   void initState() {
     super.initState();
-    // fetch setelah frame pertama biar aman dari initState context
+    // fetch setelah frame pertama
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ProductProvider>().fetchProductCategories(context);
+      context.read<StoreProvider>().fetchStoreLocations(context);
     });
     _searchC.addListener(() {
       final next = _searchC.text.trim();
@@ -46,7 +48,7 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
         scrolledUnderElevation: 0,
         foregroundColor: const Color(0xFF1F2937),
         title: const Text(
-          'Category List',
+          'Store Locations',
           style: TextStyle(
             fontWeight: FontWeight.w700,
             color: Color(0xFF1F2937),
@@ -58,33 +60,36 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
         ),
       ),
       body: SafeArea(
-        child: Consumer<ProductProvider>(
-          builder: (context, provider, _) {
-            if (provider.loadingCategories) {
+        child: Consumer<StoreProvider>(
+          builder: (context, p, _) {
+            if (p.loadingList) {
               return const Center(child: CircularProgressIndicator());
             }
 
-            final all = provider.categories;
-            final lowerQ = _query.toLowerCase();
-            final filtered = (lowerQ.isEmpty)
+            final all = p.stores;
+            final lq = _query.toLowerCase();
+            final filtered = (lq.isEmpty)
                 ? all
-                : all
-                      .where((c) => (c.name).toLowerCase().contains(lowerQ))
-                      .toList();
+                : all.where((s) {
+                    final name = s.name.toLowerCase();
+                    final city = (s.city?.name ?? '').toLowerCase();
+                    final prov = (s.city?.province?.name ?? '').toLowerCase();
+                    return name.contains(lq) ||
+                        city.contains(lq) ||
+                        prov.contains(lq);
+                  }).toList();
 
-            // Jika belum ada category sama sekali dan tidak sedang mencari
             if (all.isEmpty && _query.isEmpty) {
               return RefreshIndicator(
-                onRefresh: () =>
-                    context.read<ProductProvider>().refresh(context),
+                onRefresh: () => context.read<StoreProvider>().refresh(context),
                 child: ListView(
                   padding: EdgeInsets.zero,
                   children: const [
                     _SearchHeader(),
                     SizedBox(height: 8),
                     EmptyState(
-                      title: 'No Category',
-                      description: 'Please add new category',
+                      title: 'No Store Locations',
+                      description: 'Please add a store location.',
                     ),
                     SizedBox(height: 200),
                   ],
@@ -92,12 +97,11 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
               );
             }
 
-            // Tampilkan list dengan header search sebagai item pertama
             return RefreshIndicator(
-              onRefresh: () => context.read<ProductProvider>().refresh(context),
+              onRefresh: () => context.read<StoreProvider>().refresh(context),
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24 + 56),
-                itemCount: filtered.length + 1, // +1 header search
+                itemCount: filtered.length + 1, // +1 untuk header search
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (_, index) {
                   if (index == 0) {
@@ -107,7 +111,6 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
                     );
                   }
 
-                  // Tidak ada hasil pencarian
                   if (filtered.isEmpty) {
                     return Padding(
                       padding: const EdgeInsets.only(top: 32),
@@ -115,29 +118,42 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
                     );
                   }
 
-                  final cat = filtered[index - 1];
-                  return _CategoryTile(
-                    id: cat.id,
-                    title: cat.name,
+                  final s = filtered[index - 1];
+                  final subtitle = [
+                    s.city?.name,
+                    s.city?.province?.name,
+                  ].where((e) => (e ?? '').isNotEmpty).join(' • ');
+
+                  return _StoreTile(
+                    id: s.idStoreLocation,
+                    title: s.name,
+                    subtitle: subtitle.isEmpty ? null : subtitle,
                     onEdit: () {
-                      showEditCategorySheet(
+                      showEditStoreSheet(
                         context,
-                        categoryId: cat.id,
-                        initialName: cat.name,
+                        idStoreLocation: s.idStoreLocation,
+                        initialName: s.name,
+                        // cityId di form aku simpan sebagai int? sesuai contohmu.
+                        // Jika id bukan angka, FormField-validasinya tetap jalan,
+                        // dan saat submit akan dikirim .toString().
+                        initialCityId:
+                            null, // biarkan picker tampil sesuai detail bila perlu
+                        initialCityName: s.city?.name,
+                        initialProvinceName: s.city?.province?.name,
                       );
                     },
                     onDelete: () async {
                       final confirmed = await _confirmDelete(
                         context,
-                        title: 'Delete Category',
+                        title: 'Delete Store',
                         message:
-                            'Are you sure you want to delete "${cat.name}"? This action cannot be undone.',
+                            'Are you sure you want to delete "${s.name}"? This action cannot be undone.',
                       );
                       if (confirmed != true) return;
 
                       final ok = await context
-                          .read<ProductProvider>()
-                          .deleteProductCategory(context, cat.id);
+                          .read<StoreProvider>()
+                          .deleteStoreLocation(context, s.idStoreLocation);
 
                       if (!context.mounted) return;
 
@@ -146,16 +162,14 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
                           context,
                           type: AppSnackType.success,
                           title: 'Deleted',
-                          message: 'Category has been deleted.',
+                          message: 'Store location has been deleted.',
                         );
                       } else {
                         AppSnackbar.show(
                           context,
                           type: AppSnackType.error,
                           title: 'Failed',
-                          message:
-                              provider.lastError ??
-                              'Failed to delete category.',
+                          message: p.lastError ?? 'Failed to delete store.',
                         );
                       }
                     },
@@ -180,10 +194,10 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
               minimumSize: const Size.fromHeight(48),
             ),
             onPressed: () async {
-              await showAddCategorySheet(context);
+              await showAddStoreSheet(context);
             },
             child: const Text(
-              'Add new category',
+              'Add new store',
               style: TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
@@ -210,7 +224,7 @@ class _SearchHeader extends StatelessWidget {
           controller: controller,
           textInputAction: TextInputAction.search,
           decoration: InputDecoration(
-            hintText: 'Search category name…',
+            hintText: 'Search store or city…',
             filled: true,
             fillColor: const Color(0xFFF3F4F6),
             contentPadding: const EdgeInsets.symmetric(
@@ -268,16 +282,18 @@ class _NoResultTile extends StatelessWidget {
   }
 }
 
-class _CategoryTile extends StatelessWidget {
-  const _CategoryTile({
+class _StoreTile extends StatelessWidget {
+  const _StoreTile({
     required this.id,
     required this.title,
+    this.subtitle,
     this.onEdit,
     this.onDelete,
   });
 
   final String id;
   final String title;
+  final String? subtitle;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
@@ -290,19 +306,39 @@ class _CategoryTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Icon(Icons.category, size: 40, color: Color(0xFF4C6EF5)),
+            const Icon(
+              Icons.store_mall_directory_rounded,
+              size: 40,
+              color: Color(0xFF4C6EF5),
+            ),
             const SizedBox(width: 14),
             Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF111827),
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      style: const TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             const SizedBox(width: 12),
-            // Edit
             SizedBox(
               height: 36,
               child: OutlinedButton(
@@ -322,7 +358,6 @@ class _CategoryTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            // Delete
             SizedBox(
               height: 36,
               child: OutlinedButton.icon(
@@ -349,12 +384,12 @@ class _CategoryTile extends StatelessWidget {
 }
 
 // =============================
-// ADD / EDIT CATEGORY SHEETS
+// ADD / EDIT STORE SHEETS
 // =============================
 
-enum CategorySheetMode { create, edit }
+enum StoreSheetMode { create, edit }
 
-Future<void> showAddCategorySheet(BuildContext context) {
+Future<void> showAddStoreSheet(BuildContext context) {
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -363,14 +398,17 @@ Future<void> showAddCategorySheet(BuildContext context) {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (_) => const _CategorySheet(mode: CategorySheetMode.create),
+    builder: (_) => const _StoreSheet(mode: StoreSheetMode.create),
   );
 }
 
-Future<void> showEditCategorySheet(
+Future<void> showEditStoreSheet(
   BuildContext context, {
-  required String categoryId,
+  required String idStoreLocation,
   required String initialName,
+  String? initialCityId,
+  String? initialCityName,
+  String? initialProvinceName,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -380,36 +418,59 @@ Future<void> showEditCategorySheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (_) => _CategorySheet(
-      mode: CategorySheetMode.edit,
-      categoryId: categoryId,
+    builder: (_) => _StoreSheet(
+      mode: StoreSheetMode.edit,
+      idStoreLocation: idStoreLocation,
       initialName: initialName,
+      initialCityId: initialCityId,
+      initialCityName: initialCityName,
+      initialProvinceName: initialProvinceName,
     ),
   );
 }
 
-class _CategorySheet extends StatefulWidget {
-  const _CategorySheet({required this.mode, this.categoryId, this.initialName});
+class _StoreSheet extends StatefulWidget {
+  const _StoreSheet({
+    required this.mode,
+    this.idStoreLocation,
+    this.initialName,
+    this.initialCityId,
+    this.initialCityName,
+    this.initialProvinceName,
+  });
 
-  final CategorySheetMode mode;
-  final String? categoryId;
+  final StoreSheetMode mode;
+  final String? idStoreLocation;
   final String? initialName;
+  final String? initialCityId; // mengacu ke contohmu (FormField<int>)
+  final String? initialCityName;
+  final String? initialProvinceName;
 
   @override
-  State<_CategorySheet> createState() => _CategorySheetState();
+  State<_StoreSheet> createState() => _StoreSheetState();
 }
 
-class _CategorySheetState extends State<_CategorySheet> {
+class _StoreSheetState extends State<_StoreSheet> {
   final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _nameController;
+  late final TextEditingController _nameC;
 
   bool _isValid = false;
+
+  // City picker state mengikuti pola contoh penggunaannya:
+  String? _cityId;
+  String? _cityName;
+  String? _provinceName;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.initialName ?? '');
-    _nameController.addListener(_revalidate);
+    _nameC = TextEditingController(text: widget.initialName ?? '');
+    _nameC.addListener(_revalidate);
+
+    _cityId = widget.initialCityId;
+    _cityName = widget.initialCityName;
+    _provinceName = widget.initialProvinceName;
+
     WidgetsBinding.instance.addPostFrameCallback((_) => _revalidate());
   }
 
@@ -420,19 +481,25 @@ class _CategorySheetState extends State<_CategorySheet> {
 
   @override
   void dispose() {
-    _nameController.removeListener(_revalidate);
-    _nameController.dispose();
+    _nameC.removeListener(_revalidate);
+    _nameC.dispose();
     super.dispose();
   }
 
   Future<void> _submit(BuildContext context) async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    final name = _nameController.text.trim();
-    final provider = context.read<ProductProvider>();
+    final provider = context.read<StoreProvider>();
+    final name = _nameC.text.trim();
+    final cityIdStr = _cityId ?? '';
+    if (cityIdStr.isEmpty) return; // guard
 
-    if (widget.mode == CategorySheetMode.create) {
-      final ok = await provider.addProductCategory(context, name);
+    if (widget.mode == StoreSheetMode.create) {
+      final ok = await provider.addStoreLocation(
+        context: context,
+        name: name,
+        cityId: cityIdStr, // String
+      );
       if (!mounted) return;
       Navigator.of(context).pop();
       if (ok) {
@@ -440,19 +507,24 @@ class _CategorySheetState extends State<_CategorySheet> {
           context,
           type: AppSnackType.success,
           title: 'Added',
-          message: 'Category added successfully.',
+          message: 'Store location added successfully.',
         );
       } else {
         AppSnackbar.show(
           context,
           type: AppSnackType.error,
           title: 'Failed',
-          message: provider.lastError ?? 'Failed to add category.',
+          message: provider.lastError ?? 'Failed to add store.',
         );
       }
     } else {
-      final id = widget.categoryId!;
-      final ok = await provider.updateProductCategory(context, id, name);
+      final id = widget.idStoreLocation!;
+      final ok = await provider.updateStoreLocation(
+        context: context,
+        idStoreLocation: id,
+        name: name,
+        cityId: cityIdStr,
+      );
       if (!mounted) return;
       Navigator.of(context).pop();
       if (ok) {
@@ -460,14 +532,14 @@ class _CategorySheetState extends State<_CategorySheet> {
           context,
           type: AppSnackType.success,
           title: name,
-          message: 'Category updated successfully.',
+          message: 'Store location updated successfully.',
         );
       } else {
         AppSnackbar.show(
           context,
           type: AppSnackType.error,
           title: 'Failed',
-          message: provider.lastError ?? 'Failed to update category.',
+          message: provider.lastError ?? 'Failed to update store.',
         );
       }
     }
@@ -476,9 +548,9 @@ class _CategorySheetState extends State<_CategorySheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final isEdit = widget.mode == CategorySheetMode.edit;
-    final header = isEdit ? 'Edit Category' : 'New Category';
-    final buttonText = isEdit ? 'Save changes' : 'Add new category';
+    final isEdit = widget.mode == StoreSheetMode.edit;
+    final header = isEdit ? 'Edit Store' : 'New Store';
+    final buttonText = isEdit ? 'Save changes' : 'Add new store';
 
     return Padding(
       padding: EdgeInsets.only(
@@ -528,22 +600,19 @@ class _CategorySheetState extends State<_CategorySheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Category Name',
+                  'Store Name',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
-                  controller: _nameController,
+                  controller: _nameC,
                   autovalidateMode: AutovalidateMode.onUserInteraction,
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) {
-                    if (_isValid) _submit(context);
-                  },
-                  validator: (value) => (value?.trim().isEmpty ?? true)
-                      ? 'Category name is required'
+                  textInputAction: TextInputAction.next,
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Store name is required'
                       : null,
                   decoration: const InputDecoration(
-                    hintText: 'E.g Electronics',
+                    hintText: 'e.g. Branch 1',
                     filled: true,
                     fillColor: Color(0xFFF3F4F6),
                     contentPadding: EdgeInsets.symmetric(
@@ -556,7 +625,43 @@ class _CategorySheetState extends State<_CategorySheet> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 14),
+
+                // ==== CITY PICKER (mengikuti contohmu persis) ====
+                FormField<String>(
+                  initialValue: _cityId,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  validator: (v) =>
+                      (v == null || v.isEmpty) ? 'Required' : null,
+                  builder: (ff) => SelectFieldTile(
+                    label: 'City',
+                    valueText: (_cityName == null)
+                        ? null
+                        : ((_provinceName ?? '').isEmpty
+                              ? _cityName
+                              : '$_cityName • $_provinceName'),
+                    emptyHint: 'Select city',
+                    errorText: ff.errorText,
+                    onTap: () async {
+                      final picked = await showCityPickerSheet(
+                        context,
+                        selectedId: _cityId, // String
+                      );
+                      if (picked != null && mounted) {
+                        setState(() {
+                          _cityId = picked.id; // String
+                          _cityName = picked.label;
+                          _provinceName =
+                              picked.data?.province.name; // Province.name
+                        });
+                        ff.didChange(_cityId); // notify FormField
+                      }
+                    },
+                  ),
+                ),
+
                 const SizedBox(height: 16),
+
                 SizedBox(
                   width: double.infinity,
                   height: 48,
@@ -589,6 +694,8 @@ class _CategorySheetState extends State<_CategorySheet> {
     );
   }
 }
+
+// ======= DIALOG KONFIRMASI =======
 
 Future<bool?> _confirmDelete(
   BuildContext context, {

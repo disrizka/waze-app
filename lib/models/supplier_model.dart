@@ -10,7 +10,7 @@ class Supplier {
   final City? city;
   final String? address;
 
-  Supplier({
+  const Supplier({
     required this.idSupplier,
     required this.name,
     this.logo,
@@ -23,30 +23,31 @@ class Supplier {
 
   factory Supplier.fromJson(Map<String, dynamic> json) {
     return Supplier(
-      idSupplier: (json['idSupplier'] as String?) ?? '',
-      name: (json['name'] as String?) ?? '',
-      logo: json['logo'] as String?,
-      logoPath: json['logoPath'] as String?,
-      phone: json['phone'] as String?,
-      email: json['email'] as String?,
+      idSupplier: (json['idSupplier'] ?? json['id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      logo: json['logo']?.toString(),
+      logoPath: json['logoPath']?.toString(),
+      phone: json['phone']?.toString(),
+      email: json['email']?.toString(),
       city: (json['city'] is Map<String, dynamic>)
           ? City.fromJson(json['city'] as Map<String, dynamic>)
           : null,
-      address: json['address'] as String?,
+      address: json['address']?.toString(),
     );
   }
-}
 
-class Province {
-  final int id;
-  final String name;
+  Map<String, dynamic> toJson() => {
+    'idSupplier': idSupplier,
+    'name': name,
+    if (logo != null) 'logo': logo,
+    if (logoPath != null) 'logoPath': logoPath,
+    if (phone != null) 'phone': phone,
+    if (email != null) 'email': email,
+    if (city != null) 'city': city!.toJson(),
+    if (address != null) 'address': address,
+  };
 
-  Province({required this.id, required this.name});
-
-  factory Province.fromJson(Map<String, dynamic> json) {
-    return Province(
-      id: (json['id'] as num?)?.toInt() ?? 0,
-      name: (json['name'] as String?) ?? '',
-    );
-  }
+  @override
+  String toString() =>
+      'Supplier(idSupplier: $idSupplier, name: $name, city: ${city?.name ?? '-'})';
 }

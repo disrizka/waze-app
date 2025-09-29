@@ -1,3 +1,4 @@
+// lib/screens/sales/steps/select_product_step.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
@@ -15,7 +16,7 @@ class SelectProductStep extends StatelessWidget {
     // Auto-load katalog saat pertama kali masuk jika masih kosong
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final sp = context.read<SalesProvider>();
-      if (!sp.loadingProducts && sp.products.isEmpty) {
+      if (!sp.loadingSkus && sp.skus.isEmpty) {
         sp.loadCatalog(context);
       }
     });
@@ -23,7 +24,7 @@ class SelectProductStep extends StatelessWidget {
     final sp = context.watch<SalesProvider>();
 
     Widget body;
-    if (sp.loadingProducts) {
+    if (sp.loadingSkus) {
       body = const Center(child: CircularProgressIndicator());
     } else if (sp.catalogError != null) {
       body = Center(
@@ -38,7 +39,7 @@ class SelectProductStep extends StatelessWidget {
                 color: AppColors.danger,
               ),
               const SizedBox(height: 8),
-              Text('Failed to load products', style: DS.tsTitle),
+              Text('Failed to load SKUs', style: DS.tsTitle),
               const SizedBox(height: 6),
               Text(
                 sp.catalogError!,
@@ -54,7 +55,7 @@ class SelectProductStep extends StatelessWidget {
           ),
         ),
       );
-    } else if (sp.products.isEmpty) {
+    } else if (sp.skus.isEmpty) {
       body = Center(
         child: Padding(
           padding: DS.p16,
@@ -67,7 +68,7 @@ class SelectProductStep extends StatelessWidget {
                 color: AppColors.disabledFg,
               ),
               const SizedBox(height: 8),
-              Text('No products available', style: DS.tsTitle),
+              Text('No SKUs available', style: DS.tsTitle),
               const SizedBox(height: 6),
               Text(
                 'Add products first or pull to refresh.',
@@ -82,62 +83,65 @@ class SelectProductStep extends StatelessWidget {
         onRefresh: () => sp.loadCatalog(context),
         child: ListView.separated(
           padding: EdgeInsets.zero,
-          itemCount: sp.products.length,
+          itemCount: sp.skus.length,
           separatorBuilder: (_, __) =>
               const Divider(height: 1, color: AppColors.divider),
-          itemBuilder: (_, i) => _RowProduct(product: sp.products[i]),
+          itemBuilder: (_, i) => _RowSku(sku: sp.skus[i]),
         ),
       );
     }
 
-    return Column(
-      children: [
-        if (withHeader)
-          const StepperHeader(activeIndex: 0)
-        else
-          const SizedBox.shrink(),
-        Expanded(child: body),
-        SafeArea(
-          minimum: DS.p16,
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: sp.cartItems.isEmpty ? null : () => sp.goTo(1),
-              style: DS.primaryBtn(enabled: !sp.cartItems.isEmpty),
-              child: const Text('Next'),
+    return Container(
+      color: Colors.white,
+      child: Column(
+        children: [
+          if (withHeader)
+            const StepperHeader(activeIndex: 0)
+          else
+            const SizedBox.shrink(),
+          Expanded(child: body),
+          SafeArea(
+            minimum: DS.p16,
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: sp.cartItems.isEmpty ? null : () => sp.goTo(1),
+                style: DS.primaryBtn(enabled: !sp.cartItems.isEmpty),
+                child: const Text('Next'),
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _RowProduct extends StatelessWidget {
-  final PosProduct product; // <- pakai PosProduct dari SalesProvider
-  const _RowProduct({required this.product});
+class _RowSku extends StatelessWidget {
+  final PosSku sku;
+  const _RowSku({required this.sku});
 
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<SalesProvider>();
 
     final item = prov.cartItems.firstWhere(
-      (e) => e.product.id == product.id,
-      orElse: () => CartItem(product: product, qty: 0),
+      (e) => e.sku.skuId == sku.skuId,
+      orElse: () => CartItem(sku: sku, qty: 0),
     );
     final inCart = item.qty > 0;
 
     final image = ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: (product.imageUrl.isNotEmpty)
+      child: (sku.imageUrl.isNotEmpty)
           ? Image.network(
-              product.imageUrl,
+              sku.imageUrl,
               width: 72,
               height: 72,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _ImageFallback(),
+              errorBuilder: (_, __, ___) => const _ImageFallback(),
             )
-          : _ImageFallback(),
+          : const _ImageFallback(),
     );
 
     final content = Padding(
@@ -150,37 +154,51 @@ class _RowProduct extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Nama produk (besar)
                 Text(
-                  product.name,
-                  style: product.inStock
+                  sku.productName,
+                  style: sku.inStock
                       ? DS.tsTitle
                       : DS.tsTitle.copyWith(color: AppColors.disabledFg),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
+                // Kode SKU (kecil)
                 Text(
-                  formatRp(product.price),
-                  style: product.inStock
+                  sku.skuCode,
+                  style: DS.tsBody.copyWith(
+                    color: sku.inStock
+                        ? AppColors.secondaryText
+                        : AppColors.disabledFg,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 6),
+                // Harga SKU
+                Text(
+                  formatRp(sku.price),
+                  style: sku.inStock
                       ? DS.tsPrice
                       : DS.tsPrice.copyWith(color: AppColors.disabledFg),
                 ),
-                if (!product.inStock) ...[
+                if (!sku.inStock) ...[
                   const SizedBox(height: 6),
                   const Text('Out Of Stock', style: DS.tsOutOfStock),
                 ],
               ],
             ),
           ),
-          if (product.inStock)
+          if (sku.inStock)
             (inCart
                 ? _QtyPill(
                     qty: item.qty,
-                    onMinus: () => prov.removeOne(product),
-                    onPlus: () => prov.add(product),
+                    onMinus: () => prov.removeOne(sku),
+                    onPlus: () => prov.add(sku),
                   )
                 : ElevatedButton(
-                    onPressed: () => prov.add(product),
+                    onPressed: () => prov.add(sku),
                     style: DS.pillChoose(),
                     child: const Text('Choose'),
                   )),
@@ -191,7 +209,7 @@ class _RowProduct extends StatelessWidget {
     return Stack(
       children: [
         content,
-        if (!product.inStock)
+        if (!sku.inStock)
           Positioned.fill(
             child: IgnorePointer(
               child: Container(
@@ -205,6 +223,8 @@ class _RowProduct extends StatelessWidget {
 }
 
 class _ImageFallback extends StatelessWidget {
+  const _ImageFallback();
+
   @override
   Widget build(BuildContext context) {
     return Container(

@@ -82,7 +82,7 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
   final _addressC = TextEditingController();
 
   // state pengganti City ID input → pakai picker
-  int? _cityId;
+  String? _cityId;
   String? _cityName;
   String? _provinceName;
 
@@ -107,7 +107,7 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
       _cityId = s.city?.id;
       _cityName = s.city?.name;
       // sesuaikan properti provinceName di model supplier kamu:
-      _provinceName = s.city?.provinceName;
+      _provinceName = s.city?.province.name;
     }
   }
 
@@ -123,13 +123,13 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
   Future<void> _pickCity() async {
     final picked = await showCityPickerSheet(
       context,
-      selectedId: _cityId.toString(),
+      selectedId: _cityId, // langsung String
     );
     if (picked != null && mounted) {
       setState(() {
-        _cityId = int.tryParse(picked.id); // dari 'c.id'
-        _cityName = picked.label; // dari 'c.name'
-        _provinceName = picked.data?.provinceName; // dari 'c.provinceName'
+        _cityId = picked.id; // String
+        _cityName = picked.label;
+        _provinceName = picked.data?.province.name; // Province.name
       });
     }
   }
@@ -218,9 +218,8 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
       final address = _addressC.text.trim().isEmpty
           ? null
           : _addressC.text.trim();
-      final cityId = _cityId ?? 0;
-
-      if (cityId <= 0) {
+      final cityId = _cityId ?? '';
+      if (cityId.isEmpty) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Please select a city')));
@@ -308,7 +307,7 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
         ? 'Add Supplier'
         : 'Edit Supplier';
 
-    final isValid = _nameC.text.trim().isNotEmpty && ((_cityId ?? 0) > 0);
+    final isValid = _nameC.text.trim().isNotEmpty;
 
     return Padding(
       padding: EdgeInsets.only(bottom: padBottom),
@@ -468,12 +467,11 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
                         const SizedBox(height: 16),
 
                         // CITY (Picker)
-                        // CITY (Picker) - gunakan FormField agar validasi tidak merah dari awal
-                        FormField<int>(
+                        FormField<String>(
                           initialValue: _cityId,
                           autovalidateMode: AutovalidateMode.onUserInteraction,
                           validator: (v) =>
-                              (v == null || v <= 0) ? 'Required' : null,
+                              (v == null || v.isEmpty) ? 'Required' : null,
                           builder: (ff) => SelectFieldTile(
                             label: 'City',
                             valueText: (_cityName == null)
@@ -482,23 +480,22 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
                                       ? _cityName
                                       : '$_cityName • $_provinceName'),
                             emptyHint: 'Select city',
-                            errorText: ff
-                                .errorText, // ← ambil dari FormField, bukan hitung sendiri
+                            errorText: ff.errorText,
                             onTap: () async {
                               final picked = await showCityPickerSheet(
                                 context,
-                                selectedId: _cityId
-                                    ?.toString(), // optional: highlight yang terpilih
+                                selectedId: _cityId, // String
                               );
                               if (picked != null && mounted) {
                                 setState(() {
-                                  _cityId = int.tryParse(picked.id);
+                                  _cityId = picked.id; // String
                                   _cityName = picked.label;
-                                  _provinceName = picked.data?.provinceName;
+                                  _provinceName = picked
+                                      .data
+                                      ?.province
+                                      .name; // Province.name
                                 });
-                                ff.didChange(
-                                  _cityId,
-                                ); // ← beri tahu FormField nilai ter-update
+                                ff.didChange(_cityId); // beritahu FormField
                               }
                             },
                           ),
