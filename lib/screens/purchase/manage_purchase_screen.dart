@@ -48,7 +48,7 @@ class ManagePurchaseScreen extends StatelessWidget {
             _MenuTile(
               icon: Icons.store,
               title: 'Store List',
-              onTap: () => Navigator.pushNamed(context, '/purchase/supplier'),
+              onTap: () => Navigator.pushNamed(context, '/store'),
             ),
           ],
         ),

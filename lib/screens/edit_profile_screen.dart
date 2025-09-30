@@ -1,9 +1,9 @@
 import 'dart:io';
-
 import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../constants/app_colors.dart';
 import '../providers/edit_profile_provider.dart';
 
 class EditProfileScreen extends StatelessWidget {
@@ -28,24 +28,30 @@ class _EditProfileView extends StatelessWidget {
     final p = context.watch<EditProfileProvider>();
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.white,
         titleSpacing: 0,
         centerTitle: false,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/splash'),
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: AppColors.black,
+          ),
+          onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
           'Account',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: AppColors.textPrimary,
+          ),
         ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: SizedBox(
-              height: 28, // kecil & rapih
+              height: 28,
               child: TextButton(
                 onPressed: p.isSaving
                     ? null
@@ -73,15 +79,14 @@ class _EditProfileView extends StatelessWidget {
                     ),
                   ),
                   backgroundColor: WidgetStateProperty.resolveWith((states) {
-                    const blue = Color(0xFF4C6EF5); // biru cantik
                     if (states.contains(WidgetState.disabled)) {
-                      return blue.withOpacity(0.5);
+                      return AppColors.blueButton.withOpacity(0.5);
                     }
-                    return blue;
+                    return AppColors.blueButton;
                   }),
-                  foregroundColor: WidgetStateProperty.all(Colors.white),
+                  foregroundColor: WidgetStateProperty.all(AppColors.white),
                   overlayColor: WidgetStateProperty.all(
-                    Colors.white.withOpacity(0.12),
+                    AppColors.white.withOpacity(0.12),
                   ),
                   elevation: WidgetStateProperty.all(0),
                 ),
@@ -90,7 +95,6 @@ class _EditProfileView extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
-                    letterSpacing: 0,
                   ),
                 ),
               ),
@@ -134,47 +138,12 @@ class _EditProfileView extends StatelessWidget {
                       hint: 'Your Business Name',
                     ),
                     const SizedBox(height: 8),
-                    _LogoPicker(),
+                    const _LogoPicker(),
                     const SizedBox(height: 28),
                   ],
                 ),
               ),
             ),
-    );
-  }
-}
-
-class _LabeledField extends StatelessWidget {
-  final String label;
-  final TextEditingController controller;
-  final TextInputType? keyboardType;
-
-  const _LabeledField({
-    required this.label,
-    required this.controller,
-    this.keyboardType,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionTitle(label),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          decoration: InputDecoration(
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 14,
-            ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -187,7 +156,11 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+      style: const TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        color: AppColors.textPrimary,
+      ),
     );
   }
 }
@@ -195,16 +168,12 @@ class _SectionTitle extends StatelessWidget {
 class _LogoPicker extends StatelessWidget {
   const _LogoPicker();
 
-  static const _blue = Color(0xFF4C6EF5);
-  static const _blueSoft = Color(0xFFE8EDFF);
-
   @override
   Widget build(BuildContext context) {
     final p = context.watch<EditProfileProvider>();
     final hasFile = p.pickedLogoFile != null;
     final hasUrl = (p.existingLogoPath ?? '').isNotEmpty;
 
-    // ukuran kotak (ikuti desain)
     const double boxHeight = 110;
     const Radius boxRadius = Radius.circular(12);
 
@@ -224,16 +193,15 @@ class _LogoPicker extends StatelessWidget {
           width: double.infinity,
           height: boxHeight,
           fit: BoxFit.cover,
-          // fallback: icon kalau URL error
           errorBuilder: (ctx, err, st) => Container(
             width: double.infinity,
             height: boxHeight,
-            color: Colors.grey[200],
+            color: AppColors.greyBackground,
             alignment: Alignment.center,
             child: const Icon(
               Icons.broken_image_rounded,
               size: 36,
-              color: Colors.grey,
+              color: AppColors.grey,
             ),
           ),
         );
@@ -241,7 +209,7 @@ class _LogoPicker extends StatelessWidget {
 
       return DottedBorder(
         options: const RoundedRectDottedBorderOptions(
-          color: _blue,
+          color: AppColors.blueButton,
           dashPattern: <double>[8, 6],
           strokeWidth: 2,
           radius: boxRadius,
@@ -249,12 +217,10 @@ class _LogoPicker extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            // gambar memenuhi kotak
             ClipRRect(
               borderRadius: BorderRadius.circular(boxRadius.x),
               child: image,
             ),
-            // tombol silang
             Positioned(
               top: 6,
               right: 6,
@@ -271,13 +237,13 @@ class _LogoPicker extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
-                    color: Colors.black54,
+                    color: AppColors.black.withOpacity(0.54),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Icon(
                     Icons.close_rounded,
                     size: 16,
-                    color: Colors.white,
+                    color: AppColors.white,
                   ),
                 ),
               ),
@@ -287,10 +253,10 @@ class _LogoPicker extends StatelessWidget {
       );
     }
 
-    // === STATE: KOSONG (sesuai screenshot) ===
+    // === STATE: KOSONG ===
     return DottedBorder(
       options: const RoundedRectDottedBorderOptions(
-        color: _blue,
+        color: AppColors.blueButton,
         dashPattern: <double>[8, 6],
         strokeWidth: 2,
         radius: boxRadius,
@@ -302,28 +268,26 @@ class _LogoPicker extends StatelessWidget {
           height: boxHeight,
           padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.white,
             borderRadius: BorderRadius.circular(boxRadius.x),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // ikon tile
               Container(
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: _blueSoft,
+                  color: AppColors.greyBackground,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
                   Icons.file_upload_rounded,
-                  color: _blue,
+                  color: AppColors.blueButton,
                   size: 22,
                 ),
               ),
               const SizedBox(width: 12),
-              // teks
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -332,11 +296,14 @@ class _LogoPicker extends StatelessWidget {
                     Text.rich(
                       TextSpan(
                         text: 'Add your logo Business',
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
                         children: [
                           TextSpan(
                             text: ' *',
-                            style: TextStyle(color: Colors.red),
+                            style: TextStyle(color: AppColors.red),
                           ),
                         ],
                       ),
@@ -344,7 +311,10 @@ class _LogoPicker extends StatelessWidget {
                     SizedBox(height: 4),
                     Text(
                       'Format JPG, PNG',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.disabledFg,
+                      ),
                     ),
                   ],
                 ),
@@ -367,50 +337,42 @@ class LogoUploadBox extends StatelessWidget {
     required this.onChooseLogo,
   });
 
-  static const Color _blue = Color(0xFF4C6EF5);
-  static const Color _blueSoft = Color(0xFFE8EDFF);
-  static const Color _textGray = Color(0xFF374151);
-  static const Color _hintGray = Color(0xFF9CA3AF);
-
   @override
   Widget build(BuildContext context) {
     return DottedBorder(
-      options: RoundedRectDottedBorderOptions(
-        color: _blue,
-        dashPattern: const <double>[8, 6],
+      options: const RoundedRectDottedBorderOptions(
+        color: AppColors.blueButton,
+        dashPattern: <double>[8, 6],
         strokeWidth: 2,
-        radius: const Radius.circular(12),
-        padding: const EdgeInsets.all(0),
+        radius: Radius.circular(12),
+        padding: EdgeInsets.all(0),
       ),
       child: Container(
         height: 110,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppColors.white,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Preview / icon
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Container(
                 width: 52,
                 height: 52,
-                color: _blueSoft,
+                color: AppColors.greyBackground,
                 child: logo == null
                     ? const Icon(
                         Icons.file_upload_rounded,
                         size: 22,
-                        color: _blue,
+                        color: AppColors.blueButton,
                       )
                     : Image.file(logo!, fit: BoxFit.cover),
               ),
             ),
             const SizedBox(width: 12),
-
-            // Texts
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -421,18 +383,18 @@ class LogoUploadBox extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     text: TextSpan(
                       style: const TextStyle(
-                        color: _textGray,
+                        color: AppColors.textPrimary,
                         fontWeight: FontWeight.w600,
                       ),
                       children: [
                         TextSpan(
                           text: logo == null
                               ? 'Add your organisation logo'
-                              : 'Selected: ${logo!.path.split('/').last}',
+                              : 'Selected: ???',
                         ),
                         const TextSpan(
                           text: ' *',
-                          style: TextStyle(color: Colors.red),
+                          style: TextStyle(color: AppColors.red),
                         ),
                       ],
                     ),
@@ -440,18 +402,20 @@ class LogoUploadBox extends StatelessWidget {
                   const SizedBox(height: 4),
                   const Text(
                     'Format JPG, PNG (maks 5–10MB)',
-                    style: TextStyle(fontSize: 12, color: _hintGray),
+                    style: TextStyle(fontSize: 12, color: AppColors.disabledFg),
                   ),
                 ],
               ),
             ),
-
             const SizedBox(width: 8),
             TextButton(
               onPressed: onChooseLogo,
               child: const Text(
                 'Upload',
-                style: TextStyle(color: _blue, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: AppColors.blueButton,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -487,18 +451,18 @@ class AccountField extends StatelessWidget {
             style: const TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: 14,
-              color: Color(0xFF111827),
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 6),
           TextField(
             controller: controller,
             keyboardType: keyboardType,
-            style: const TextStyle(fontSize: 15.5, color: Color(0xFF111827)),
-            decoration: InputDecoration(
-              // cukup pakai theme di atas, tambah hint bila perlu
-              hintText: hint,
+            style: const TextStyle(
+              fontSize: 15.5,
+              color: AppColors.textPrimary,
             ),
+            decoration: InputDecoration(hintText: hint),
           ),
         ],
       ),

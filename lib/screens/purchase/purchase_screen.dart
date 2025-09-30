@@ -12,8 +12,25 @@ import '../../providers/product_provider.dart';
 
 import '../detail_purchase_screen.dart';
 
-class PurchaseScreen extends StatelessWidget {
+class PurchaseScreen extends StatefulWidget {
   const PurchaseScreen({super.key});
+
+  @override
+  State<PurchaseScreen> createState() => _PurchaseScreenState();
+}
+
+class _PurchaseScreenState extends State<PurchaseScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // fetch purchases setelah frame pertama agar aman dari initState context
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<PurchaseProvider>().fetchPurchases(context);
+      // Opsional: preload supplier untuk sheet
+      // context.read<PurchaseProvider>().fetchSuppliers(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,19 +62,32 @@ class PurchaseScreen extends StatelessWidget {
               minimumSize: const Size.fromHeight(46),
             ),
             onPressed: () async {
-              final result = await showAddPurchaseSheet(context);
-              if (result != null && context.mounted) {
-                // TODO: kirim ke provider/API kalau sudah siap.
-                // Misal:
-                // final ok = await context.read<PurchaseProvider>().createPurchase(context, result);
-                // if (ok) context.read<PurchaseProvider>().fetchPurchases(context);
+              final payload = await showAddPurchaseSheet(
+                context,
+              ); // <— sekarang return payload Map
+              if (payload == null || !context.mounted) return;
 
+              final ok = await context.read<PurchaseProvider>().storePurchase(
+                context,
+                payload,
+              );
+
+              if (ok && context.mounted) {
+                await context.read<PurchaseProvider>().fetchPurchases(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Purchase created successfully'),
+                    backgroundColor: Color(0xFF059669),
+                  ),
+                );
+              } else if (context.mounted) {
+                final err =
+                    context.read<PurchaseProvider>().consumeLastError() ??
+                    'Failed';
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(
-                      'Draft Purchase: supplier=${result.supplierName} • product=${result.skuLabel} • qty=${result.qty} • price=${result.price}',
-                    ),
-                    backgroundColor: const Color(0xFF059669),
+                    content: Text(err),
+                    backgroundColor: const Color(0xFFDC2626),
                   ),
                 );
               }
@@ -84,209 +114,214 @@ class _PurchaseList extends StatelessWidget {
     return Consumer<PurchaseProvider>(
       builder: (context, prov, _) {
         final items = prov.items;
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24 + 72),
-          itemCount: items.length + 1,
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return const Padding(
-                padding: EdgeInsets.only(bottom: 12),
-                child: Text(
-                  'History Purchase',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF6B7280),
-                  ),
-                ),
-              );
-            }
+        final isLoading = prov.loadingPurchases;
+        final error = prov.purchaseError;
 
-            final item = items[index - 1];
+        // Pull to refresh bungkus ListView manapun
+        return RefreshIndicator(
+          onRefresh: () =>
+              context.read<PurchaseProvider>().fetchPurchases(context),
+          color: const Color(0xFF426FD4),
+          child: Builder(
+            builder: (context) {
+              if (isLoading && items.isEmpty) {
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 24 + 72),
+                  children: const [Center(child: CircularProgressIndicator())],
+                );
+              }
 
-            final card = DottedBorder(
-              options: RoundedRectDottedBorderOptions(
-                color: const Color(0xFFD1D5DB),
-                dashPattern: const [6, 6],
-                strokeWidth: 1.4,
-                radius: const Radius.circular(12),
-                padding: const EdgeInsets.all(0),
-              ),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              if (error != null && items.isEmpty) {
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 24 + 72),
                   children: [
-                    // header
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: Colors.indigo.shade50,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.shopping_bag_rounded,
-                            size: 20,
-                            color: Colors.indigo.shade700,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.code,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF111827),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                fTime.format(item.time),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF9CA3AF),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _StatusChip(status: item.status),
-                      ],
+                    _ErrorBox(
+                      message: error,
+                      onRetry: () => context
+                          .read<PurchaseProvider>()
+                          .fetchPurchases(context),
                     ),
-                    const SizedBox(height: 16),
-                    // amounts
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Total amount',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF6B7280),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Rp. ${fMoney.format(item.totalAmount)}',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF111827),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const Text(
-                              'Quantity',
+                  ],
+                );
+              }
+
+              if (items.isEmpty) {
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 24 + 72),
+                  children: const [_EmptyBox()],
+                );
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24 + 72),
+                itemCount: items.length + 1,
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'History Purchase',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
                                 color: Color(0xFF6B7280),
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${item.quantity}',
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF111827),
-                              ),
+                          ),
+                          if (isLoading)
+                            const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
+                        ],
+                      ),
+                    );
+                  }
 
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  Navigator.pushNamed(
-                    context,
-                    '/detail-purchase',
-                    arguments: {'code': item.code},
+                  final item = items[index - 1];
+
+                  final card = DottedBorder(
+                    options: RoundedRectDottedBorderOptions(
+                      color: const Color(0xFFD1D5DB),
+                      dashPattern: const [6, 6],
+                      strokeWidth: 1.4,
+                      radius: const Radius.circular(12),
+                      padding: const EdgeInsets.all(0),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // header
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: Colors.indigo.shade50,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.shopping_bag_rounded,
+                                  size: 20,
+                                  color: Colors.indigo.shade700,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.code,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF111827),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      fTime.format(item.time),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF9CA3AF),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // (status chip dihapus sesuai permintaan)
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          // amounts
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Total amount',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF6B7280),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Rp. ${fMoney.format(item.totalAmount)}',
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF111827),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  const Text(
+                                    'Quantity',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF6B7280),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${item.quantity}',
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF111827),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        Navigator.pushNamed(
+                          context,
+                          '/detail-purchase',
+                          arguments: {
+                            'id': item.idTransaction,
+                          }, // <-- pastikan item punya idTransaction
+                        );
+                      },
+                      child: card,
+                    ),
                   );
                 },
-                child: card,
-              ),
-            );
-          },
+              );
+            },
+          ),
         );
       },
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  final PurchaseStatus status;
-  const _StatusChip({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    late String label;
-    late final Color dot;
-    late final Color textColor;
-
-    switch (status) {
-      case PurchaseStatus.inProgress:
-        label = 'In Progress';
-        dot = const Color(0xFFB45309);
-        textColor = const Color(0xFFB45309);
-        break;
-      case PurchaseStatus.completed:
-        label = 'Completed';
-        dot = const Color(0xFF059669);
-        textColor = const Color(0xFF059669);
-        break;
-      case PurchaseStatus.canceled:
-        label = 'Canceled';
-        dot = const Color(0xFFDC2626);
-        textColor = const Color(0xFFDC2626);
-        break;
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: textColor,
-          ),
-        ),
-      ],
     );
   }
 }
@@ -322,8 +357,9 @@ class AddPurchaseResult {
   };
 }
 
-Future<AddPurchaseResult?> showAddPurchaseSheet(BuildContext context) {
-  return showModalBottomSheet<AddPurchaseResult>(
+// KINI: showAddPurchaseSheet mengembalikan Map payload siap kirim ke API
+Future<Map<String, dynamic>?> showAddPurchaseSheet(BuildContext context) {
+  return showModalBottomSheet<Map<String, dynamic>>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -345,42 +381,72 @@ class _AddPurchaseSheet extends StatefulWidget {
 class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
   final _formKey = GlobalKey<FormState>();
 
+  // Store
+  String? _storeId;
+  String? _storeName;
+
+  // Optional number
+  final _numberC = TextEditingController();
+
+  // Supplier (opsional di payload contohmu tidak ada, jadi kita tidak kirim)
   String? _supplierId;
   String? _supplierName;
 
+  // SKU + Product (untuk payload items)
   String? _skuId;
   String? _skuLabel;
 
   final _qtyC = TextEditingController();
   final _priceC = TextEditingController();
 
+  // Tambahan payload
+  final _noteC = TextEditingController();
+  final _refC = TextEditingController();
+  final _discountC = TextEditingController(text: '0');
+  final _shippingFeeC = TextEditingController(text: '0');
+
   final _money = NumberFormat.decimalPattern('id_ID');
 
   @override
   void dispose() {
+    _numberC.dispose();
     _qtyC.dispose();
     _priceC.dispose();
+    _noteC.dispose();
+    _refC.dispose();
+    _discountC.dispose();
+    _shippingFeeC.dispose();
     super.dispose();
   }
 
-  void _selectSupplier() async {
-    // pastikan supplier sudah dimuat
-    final p = context.read<PurchaseProvider>();
-    if (p.suppliers.isEmpty) {
-      await p.fetchSuppliers(context);
-    }
-    final picked = await showModalBottomSheet<_PickOption>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _SelectSupplierSheet(),
-    );
+  String? _validateInt(String? v, {bool allowZero = false}) {
+    if (v == null || v.trim().isEmpty) return 'This field is required';
+    final raw = v.replaceAll(RegExp(r'[^\d]'), '');
+    final n = int.tryParse(raw);
+    if (n == null) return 'Invalid number';
+    if (!allowZero && n <= 0) return 'Must be greater than 0';
+    return null;
+  }
 
-    if (picked != null) {
+  int _parseInt(String v) =>
+      int.tryParse(v.replaceAll(RegExp(r'[^\d]'), '')) ?? 0;
+
+  Future<void> _pickStore() async {
+    final picked = await showStorePickerSheet(context, selectedId: _storeId);
+    if (picked != null && mounted) {
+      setState(() {
+        _storeId = picked.id;
+        _storeName = picked.label;
+      });
+    }
+  }
+
+  Future<void> _pickSupplier() async {
+    final picked = await showSupplierPickerSheet(
+      context,
+      selectedId: _supplierId,
+    );
+    if (picked != null && mounted) {
       setState(() {
         _supplierId = picked.id;
         _supplierName = picked.label;
@@ -388,33 +454,46 @@ class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
     }
   }
 
-  String? _validateInt(String? v, {bool allowZero = false}) {
-    if (v == null || v.trim().isEmpty) return 'This field is required';
-    final raw = v.replaceAll('.', '').replaceAll(',', '');
-    final n = int.tryParse(raw);
-    if (n == null) return 'Invalid number';
-    if (!allowZero && n <= 0) return 'Must be greater than 0';
-    return null;
-  }
-
-  Future<void> _selectSku() async {
-    final picked = await showSkuPickerSheet(
-      context,
-      selectedId: _skuId, // highlight jika sudah ada pilihan
-    );
+  Future<void> _pickSku() async {
+    final picked = await showSkuPickerSheet(context, selectedId: _skuId);
     if (picked != null && mounted) {
       setState(() {
-        _skuId = picked.id; // ← simpan SKU ID
-        _skuLabel = picked.label; // ← tampilkan di field (kode / var utama)
-        // picked.subtitle sudah memuat "Product • VariantUtama"
-        // kalau mau, kamu bisa simpan subtitle juga untuk ditampilkan di UI lain.
+        _skuId = picked.id; // product_sku_id
+        _skuLabel = picked.label;
       });
     }
+  }
+
+  // Cari product_id dari skuId lewat ProductProvider
+  String? _resolveProductIdFromSkuId(String skuId) {
+    final pp = context.read<ProductProvider>();
+    for (final prod in pp.products) {
+      final hit = prod.productSkus.any((s) => s.idProductSku == skuId);
+      if (hit) return prod.idProduct;
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     final insets = MediaQuery.of(context).viewInsets;
+
+    InputDecoration _tiDecoration({required String hint}) => InputDecoration(
+      hintText: hint,
+      isDense: true,
+      filled: true,
+      fillColor: const Color(0xFFF5F9FF),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      enabledBorder: OutlineInputBorder(
+        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderSide: const BorderSide(color: Color(0xFF64B5F6)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+    );
+
     return Padding(
       padding: EdgeInsets.only(bottom: insets.bottom),
       child: SingleChildScrollView(
@@ -425,7 +504,7 @@ class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header drag-handle
+                // handle
                 Center(
                   child: Container(
                     width: 40,
@@ -447,36 +526,41 @@ class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
                 ),
                 const SizedBox(height: 14),
 
-                // Supplier selector
+                // Number (optional)
                 const Text(
-                  'Supplier',
+                  'Number (optional)',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF374151),
                   ),
                 ),
                 const SizedBox(height: 8),
-                // 1) Field klik-untuk-pilih (di form mana pun):
+                TextFormField(
+                  controller: _numberC,
+                  decoration: _tiDecoration(
+                    hint: 'Leave blank to auto-generate',
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Store Location (WAJIB)
+                const Text(
+                  'Store Location',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF374151),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 PickerField(
-                  placeholder: 'Select supplier',
-                  value: _supplierName,
-                  onTap: () async {
-                    final picked = await showSupplierPickerSheet(
-                      context,
-                      selectedId:
-                          _supplierId, // <<— highlight supplier yang sekarang kepilih
-                    );
-                    if (picked != null && mounted) {
-                      setState(() {
-                        _supplierId = picked.id;
-                        _supplierName = picked.label;
-                      });
-                    }
-                  },
+                  placeholder: 'Select store location',
+                  value: _storeName,
+                  onTap: _pickStore,
                 ),
 
                 const SizedBox(height: 14),
 
+                // SKU
                 const Text(
                   'SKU',
                   style: TextStyle(
@@ -487,8 +571,8 @@ class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
                 const SizedBox(height: 8),
                 PickerField(
                   placeholder: 'Select SKU',
-                  value: _skuLabel, // tampilkan kode/label sku
-                  onTap: _selectSku,
+                  value: _skuLabel,
+                  onTap: _pickSku,
                 ),
 
                 const SizedBox(height: 14),
@@ -523,22 +607,80 @@ class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
                 TextFormField(
                   controller: _priceC,
                   keyboardType: TextInputType.number,
-                  validator: (v) => _validateInt(v, allowZero: false),
+                  validator: (v) => _validateInt(v),
                   onChanged: (v) {
-                    // optional: formatting kasat mata
                     final raw = v.replaceAll(RegExp(r'[^\d]'), '');
-                    if (raw.isEmpty) return;
-                    final sel = TextSelection.collapsed(
-                      offset: _priceC.selection.baseOffset,
-                    );
+                    final sel = _priceC.selection;
                     _priceC.value = TextEditingValue(
-                      text: _money.format(int.tryParse(raw) ?? 0),
+                      text: raw.isEmpty ? '' : _money.format(int.parse(raw)),
                       selection: sel,
                     );
                   },
                   decoration: _tiDecoration(hint: '0'),
                 ),
 
+                const SizedBox(height: 14),
+
+                // Note
+                const Text(
+                  'Note',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF374151),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _noteC,
+                  maxLines: 2,
+                  decoration: _tiDecoration(hint: 'Pembelian stok awal 2'),
+                ),
+
+                const SizedBox(height: 14),
+
+                // Reference
+                const Text(
+                  'Reference',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF374151),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _refC,
+                  decoration: _tiDecoration(hint: 'REF-45'),
+                ),
+
+                const SizedBox(height: 14),
+
+                // Discount
+                const Text(
+                  'Discount',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF374151),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _discountC,
+                  keyboardType: TextInputType.number,
+                  validator: (v) => _validateInt(v ?? '0', allowZero: true),
+                  onChanged: (v) {
+                    final raw = v.replaceAll(RegExp(r'[^\d]'), '');
+                    final sel = _discountC.selection;
+                    _discountC.value = TextEditingValue(
+                      text: raw.isEmpty ? '' : _money.format(int.parse(raw)),
+                      selection: sel,
+                    );
+                  },
+                  decoration: _tiDecoration(hint: '0'),
+                ),
+
+                const SizedBox(height: 14),
+
+                // Shipping fee (disembunyikan sesuai komentar sebelumnya)
                 const SizedBox(height: 18),
 
                 Row(
@@ -561,10 +703,11 @@ class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () {
-                          if (_supplierId == null) {
+                          // Validasi minimal: store + sku + qty + price
+                          if (_storeId == null) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('Please select a supplier first'),
+                                content: Text('Please select a store location'),
                               ),
                             );
                             return;
@@ -572,33 +715,49 @@ class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
                           if (_skuId == null) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('Please select SKU first'),
+                                content: Text('Please select SKU'),
                               ),
                             );
                             return;
                           }
                           if (!_formKey.currentState!.validate()) return;
 
-                          final qty = int.parse(
-                            _qtyC.text.replaceAll('.', '').replaceAll(',', ''),
-                          );
-                          final price = int.parse(
-                            _priceC.text
-                                .replaceAll('.', '')
-                                .replaceAll(',', ''),
-                          );
+                          final qty = _parseInt(_qtyC.text);
+                          final price = _parseInt(_priceC.text);
+                          final discount = _parseInt(_discountC.text);
+                          final shipping = _parseInt(_shippingFeeC.text);
 
-                          Navigator.pop(
-                            context,
-                            AddPurchaseResult(
-                              supplierId: _supplierId!,
-                              supplierName: _supplierName ?? '',
-                              skuId: _skuId!,
-                              skuLabel: _skuLabel ?? '',
-                              qty: qty,
-                              price: price,
-                            ),
-                          );
+                          // resolve product_id dari sku
+                          final productId = _resolveProductIdFromSkuId(_skuId!);
+                          if (productId == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Cannot resolve product_id from SKU',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+
+                          final payload = <String, dynamic>{
+                            "number": _numberC.text.trim(), // boleh kosong ""
+                            "store_location_id": _storeId!,
+                            "note": _noteC.text.trim(),
+                            "reference": _refC.text.trim(),
+                            "discount": discount,
+                            "shipping_fee": shipping,
+                            "items": [
+                              {
+                                "product_id": productId,
+                                "product_sku_id": _skuId!,
+                                "qty": qty,
+                                "price": price,
+                              },
+                            ],
+                          };
+
+                          Navigator.pop(context, payload);
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF426FD4),
@@ -623,22 +782,6 @@ class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
       ),
     );
   }
-
-  InputDecoration _tiDecoration({required String hint}) => InputDecoration(
-    hintText: hint,
-    isDense: true,
-    filled: true,
-    fillColor: const Color(0xFFF5F9FF),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-    enabledBorder: OutlineInputBorder(
-      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-      borderRadius: BorderRadius.circular(10),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderSide: const BorderSide(color: Color(0xFF64B5F6)),
-      borderRadius: BorderRadius.circular(10),
-    ),
-  );
 }
 
 /// Field tampilan selector (klik untuk buka sheet)
@@ -969,6 +1112,85 @@ class _SelectProductSheetState extends State<_SelectProductSheet> {
                 },
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorBox extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _ErrorBox({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEE2E2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFCA5A5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Failed to load purchases',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF991B1B),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(message, style: const TextStyle(color: Color(0xFF7F1D1D))),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF991B1B),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyBox extends StatelessWidget {
+  const _EmptyBox();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        children: const [
+          Icon(Icons.receipt_long_rounded, size: 32, color: Color(0xFF9CA3AF)),
+          SizedBox(height: 8),
+          Text(
+            'No purchases yet',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF111827),
+            ),
+          ),
+          SizedBox(height: 6),
+          Text(
+            'Pull down to refresh or create a new purchase.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Color(0xFF6B7280)),
+          ),
         ],
       ),
     );

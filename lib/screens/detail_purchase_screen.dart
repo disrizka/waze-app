@@ -1,280 +1,215 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:wa_blast/widgets/primary_button.dart';
+
 import '../providers/purchase_provider.dart';
-import '../widgets/net_image_square.dart';
 
 class DetailPurchaseScreen extends StatelessWidget {
-  final String code;
-  const DetailPurchaseScreen({super.key, required this.code});
-
-  Future<String?> _getUserNameFromPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('name');
-  }
+  const DetailPurchaseScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final item = context.select<PurchaseProvider, PurchaseItem?>(
-      (p) => p.getByCode(code),
-    );
     final fMoney = NumberFormat.decimalPattern('id_ID');
-    final fTime = DateFormat('hh:mm a');
 
-    if (item == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Detail Purchase')),
-        body: const Center(child: Text('Data tidak ditemukan')),
-      );
-    }
-
-    Color statusColor(PurchaseStatus s) {
-      switch (s) {
-        case PurchaseStatus.completed:
-          return const Color(0xFF059669);
-        case PurchaseStatus.inProgress:
-          return const Color(0xFFB45309);
-        case PurchaseStatus.canceled:
-          return const Color(0xFFDC2626);
-      }
-    }
-
-    String statusLabel(PurchaseStatus s) {
-      switch (s) {
-        case PurchaseStatus.completed:
-          return 'Completed';
-        case PurchaseStatus.inProgress:
-          return 'In Progress';
-        case PurchaseStatus.canceled:
-          return 'Canceled';
-      }
-    }
+    // contoh dummy data
+    final status = "pending";
+    final number = "PUR250929100830";
+    final date = "Mon, 29 Sep 2025 • 10:08";
+    final store = "X";
+    final reference = "REF-526792";
+    final note = "Stok Awal SM Blue";
+    final items = [
+      {
+        "product": "Samsung Galaxy S23",
+        "sku": "SKU: 3627dc...",
+        "qty": 12,
+        "price": 189000000,
+      },
+    ];
+    final total = 2268000000;
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        title: const Text("Detail Purchase"),
         backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.of(context).maybePop(),
-        ),
-        title: const Text('Detail Purchase'),
+        elevation: 0,
+        foregroundColor: Colors.black,
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: () {}),
+        ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.all(16),
         children: [
-          // status row
-          Row(
-            children: [
-              const Spacer(),
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: statusColor(item.status),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                statusLabel(item.status),
-                style: TextStyle(
-                  color: statusColor(item.status),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // serviced by
-          const Text(
-            'Serviced by',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF6B7280),
+          // === Header Card ===
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: Color(0xFFE5E7EB)),
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundImage: NetworkImage(item.servicedByAvatarUrl),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FutureBuilder<String?>(
-                  future: _getUserNameFromPrefs(),
-                  builder: (context, snap) {
-                    final name = snap.data ?? 'Unknown User';
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          item.servicedById,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF9CA3AF),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              Text(
-                fTime.format(item.time),
-                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-          const Divider(height: 1),
-
-          const SizedBox(height: 12),
-          const Text(
-            'Order summary',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-
-          const SizedBox(height: 8),
-
-          // lines
-          ...item.lines.map(
-            (l) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Row(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  NetImageSquare(size: 44, url: l.imageUrl),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        RichText(
-                          text: TextSpan(
-                            style: const TextStyle(
-                              color: Color(0xFF111827),
-                              fontSize: 14,
-                            ),
-                            children: [
-                              TextSpan(
-                                text: '${l.qty} x  ',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              TextSpan(text: l.name),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          l.note,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF9CA3AF),
-                          ),
-                        ),
-                      ],
+                  Text(
+                    number,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF111827),
                     ),
                   ),
+                  const SizedBox(height: 4),
                   Text(
-                    'IDR ${fMoney.format(l.price)}',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    date,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _StatusChip(status: status),
+                      const SizedBox(width: 12),
+                      Icon(
+                        Icons.store_rounded,
+                        size: 16,
+                        color: Color(0xFF6B7280),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        store,
+                        style: const TextStyle(color: Color(0xFF374151)),
+                      ),
+                      const Spacer(),
+                      Icon(Icons.tag, size: 16, color: Color(0xFF6B7280)),
+                      const SizedBox(width: 4),
+                      Text(
+                        reference,
+                        style: const TextStyle(color: Color(0xFF374151)),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
           ),
+          const SizedBox(height: 16),
 
-          const SizedBox(height: 8),
-          const Divider(),
-
-          // totals
-          _totalRow('Subtotal', 'Rp ${fMoney.format(item.subtotal)}'),
-          _totalRow(
-            'Service Fee ${(item.serviceFeePercent * 100).toStringAsFixed(0)}%',
-            'Rp ${fMoney.format(item.serviceFee)}',
+          // === Note ===
+          const Text(
+            "Note",
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF374151),
+            ),
           ),
           const SizedBox(height: 6),
-          Row(
-            children: const [
-              Expanded(
-                child: Text(
-                  'Total',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                ),
-              ),
-            ],
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: Text(note, style: const TextStyle(color: Color(0xFF111827))),
           ),
-          Row(
-            children: [
-              Expanded(child: Container()),
-              Text(
-                'Rp ${fMoney.format(item.grandTotal)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                ),
-              ),
-            ],
-          ),
-
           const SizedBox(height: 20),
+
+          // === Items ===
+          const Text(
+            "Items",
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF374151),
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...items.map((it) {
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: Color(0xFFE5E7EB)),
+              ),
+              child: ListTile(
+                leading: const Icon(
+                  Icons.inventory_2_rounded,
+                  color: Color(0xFF6B7280),
+                ),
+                title: Text(
+                  it["product"].toString(),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(it["sku"].toString()),
+                trailing: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      "x${it["qty"]}",
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      "Rp ${fMoney.format(it["price"])}",
+                      style: const TextStyle(color: Color(0xFF374151)),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+
+          const Divider(height: 32),
+
+          // === Totals ===
+          _totalRow("Items total", fMoney.format(total)),
+          _totalRow("Discount", "0"),
+          _totalRow("Shipping fee", "0"),
+          const SizedBox(height: 8),
+          _totalRow(
+            "Grand total",
+            fMoney.format(total),
+            bold: true,
+            highlight: true,
+          ),
         ],
       ),
+
+      // === Buttons ===
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
           children: [
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Print Receipt tapped')),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF3B82F6),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Print Receipt',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {},
+                icon: const Icon(Icons.picture_as_pdf),
+                label: const Text("Invoice"),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: () {
-                Navigator.pushNamed(
-                  context,
-                  '/edit-purchase',
-                  arguments: {'code': item.code},
-                );
-              },
-              child: const Text('Edit Order'),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () {},
+                icon: const Icon(Icons.print),
+                label: const Text("Print"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF426FD4),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
             ),
           ],
         ),
@@ -282,20 +217,187 @@ class DetailPurchaseScreen extends StatelessWidget {
     );
   }
 
-  Widget _totalRow(String label, String value) {
+  Widget _totalRow(
+    String label,
+    String value, {
+    bool bold = false,
+    bool highlight = false,
+  }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(color: Color(0xFF6B7280)),
+              style: TextStyle(
+                fontWeight: bold ? FontWeight.w700 : FontWeight.normal,
+                color: highlight ? Colors.black : const Color(0xFF6B7280),
+              ),
             ),
           ),
-          Text(value),
+          Text(
+            "Rp $value",
+            style: TextStyle(
+              fontWeight: bold ? FontWeight.w700 : FontWeight.normal,
+              fontSize: bold ? 16 : 14,
+              color: highlight ? Colors.black : const Color(0xFF111827),
+            ),
+          ),
         ],
       ),
     );
   }
+}
+
+class _StatusChip extends StatelessWidget {
+  final String status;
+  const _StatusChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    Color c;
+    String label;
+    switch (status) {
+      case "completed":
+        c = const Color(0xFF059669);
+        label = "Completed";
+        break;
+      case "canceled":
+        c = const Color(0xFFDC2626);
+        label = "Canceled";
+        break;
+      default:
+        c = const Color(0xFFB45309);
+        label = "Pending";
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: c.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(color: c, fontWeight: FontWeight.w600, fontSize: 13),
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  final String status;
+  const _StatusPill({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final lower = status.toLowerCase();
+    late Color c;
+    late String label;
+    switch (lower) {
+      case 'completed':
+        c = const Color(0xFF059669);
+        label = 'Completed';
+        break;
+      case 'canceled':
+        c = const Color(0xFFDC2626);
+        label = 'Canceled';
+        break;
+      case 'pending':
+      default:
+        c = const Color(0xFFB45309);
+        label = 'Pending';
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: c.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: c.withOpacity(0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(color: c, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniInfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _MiniInfoChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFF6B7280)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF374151)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _ErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              size: 42,
+              color: Color(0xFFDC2626),
+            ),
+            const SizedBox(height: 10),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _ellipsis(String s, int max) {
+  if (s.length <= max) return s;
+  return '${s.substring(0, max - 1)}…';
 }
