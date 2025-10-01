@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:wa_blast/screens/register/link/link_register_stepper_wrapper.dart';
 import 'auth_provider.dart';
 
 class SplashProvider with ChangeNotifier {
@@ -24,6 +25,22 @@ class SplashProvider with ChangeNotifier {
 
     if (hasToken && isActivated) {
       Navigator.pushReplacementNamed(context, '/home');
+      //tambahin nama organisasi di welcome page, wave up penulisan digabung jadi WaveUp
+      // harus ada pengchekan kalau belum login harus login masukkan password dulu
+      // ada api untuk accept invitation di semua case
+
+      // Navigator.push(
+      //   context,
+      //   MaterialPageRoute(
+      //     builder: (_) => LinkRegisterStepperWrapper(
+      //       inviteEmail: "userwave@mail.com",
+      //       inviteToken: "BhbshbdhYS&SHUKE.JHAShjjdihiudgigd",
+      //       businessName: "PT. Coffee Roasters",
+      //       businessLogo:
+      //           "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200", // ✅ dummy logo internet
+      //     ),
+      //   ),
+      // );
     } else {
       Navigator.pushReplacementNamed(context, '/login');
     }

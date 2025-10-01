@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 
 class AppColors {
   // ==== PRIMARY COLORS ====
-  static const primary = Color(0xFF42A5F5);
-  static const primaryDark = Color(0xFF1E88E5);
-  static const blue = Color(0xFF42A5F5);
-  static const blue400 = Color(0xFF64B5F6);
-  static const blueAccent = Color(0xFF90CAF9);
-  static const blueButton = Color(0xFF426FD4);
+  static const primary = Color(0xFF4C6EF5); // base
+  static const primaryDark = Color(0xFF364FC7); // lebih gelap
+  static const blue = Color(0xFF5C7CFA); // lebih terang dikit
+  static const blue400 = Color(0xFF748FFC); // medium terang
+  static const blueAccent = Color(0xFF91A7FF); // lebih soft
+  static const blueButton = Color(0xFF4263EB); // untuk tombol, kontras
 
   // ==== TEXT COLORS ====
   static const textPrimary = Color(0xFF111827); // dari DS

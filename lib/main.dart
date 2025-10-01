@@ -6,8 +6,13 @@ import 'package:provider/provider.dart';
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
+import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
 import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
+import 'package:wa_blast/screens/sales_report_detail_screen.dart';
+import 'package:wa_blast/screens/sales_report_screen.dart';
+import 'package:wa_blast/screens/store_list_screen.dart';
 import 'firebase_options.dart';
 
 // providers
@@ -81,6 +86,7 @@ class _AppShell extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => HrProvider(), lazy: true),
         ChangeNotifierProvider(create: (_) => SalesProvider(), lazy: true),
+        ChangeNotifierProvider(create: (_) => StoreProvider(), lazy: true),
       ],
       child: const _Bootstrapper(child: MyApp()),
     );
@@ -241,41 +247,104 @@ class MyApp extends StatelessWidget {
             return _fadeRoute(settings, const CategoryListScreen());
           case '/brand':
             return _fadeRoute(settings, const BrandListScreen());
+          case '/store':
+            return _fadeRoute(settings, const StoreListScreen());
           case '/purchase':
             return _fadeRoute(settings, const ManagePurchaseScreen());
           case '/purchase/list':
             return _fadeRoute(settings, const PurchaseScreen());
           case '/purchase/supplier':
             return _fadeRoute(settings, const SupplierScreen());
-          case '/detail-purchase':
+          case '/purchase/supplier/detail':
             {
               final args = settings.arguments;
-              String? code;
-              if (args is Map) code = args['code'] as String?;
-              if (code == null || code.isEmpty) {
+              String? id;
+
+              // terima argumen fleksibel: langsung String atau Map
+              if (args is String) {
+                id = args;
+              } else if (args is Map) {
+                id = (args['id'] ?? args['supplierId']) as String?;
+              }
+
+              if (id == null || id.isEmpty) {
                 return _fadeRoute(
                   settings,
                   const _RouteErrorScreen(
-                    message: 'DetailPurchaseScreen membutuhkan argumen "code"',
+                    message:
+                        'SupplierDetailScreen membutuhkan argumen "id" (supplierId).',
                   ),
                 );
               }
-              return _fadeRoute(settings, DetailPurchaseScreen(code: code));
+
+              return _fadeRoute(settings, SupplierDetailScreen(supplierId: id));
             }
-          case '/edit-purchase':
+          case '/detail-purchase':
             {
               final args = settings.arguments;
-              final code = (args is Map) ? args['code'] as String? : null;
-              if (code == null || code.isEmpty) {
+              String? id;
+
+              if (args is String) {
+                id = args;
+              } else if (args is Map) {
+                id = (args['id'] ?? args['idTransaction'])?.toString();
+              }
+
+              if (id == null || id.isEmpty) {
                 return _fadeRoute(
                   settings,
-                  const _RouteErrorScreen(message: 'Butuh code'),
+                  const _RouteErrorScreen(
+                    message:
+                        'DetailPurchaseScreen membutuhkan argumen "id" (idTransaction).',
+                  ),
                 );
               }
-              return _fadeRoute(settings, EditPurchaseScreen(code: code));
+
+              return _fadeRoute(settings, const DetailPurchaseScreen());
             }
+
+          // case '/edit-purchase':
+          //   {
+          //     final args = settings.arguments;
+          //     final code = (args is Map) ? args['code'] as String? : null;
+          //     if (code == null || code.isEmpty) {
+          //       return _fadeRoute(
+          //         settings,
+          //         const _RouteErrorScreen(message: 'Butuh code'),
+          //       );
+          //     }
+          //     return _fadeRoute(settings, EditPurchaseScreen(code: code));
+          //   }
           case '/edit-profile':
             return _fadeRoute(settings, const EditProfileScreen());
+          case '/report':
+            return _fadeRoute(settings, const SalesReportScreen());
+          case '/report/detail':
+            {
+              final args = settings.arguments;
+              String? id;
+
+              if (args is String) {
+                id = args;
+              } else if (args is Map) {
+                id = (args['id'] ?? args['idTransaction'])?.toString();
+              }
+
+              if (id == null || id.isEmpty) {
+                return _fadeRoute(
+                  settings,
+                  const _RouteErrorScreen(
+                    message:
+                        'SalesReportDetailScreen membutuhkan argumen "id" (idTransaction).',
+                  ),
+                );
+              }
+
+              return _fadeRoute(
+                settings,
+                SalesReportDetailScreen(idTransaction: id),
+              );
+            }
           case '/hr':
             return _fadeRoute(settings, const HrScreen());
           case '/hr/detail':

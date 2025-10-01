@@ -506,7 +506,7 @@ class _GridMenu extends StatelessWidget {
         'Report',
         'assets/report_icon.png',
         onTap: () {
-          print("Report tapped");
+          Navigator.pushReplacementNamed(context, '/report');
         },
       ),
       _MenuItemData(
