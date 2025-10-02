@@ -4,11 +4,15 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:wa_blast/models/city_model.dart';
+import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/models/purchase_model.dart';
 
 import 'package:wa_blast/models/supplier_model.dart';
 import 'package:wa_blast/services/api_service.dart';
+
+import 'package:wa_blast/providers/product_provider.dart' as catalog;
 
 import '../core/provider_helper.dart';
 
@@ -16,16 +20,6 @@ import '../core/provider_helper.dart';
 enum PurchaseStatus { inProgress, completed, canceled }
 
 /// Produk katalog (untuk tambah dari bottom sheet)
-class Product {
-  final String name;
-  final int price;
-  final String imageUrl;
-  const Product({
-    required this.name,
-    required this.price,
-    required this.imageUrl,
-  });
-}
 
 /// Baris item di order
 class OrderLine {
@@ -141,6 +135,27 @@ class PurchaseItem {
   }
 }
 
+/// ===== CATALOG (per-SKU) khusus purchase =====
+@immutable
+class PosSku {
+  final String skuId; // idProductSku (fallback: productId_code)
+  final String skuCode; // code
+  final int price; // harga retail / base
+  final String productId; // idProduct
+  final String productName; // name
+  final String imageUrl; // url gambar
+  final bool inStock; // dari isHide (dibalik)
+  const PosSku({
+    required this.skuId,
+    required this.skuCode,
+    required this.price,
+    required this.productId,
+    required this.productName,
+    required this.imageUrl,
+    this.inStock = true,
+  });
+}
+
 class PurchaseProvider extends ChangeNotifier {
   // ====== SUPPLIERS STATE ======
   final List<Supplier> _suppliers = [];
@@ -187,6 +202,120 @@ class PurchaseProvider extends ChangeNotifier {
   PurchaseDetail? get purchaseDetail => _purchaseDetail;
   bool get loadingPurchaseDetail => _loadingPurchaseDetail;
   String? get purchaseDetailError => _purchaseDetailError;
+
+  final List<PosSku> _catalogSkus = [];
+  bool _loadingCatalog = false;
+  String? _catalogError;
+
+  List<PosSku> get skus => List.unmodifiable(_catalogSkus);
+  bool get loadingSkus => _loadingCatalog;
+  String? get catalogError => _catalogError;
+
+  void _setLoadingCatalog(bool v) {
+    _loadingCatalog = v;
+    notifyListeners();
+  }
+
+  /// Ambil produk dari ProductProvider lalu map ke PosSku
+  Future<void> loadCatalog(BuildContext context) async {
+    _setLoadingCatalog(true);
+    try {
+      // muat products ke cache ProductProvider
+      await context.read<catalog.ProductProvider>().fetchProducts(context);
+
+      final prov = context.read<catalog.ProductProvider>();
+      final products = prov.products;
+
+      final List<PosSku> mapped = [];
+      for (final p in products) {
+        final productId = p.idProduct;
+        final productName = p.name;
+        final img =
+            p.primaryImageUrl ??
+            ((p.productImages?.isNotEmpty == true)
+                ? p.productImages!.first.imagePath
+                : '') ??
+            '';
+        final bool inStock = !(p.isHide == true);
+
+        final skus = p.productSkus ?? const [];
+        for (final s in skus) {
+          final rawId = (s.idProductSku ?? '').toString();
+          final skuCode = (s.code ?? '').toString();
+          final safeId = rawId.isNotEmpty ? rawId : '${productId}_$skuCode';
+          final price = (s.price ?? p.basePrice ?? 0);
+          if (price <= 0) continue;
+
+          mapped.add(
+            PosSku(
+              skuId: safeId,
+              skuCode: skuCode,
+              price: price,
+              productId: productId,
+              productName: productName,
+              imageUrl: img,
+              inStock: inStock,
+            ),
+          );
+        }
+      }
+
+      _catalogSkus
+        ..clear()
+        ..addAll(mapped);
+      _catalogError = null;
+    } catch (e) {
+      _catalogSkus.clear();
+      _catalogError = e.toString();
+    } finally {
+      _setLoadingCatalog(false);
+    }
+  }
+
+  /// Pakai data yang sudah ada di cache ProductProvider (tanpa request)
+  void syncCatalogFromCache(BuildContext context) {
+    final prov = context.read<catalog.ProductProvider>();
+    final products = prov.products;
+
+    final List<PosSku> mapped = [];
+    for (final p in products) {
+      final productId = p.idProduct;
+      final productName = p.name;
+      final img =
+          p.primaryImageUrl ??
+          ((p.productImages?.isNotEmpty == true)
+              ? p.productImages!.first.imagePath
+              : '') ??
+          '';
+      final bool inStock = !(p.isHide == true);
+
+      final skus = p.productSkus ?? const [];
+      for (final s in skus) {
+        final rawId = (s.idProductSku ?? '').toString();
+        final skuCode = (s.code ?? '').toString();
+        final safeId = rawId.isNotEmpty ? rawId : '${productId}_$skuCode';
+        final price = (s.price ?? p.basePrice ?? 0);
+        if (price <= 0) continue;
+
+        mapped.add(
+          PosSku(
+            skuId: safeId,
+            skuCode: skuCode,
+            price: price,
+            productId: productId,
+            productName: productName,
+            imageUrl: img,
+            inStock: inStock,
+          ),
+        );
+      }
+    }
+
+    _catalogSkus
+      ..clear()
+      ..addAll(mapped);
+    notifyListeners();
+  }
 
   void _setLoadingPurchaseDetail(bool v) {
     _loadingPurchaseDetail = v;
@@ -756,14 +885,16 @@ class PurchaseProvider extends ChangeNotifier {
   ///     }
   ///   ]
   /// }
+  // ===== GANTI SELURUH fungsi storePurchase DENGAN VERSI INI =====
   Future<bool> storePurchase(
     BuildContext context,
     Map<String, dynamic> payload,
   ) async {
+    final sw = Stopwatch()..start();
     final bizId = await _requireBizId();
     if (bizId == null) return false;
 
-    // Sanitasi ringan untuk berjaga-jaga: pastikan tipe numerik benar
+    // Normalisasi tipe numerik supaya aman
     try {
       if (payload['discount'] is String) {
         payload['discount'] = int.tryParse(payload['discount']) ?? 0;
@@ -783,37 +914,71 @@ class PurchaseProvider extends ChangeNotifier {
         }
       }
     } catch (_) {
-      // abaikan; backend kemungkinan toleran
+      // abaikan
+    }
+
+    final path = '/waveup/$bizId/transaction/purchase';
+
+    // 🔎 Log request
+    if (kDebugMode) {
+      debugPrint('────────────────────────────────────────');
+      debugPrint('[storePurchase] ▶️ POST $path');
+      debugPrint('[storePurchase] Payload: ${_prettyJson(payload)}');
     }
 
     try {
-      if (kDebugMode) {
-        debugPrint('[storePurchase] Payload => ${jsonEncode(payload)}');
-      }
-
       final j = await ApiJson.postMap(
         context,
-        '/waveup/$bizId/transaction/purchase',
+        path,
         payload,
         withAccessToken: true,
       );
 
+      // 🔎 Log response dasar
+      if (kDebugMode) {
+        debugPrint('[storePurchase] ◀️ Raw response: ${_prettyJson(j)}');
+      }
+
       if (j == null) {
         _lastError = 'Empty response';
+        if (kDebugMode) {
+          debugPrint('[storePurchase] ❌ Empty response dari server');
+        }
         return false;
       }
 
+      // Ambil status/message yang umum dipakai backend
       final status = (j['status'] as num?)?.toInt();
+      final msg = j['msg']?.toString() ?? j['message']?.toString();
+
+      if (kDebugMode) {
+        debugPrint('[storePurchase] status: $status | message: $msg');
+        final data = j['data'];
+        if (data != null) {
+          debugPrint(
+            '[storePurchase] data keys: '
+            '${data is Map ? (data as Map).keys.join(", ") : data.runtimeType}',
+          );
+        }
+      }
+
       if (status != 200) {
-        _lastError =
-            j['msg']?.toString() ??
-            j['message']?.toString() ??
-            'Failed to store purchase';
+        // Tangkap pesan error server (termasuk error SQL/trace jika ada)
+        _lastError = msg ?? 'Failed to store purchase';
+        if (kDebugMode) {
+          // Jika backend kirim field "error"/"errors", log juga biar jelas
+          final srvErr = j['error'] ?? j['errors'];
+          if (srvErr != null) {
+            debugPrint('[storePurchase] server error: ${_prettyJson(srvErr)}');
+          }
+          debugPrint('[storePurchase] ❌ Gagal simpan purchase');
+        }
         return false;
       }
 
-      // Jika backend mengembalikan data pembelian, bisa diinsert ke cache.
-      // Kalau tidak pasti, kita refresh list saja di layer pemanggil.
+      if (kDebugMode) {
+        debugPrint('[storePurchase] ✅ Berhasil simpan purchase');
+      }
       return true;
     } catch (e, st) {
       _lastError = '$e';
@@ -822,47 +987,27 @@ class PurchaseProvider extends ChangeNotifier {
         debugPrintStack(stackTrace: st);
       }
       return false;
+    } finally {
+      sw.stop();
+      if (kDebugMode) {
+        debugPrint(
+          '[storePurchase] ⏱️ selesai dalam ${sw.elapsedMilliseconds} ms',
+        );
+        debugPrint('────────────────────────────────────────');
+      }
+    }
+  }
+
+  String _prettyJson(Object? j) {
+    try {
+      return const JsonEncoder.withIndent('  ').convert(j);
+    } catch (_) {
+      return j.toString();
     }
   }
 
   // Optional: flag agar UI bisa cek ketersediaan
   bool get respondsToUpdateSupplier => true;
-
-  // ====== Dummy katalog produk ======
-  final List<Product> _products = const [
-    Product(
-      name: 'Garlic Bread',
-      price: 15000,
-      imageUrl:
-          'https://images.unsplash.com/photo-1542831371-29b0f74f9713?w=400&q=60',
-    ),
-    Product(
-      name: 'Hot Cappucino',
-      price: 24000,
-      imageUrl:
-          'https://images.unsplash.com/photo-1504754524776-8f4f37790ca0?w=400&q=60',
-    ),
-    Product(
-      name: 'Berry Sourdough',
-      price: 18000,
-      imageUrl:
-          'https://images.unsplash.com/photo-1550367086-456a0a0f1c1b?w=400&q=60',
-    ),
-    Product(
-      name: 'Ice Latte',
-      price: 22000,
-      imageUrl:
-          'https://images.unsplash.com/photo-1541167760496-1628856ab772?w=400&q=60',
-    ),
-    Product(
-      name: 'Ice Americano',
-      price: 20000,
-      imageUrl:
-          'https://images.unsplash.com/photo-1517705008128-361805f42e86?w=400&q=60',
-    ),
-  ];
-
-  List<Product> get products => List.unmodifiable(_products);
 
   PurchaseStatus? _filter;
 
@@ -951,33 +1096,6 @@ class PurchaseProvider extends ChangeNotifier {
     final item = getByCode(code);
     if (item == null || lineIndex < 0 || lineIndex >= item.lines.length) return;
     setLineQty(code, lineIndex, (item.lines[lineIndex].qty - 1).clamp(0, 9999));
-  }
-
-  void addProductToOrder(String code, Product product) {
-    final idx = _items.indexWhere((e) => e.code == code);
-    if (idx == -1) return;
-
-    final item = _items[idx];
-    final lines = List<OrderLine>.from(item.lines);
-
-    final existIdx = lines.indexWhere((l) => l.name == product.name);
-    if (existIdx >= 0) {
-      final exist = lines[existIdx];
-      lines[existIdx] = exist.copyWith(qty: exist.qty + 1);
-    } else {
-      lines.add(
-        OrderLine(
-          name: product.name,
-          qty: 1,
-          price: product.price,
-          imageUrl: product.imageUrl,
-        ),
-      );
-    }
-
-    final newTotalQty = lines.fold<int>(0, (s, l) => s + l.qty);
-    _items[idx] = item.copyWith(lines: lines, quantity: newTotalQty);
-    notifyListeners();
   }
 
   int getQtyForProduct(String code, String productName) {

@@ -2,18 +2,24 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:wa_blast/core/provider_helper.dart';
-import 'package:wa_blast/providers/product_provider.dart' as catalog;
 
-/// Representasi 1 SKU yang bisa dijual
+import 'package:wa_blast/core/provider_helper.dart'; // BizIdCache, ApiJson, FetchHelper, PageMeta
+import 'package:wa_blast/providers/product_provider.dart' as catalog;
+import 'package:wa_blast/models/product_model.dart' as model;
+
+/// =========================
+/// CART SKU (ringan)
+/// =========================
+
+/// Representasi 1 SKU yang bisa dijual (ringan untuk cart)
 class PosSku {
   final String skuId; // idProductSku
   final String skuCode; // code
   final int price; // harga retail
   final String productId; // idProduct
   final String productName; // name
-  final String imageUrl; // url gambar
-  final bool inStock; // asumsi dari isHide (kebalikan)
+  final String imageUrl; // url gambar (ambil dari product.primaryImageUrl)
+  final bool inStock; // sementara: !product.isHide
 
   const PosSku({
     required this.skuId,
@@ -33,7 +39,9 @@ class CartItem {
   int get subtotal => sku.price * qty;
 }
 
-// === MODEL RINGAN UNTUK LIST REPORT ===
+/// =========================
+/// MODEL RINGAN UNTUK LIST REPORT
+/// =========================
 @immutable
 class SalesLine {
   final String productId;
@@ -63,10 +71,10 @@ class SalesLine {
 @immutable
 class SalesReportItem {
   final String idTransaction;
-  final String code; // pakai "number"
-  final DateTime time; // dari order_at (epoch detik) ATAU created_at
+  final String code; // "number"
+  final DateTime time; // order_at (epoch detik) atau created_at
   final int quantity; // sum(qty_out)
-  final int totalAmount; // dari "amount"
+  final int totalAmount; // "amount"
   final String reference;
   final String status;
   final List<SalesLine> lines;
@@ -83,22 +91,104 @@ class SalesReportItem {
   });
 }
 
+// =========================
+// CUSTOMER MODELS
+// =========================
+@immutable
+class ProvinceLite {
+  final String id;
+  final String name;
+  const ProvinceLite({required this.id, required this.name});
+
+  factory ProvinceLite.fromJson(Map<String, dynamic> j) => ProvinceLite(
+    id: (j['id'] ?? '').toString(),
+    name: (j['name'] ?? '').toString(),
+  );
+}
+
+@immutable
+class CityLite {
+  final String id;
+  final String name;
+  final ProvinceLite? province;
+
+  const CityLite({required this.id, required this.name, this.province});
+
+  factory CityLite.fromJson(Map<String, dynamic> j) => CityLite(
+    id: (j['id'] ?? '').toString(),
+    name: (j['name'] ?? '').toString(),
+    province: (j['province'] is Map)
+        ? ProvinceLite.fromJson((j['province'] as Map).cast<String, dynamic>())
+        : null,
+  );
+}
+
+@immutable
+class Customer {
+  final String idCustomer;
+  final String name;
+  final String phone;
+  final String email;
+  final CityLite? city;
+  final String address;
+
+  const Customer({
+    required this.idCustomer,
+    required this.name,
+    required this.phone,
+    required this.email,
+    required this.city,
+    required this.address,
+  });
+
+  factory Customer.fromJson(Map<String, dynamic> j) => Customer(
+    idCustomer: (j['idCustomer'] ?? '').toString(),
+    name: (j['name'] ?? '').toString(),
+    phone: (j['phone'] ?? '').toString(),
+    email: (j['email'] ?? '').toString(),
+    city: (j['city'] is Map)
+        ? CityLite.fromJson((j['city'] as Map).cast<String, dynamic>())
+        : null,
+    address: (j['address'] ?? '').toString(),
+  );
+
+  /// payload untuk Create/Edit sesuai spesifikasi
+  Map<String, dynamic> toPayload({required int cityIdOverride}) => {
+    "name": name,
+    "phone": phone,
+    "email": email,
+    "city_id": cityIdOverride,
+    "address": address,
+  };
+}
+
+/// =========================
+/// PROVIDER
+/// =========================
 class SalesProvider extends ChangeNotifier {
-  // ===== CATALOG (per-SKU) =====
+  // ====== CATALOG (Products + per-SKU ringan) ======
+  final List<model.Product> _products = [];
   final List<PosSku> _catalogSkus = [];
+
   bool _loadingCatalog = false;
   String? _errorCatalog;
 
+  /// UI baru pakai ini:
+  List<model.Product> get products => List.unmodifiable(_products);
+  bool get loadingProducts => _loadingCatalog;
+  String? get catalogError => _errorCatalog;
+
+  /// Kompat lama (kalau masih ada bagian UI yang pakai SKUs langsung)
   List<PosSku> get skus => List.unmodifiable(_catalogSkus);
   bool get loadingSkus => _loadingCatalog;
-  String? get catalogError => _errorCatalog;
+
   bool _submitting = false;
   String? _lastError;
 
   bool get submitting => _submitting;
   String? get lastError => _lastError;
 
-  // ===== SALES REPORT LIST =====
+  // ====== SALES REPORT LIST ======
   final List<SalesReportItem> _reports = [];
   bool _loadingReports = false;
   String? _reportError;
@@ -108,6 +198,29 @@ class SalesProvider extends ChangeNotifier {
   bool get loadingReports => _loadingReports;
   String? get reportError => _reportError;
   PageMeta? get pageReports => _pageReports;
+
+  // ====== CUSTOMERS ======
+  final List<Customer> _customers = [];
+  bool _loadingCustomers = false;
+  String? _customerError;
+  PageMeta? _pageCustomers;
+  Customer? _selectedCustomer; // opsional: hasil detail
+
+  List<Customer> get customers => List.unmodifiable(_customers);
+  bool get loadingCustomers => _loadingCustomers;
+  String? get customerError => _customerError;
+  PageMeta? get pageCustomers => _pageCustomers;
+  Customer? get selectedCustomer => _selectedCustomer;
+
+  void _setLoadingCustomers(bool v) {
+    _loadingCustomers = v;
+    notifyListeners();
+  }
+
+  void _setCustomerError(String? v) {
+    _customerError = v;
+    notifyListeners();
+  }
 
   void _setReportError(String? v) {
     _reportError = v;
@@ -120,7 +233,6 @@ class SalesProvider extends ChangeNotifier {
   }
 
   SalesReportItem _salesItemFromApi(Map<String, dynamic> j) {
-    // parse time: prefer order_at (epoch detik) fallback ke created_at
     DateTime _parseTime(dynamic orderAt, dynamic createdAtIso) {
       if (orderAt is num) {
         return DateTime.fromMillisecondsSinceEpoch(orderAt.toInt() * 1000);
@@ -139,7 +251,8 @@ class SalesProvider extends ChangeNotifier {
     }
 
     final List<SalesLine> lines = ((j['items'] as List?) ?? [])
-        .map((e) => SalesLine.fromJson((e as Map).cast<String, dynamic>()))
+        .whereType<Map>()
+        .map((e) => SalesLine.fromJson((e).cast<String, dynamic>()))
         .toList();
 
     final qty = lines.fold<int>(0, (s, it) => s + it.qtyOut);
@@ -243,34 +356,59 @@ class SalesProvider extends ChangeNotifier {
     return bizId;
   }
 
+  /// Muat katalog dari ProductProvider (model baru)
   Future<void> loadCatalog(BuildContext context) async {
     _setLoading(true);
     try {
+      // fetch & ambil cache dari ProductProvider
       await context.read<catalog.ProductProvider>().fetchProducts(context);
-
       final prov = context.read<catalog.ProductProvider>();
-      final products = prov.products;
+      final prods = prov.products; // List<model.Product>
 
+      // simpan cache products untuk UI grid
+      _products
+        ..clear()
+        ..addAll(prods);
+
+      // Map ke PosSku ringan untuk cart/pipeline lama
       final List<PosSku> mapped = [];
-      for (final p in products) {
+      for (final p in prods) {
         final productId = p.idProduct;
         final productName = p.name;
-        final img =
-            p.primaryImageUrl ??
-            ((p.productImages?.isNotEmpty == true)
-                ? p.productImages!.first.imagePath
-                : '') ??
-            '';
-        final bool inStock = !(p.isHide == true);
+        final img = p.primaryImageUrl ?? '';
+        final bool inStock = !p.isHide;
 
-        final skus = p.productSkus ?? const [];
+        final skus = p.productSkus; // non-nullable List<ProductSku>
+        if (skus.isEmpty) {
+          // fallback: kalau produk tanpa SKU, pakai basePrice (jika ada) sebagai entri tunggal
+          final base = p.basePrice ?? 0;
+          if (base > 0) {
+            mapped.add(
+              PosSku(
+                skuId: '${productId}_BASE',
+                skuCode: 'BASE',
+                price: base,
+                productId: productId,
+                productName: productName,
+                imageUrl: img,
+                inStock: inStock,
+              ),
+            );
+          }
+          continue;
+        }
+
         for (final s in skus) {
-          final price = (s.price ?? p.basePrice ?? 0);
+          final safeId = (s.idProductSku.isNotEmpty)
+              ? s.idProductSku
+              : '${productId}_${s.code}';
+          final price = s.price > 0 ? s.price : (p.basePrice ?? 0);
           if (price <= 0) continue;
+
           mapped.add(
             PosSku(
-              skuId: s.idProductSku ?? '',
-              skuCode: s.code ?? '',
+              skuId: safeId,
+              skuCode: s.code,
               price: price,
               productId: productId,
               productName: productName,
@@ -284,6 +422,7 @@ class SalesProvider extends ChangeNotifier {
       _catalogSkus
         ..clear()
         ..addAll(mapped);
+
       _errorCatalog = null;
     } catch (e) {
       _errorCatalog = e.toString();
@@ -292,30 +431,52 @@ class SalesProvider extends ChangeNotifier {
     }
   }
 
+  /// Sinkron dari cache ProductProvider tanpa network
   void syncFromCache(BuildContext context) {
     final prov = context.read<catalog.ProductProvider>();
-    final products = prov.products;
+    final prods = prov.products;
+
+    _products
+      ..clear()
+      ..addAll(prods);
 
     final List<PosSku> mapped = [];
-    for (final p in products) {
+    for (final p in prods) {
       final productId = p.idProduct;
       final productName = p.name;
-      final img =
-          p.primaryImageUrl ??
-          ((p.productImages?.isNotEmpty == true)
-              ? p.productImages!.first.imagePath
-              : '') ??
-          '';
-      final bool inStock = !(p.isHide == true);
+      final img = p.primaryImageUrl ?? '';
+      final bool inStock = !p.isHide;
 
-      final skus = p.productSkus ?? const [];
+      final skus = p.productSkus;
+      if (skus.isEmpty) {
+        final base = p.basePrice ?? 0;
+        if (base > 0) {
+          mapped.add(
+            PosSku(
+              skuId: '${productId}_BASE',
+              skuCode: 'BASE',
+              price: base,
+              productId: productId,
+              productName: productName,
+              imageUrl: img,
+              inStock: inStock,
+            ),
+          );
+        }
+        continue;
+      }
+
       for (final s in skus) {
-        final price = (s.price ?? p.basePrice ?? 0);
+        final safeId = (s.idProductSku.isNotEmpty)
+            ? s.idProductSku
+            : '${productId}_${s.code}';
+        final price = s.price > 0 ? s.price : (p.basePrice ?? 0);
         if (price <= 0) continue;
+
         mapped.add(
           PosSku(
-            skuId: s.idProductSku ?? '',
-            skuCode: s.code ?? '',
+            skuId: safeId,
+            skuCode: s.code,
             price: price,
             productId: productId,
             productName: productName,
@@ -345,13 +506,24 @@ class SalesProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ===== CART (key = skuId) =====
+  // ===== CART =====
   final Map<String, CartItem> _cart = {};
   List<CartItem> get cartItems => _cart.values.toList(growable: false);
 
+  int get cartLen => _cart.length;
+  int get cartQtyTotal {
+    var sum = 0;
+    for (final it in _cart.values) sum += it.qty;
+    return sum;
+  }
+
+  String _keyFor(PosSku s) =>
+      s.skuId.isNotEmpty ? s.skuId : '${s.productId}_${s.skuCode}';
+
+  /// Tambah SKU (pipeline lama – menerima PosSku)
   void add(PosSku s) {
-    final key = s.skuId;
-    if (key.isEmpty) return;
+    final key = _keyFor(s);
+    if (kDebugMode) debugPrint('[Cart] add $key (${s.productName})');
     if (!_cart.containsKey(key)) {
       _cart[key] = CartItem(sku: s, qty: 1);
     } else {
@@ -360,8 +532,30 @@ class SalesProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Tambah SKU berbasis referensi Product/SKU (dipakai UI varian baru)
+  void addByRef({
+    required String productId,
+    required String productName,
+    required String skuId,
+    required String skuCode,
+    required int price,
+    String imageUrl = '',
+    bool inStock = true,
+  }) {
+    final s = PosSku(
+      skuId: skuId,
+      skuCode: skuCode,
+      price: price,
+      productId: productId,
+      productName: productName,
+      imageUrl: imageUrl,
+      inStock: inStock,
+    );
+    add(s);
+  }
+
   void removeOne(PosSku s) {
-    final key = s.skuId;
+    final key = _keyFor(s);
     if (!_cart.containsKey(key)) return;
     final item = _cart[key]!;
     if (item.qty > 1) {
@@ -373,7 +567,8 @@ class SalesProvider extends ChangeNotifier {
   }
 
   void removeAll(PosSku s) {
-    _cart.remove(s.skuId);
+    final key = _keyFor(s);
+    _cart.remove(key);
     notifyListeners();
   }
 
@@ -394,14 +589,14 @@ class SalesProvider extends ChangeNotifier {
   int? _shippingFee = 0;
   String? _note;
   String? _reference; // REF-xxxxxx (editable)
-  int? _paymentMethod = 1; // 1=Tunai, 2=Debit, 3=Midtrans biasa
+  int? _paymentMethod = 1; // 1=Tunai, 2=Debit, 3=QRIS/VA
 
   String? get storeLocationId => _storeLocationId;
   String? get storeLocationName => _storeLocationName;
   int? get discount => _discount;
   int? get shippingFee => _shippingFee;
   String? get note => _note;
-  String? get currentReference => _reference; // pasif (no side-effect)
+  String? get currentReference => _reference;
   int? get paymentMethod => _paymentMethod;
 
   String generateDefaultReference() {
@@ -443,7 +638,6 @@ class SalesProvider extends ChangeNotifier {
 
   /// Payload final saat submit ke backend (items dari cart)
   Map<String, dynamic> buildOrderPayload() {
-    // pastikan reference ada (tanpa notify)
     ensureReferenceInitialized(notify: false);
     return {
       "store_location_id": _storeLocationId,
@@ -457,6 +651,7 @@ class SalesProvider extends ChangeNotifier {
         return {
           "product_id": it.sku.productId,
           "product_sku_id": it.sku.skuId,
+          "discount": 0,
           "qty": it.qty,
           "price": it.sku.price,
         };
@@ -465,7 +660,6 @@ class SalesProvider extends ChangeNotifier {
   }
 
   /// POST ke /waveup/{idBusiness}/transaction/sales
-  /// Payload diambil dari buildOrderPayload()
   Future<bool> submitSales(BuildContext context) async {
     final bizId = await _requireBizId();
     if (bizId == null) return false;
@@ -480,7 +674,6 @@ class SalesProvider extends ChangeNotifier {
       return false;
     }
 
-    // Pastikan reference ada (tanpa notify)
     ensureReferenceInitialized(notify: false);
 
     final payload = buildOrderPayload();
@@ -500,16 +693,26 @@ class SalesProvider extends ChangeNotifier {
         withAccessToken: true,
       );
 
+      if (kDebugMode) {
+        debugPrint("[SalesProvider] 🔄 Server response: $j");
+      }
+
       final ok = j != null && (j['status'] as num?)?.toInt() == 200;
       if (!ok) {
         _lastError =
             j?['msg']?.toString() ??
             j?['message']?.toString() ??
             'Failed to submit sales transaction';
+
+        if (kDebugMode) {
+          debugPrint("[SalesProvider] ❌ Submit failed: $_lastError");
+        }
         return false;
       }
 
-      // success
+      if (kDebugMode) {
+        debugPrint("[SalesProvider] ✅ Submit success");
+      }
       return true;
     } catch (e, st) {
       _lastError = '$e';
@@ -520,6 +723,259 @@ class SalesProvider extends ChangeNotifier {
       return false;
     } finally {
       _setSubmitting(false);
+    }
+  }
+
+  /// GET /waveup/{bizId}/customer  -> list
+  Future<void> fetchCustomers(
+    BuildContext context, {
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) {
+      _customers.clear();
+      _pageCustomers = null;
+      _setCustomerError('Business ID is missing.');
+      return;
+    }
+
+    _setCustomerError(null);
+    _setLoadingCustomers(true);
+    try {
+      final path = '/waveup/$bizId/customer';
+      if (kDebugMode) debugPrint('[SalesProvider] GET $path');
+
+      final result = await FetchHelper.fetchList<Customer>(
+        context: context,
+        path: path,
+        parser: (json) => Customer.fromJson(json),
+      );
+
+      if (result == null) {
+        _customers.clear();
+        _pageCustomers = null;
+        return;
+      }
+
+      _customers
+        ..clear()
+        ..addAll(result.items);
+      _pageCustomers = result.page;
+
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] customers: ${_customers.length}');
+        debugPrint('[SalesProvider] page: $_pageCustomers');
+      }
+      notifyListeners();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] fetchCustomers ERROR: $e');
+        debugPrintStack(stackTrace: st);
+      }
+      _customers.clear();
+      _pageCustomers = null;
+      _setCustomerError(e.toString());
+    } finally {
+      _setLoadingCustomers(false);
+    }
+  }
+
+  /// GET /waveup/{bizId}/customer/{idCustomer} -> detail
+  Future<Customer?> fetchCustomerDetail(
+    BuildContext context,
+    String idCustomer,
+  ) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return null;
+
+    final path = '/waveup/$bizId/customer/$idCustomer';
+    if (kDebugMode) debugPrint('[SalesProvider] GET $path');
+
+    try {
+      final j = await ApiJson.getMap(context, path, withAccessToken: true);
+      if (kDebugMode) debugPrint('[SalesProvider] detail resp: $j');
+
+      if (j == null || (j['status'] as num?)?.toInt() != 200) {
+        _lastError =
+            j?['message']?.toString() ?? 'Failed to fetch customer detail';
+        _selectedCustomer = null;
+        notifyListeners();
+        return null;
+      }
+
+      final data = (j['data'] as Map).cast<String, dynamic>();
+      final c = Customer.fromJson(data);
+      _selectedCustomer = c;
+      notifyListeners();
+      return c;
+    } catch (e, st) {
+      _lastError = '$e';
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] fetchCustomerDetail exception: $e');
+        debugPrint('$st');
+      }
+      _selectedCustomer = null;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// POST /waveup/{bizId}/customer -> create
+  Future<Customer?> createCustomer(
+    BuildContext context, {
+    required String name,
+    required String phone,
+    required String email,
+    required int cityId,
+    required String address,
+  }) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return null;
+
+    final path = '/waveup/$bizId/customer';
+    final payload = {
+      "name": name,
+      "phone": phone,
+      "email": email,
+      "city_id": cityId,
+      "address": address,
+    };
+
+    if (kDebugMode) {
+      debugPrint('[SalesProvider] 🌐 POST $path');
+      debugPrint('[SalesProvider] payload: $payload');
+    }
+
+    try {
+      final j = await ApiJson.postMap(
+        context,
+        path,
+        payload,
+        withAccessToken: true,
+      );
+      if (kDebugMode) debugPrint('[SalesProvider] create resp: $j');
+
+      if (j == null || (j['status'] as num?)?.toInt() != 200) {
+        _lastError = j?['message']?.toString() ?? 'Failed to create customer';
+        return null;
+      }
+
+      final data = (j['data'] as Map).cast<String, dynamic>();
+      final c = Customer.fromJson(data);
+
+      // opsional: tambahkan ke list saat ini (jika ingin terlihat langsung)
+      _customers.insert(0, c);
+      notifyListeners();
+
+      return c;
+    } catch (e, st) {
+      _lastError = '$e';
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] createCustomer exception: $e');
+        debugPrint('$st');
+      }
+      return null;
+    }
+  }
+
+  /// POST /waveup/{bizId}/customer/{idCustomer} -> edit/update
+  Future<Customer?> updateCustomer(
+    BuildContext context, {
+    required String idCustomer,
+    required String name,
+    required String phone,
+    required String email,
+    required int cityId,
+    required String address,
+  }) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return null;
+
+    final path = '/waveup/$bizId/customer/$idCustomer';
+    final payload = {
+      "name": name,
+      "phone": phone,
+      "email": email,
+      "city_id": cityId,
+      "address": address,
+    };
+
+    if (kDebugMode) {
+      debugPrint('[SalesProvider] 🌐 POST $path');
+      debugPrint('[SalesProvider] payload: $payload');
+    }
+
+    try {
+      final j = await ApiJson.postMap(
+        context,
+        path,
+        payload,
+        withAccessToken: true,
+      );
+      if (kDebugMode) debugPrint('[SalesProvider] update resp: $j');
+
+      if (j == null || (j['status'] as num?)?.toInt() != 200) {
+        _lastError = j?['message']?.toString() ?? 'Failed to update customer';
+        return null;
+      }
+
+      final data = (j['data'] as Map).cast<String, dynamic>();
+      final updated = Customer.fromJson(data);
+
+      // sinkronkan di list
+      final idx = _customers.indexWhere((e) => e.idCustomer == idCustomer);
+      if (idx >= 0) {
+        _customers[idx] = updated;
+      }
+      // sinkronkan selected jika sedang terbuka
+      if (_selectedCustomer?.idCustomer == idCustomer) {
+        _selectedCustomer = updated;
+      }
+      notifyListeners();
+
+      return updated;
+    } catch (e, st) {
+      _lastError = '$e';
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] updateCustomer exception: $e');
+        debugPrint('$st');
+      }
+      return null;
+    }
+  }
+
+  /// GET /waveup/{bizId}/customer/remove/{idCustomer} -> delete
+  Future<bool> deleteCustomer(BuildContext context, String idCustomer) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return false;
+
+    final path = '/waveup/$bizId/customer/remove/$idCustomer';
+    if (kDebugMode) debugPrint('[SalesProvider] 🌐 GET $path (delete)');
+
+    try {
+      final j = await ApiJson.getMap(context, path, withAccessToken: true);
+      if (kDebugMode) debugPrint('[SalesProvider] delete resp: $j');
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      if (ok) {
+        _customers.removeWhere((e) => e.idCustomer == idCustomer);
+        if (_selectedCustomer?.idCustomer == idCustomer) {
+          _selectedCustomer = null;
+        }
+        notifyListeners();
+        return true;
+      } else {
+        _lastError = j?['message']?.toString() ?? 'Failed to delete customer';
+        return false;
+      }
+    } catch (e, st) {
+      _lastError = '$e';
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] deleteCustomer exception: $e');
+        debugPrint('$st');
+      }
+      return false;
     }
   }
 

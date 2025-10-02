@@ -1,255 +1,746 @@
-import 'dart:io';
-
+// lib/providers/hr_provider.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-class Employee {
+import 'package:wa_blast/core/provider_helper.dart'; // BizIdCache, ApiJson, FetchHelper, PageMeta
+
+/// =========================
+/// MODELS
+/// =========================
+
+@immutable
+class HrRole {
   final String id;
   final String name;
-  final String? phoneNumber;
+  final bool isPrimary;
+  final List<String> permissions; // optional, bisa kosong
 
-  /// Jika mengambil dari internet
-  final String? photoUrl;
-
-  /// Jika memilih dari device (image_picker)
-  final String? photoLocalPath;
-
-  final bool online;
-  final String checkInTime;
-
-  ImageProvider get avatarProvider {
-    if (photoLocalPath != null && photoLocalPath!.isNotEmpty) {
-      return FileImage(File(photoLocalPath!));
-    }
-    if (photoUrl != null && photoUrl!.isNotEmpty) {
-      return NetworkImage(photoUrl!) as ImageProvider;
-    }
-    return const AssetImage('assets/placeholder.png'); // opsional
-  }
-
-  Employee({
+  const HrRole({
     required this.id,
     required this.name,
-    this.phoneNumber,
-    this.photoUrl,
-    this.photoLocalPath,
-    this.online = true,
-    this.checkInTime = '11:00AM',
+    this.isPrimary = false,
+    this.permissions = const [],
   });
+
+  factory HrRole.fromJson(Map<String, dynamic> j) => HrRole(
+    id: (j['id'] ?? j['idAdminRole'] ?? j['role_id'] ?? '').toString(),
+    name: (j['name'] ?? '').toString(),
+    isPrimary: (j['isPrimary'] ?? j['is_primary'] ?? false) == true,
+    permissions: ((j['permissions'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList(),
+  );
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    if (permissions.isNotEmpty) 'permissions': permissions,
+  };
 }
 
-class LeaveDay {
-  final DateTime date;
-  final int days;
-  final String reason;
-  final String status; // Approved / Pending / Rejected
-  LeaveDay({
-    required this.date,
-    required this.days,
-    required this.reason,
-    this.status = 'Approved',
+@immutable
+class HrInvitePreview {
+  final String email;
+  final String businessId;
+  final String businessName;
+  final String businessLogo;
+  final String roleId;
+  final String roleName;
+  final String token;
+
+  const HrInvitePreview({
+    required this.email,
+    required this.businessId,
+    required this.businessName,
+    required this.businessLogo,
+    required this.roleId,
+    required this.roleName,
+    required this.token,
   });
+
+  factory HrInvitePreview.fromJson(Map<String, dynamic> j) => HrInvitePreview(
+    email: (j['email'] ?? '').toString(),
+    businessId: (j['business']?['id'] ?? '').toString(),
+    businessName: (j['business']?['name'] ?? '').toString(),
+    businessLogo: (j['business']?['logo'] ?? j['business']?['logoPath'] ?? '')
+        .toString(),
+    roleId: (j['role']?['id'] ?? '').toString(),
+    roleName: (j['role']?['name'] ?? '').toString(),
+    token: (j['token'] ?? '').toString(),
+  );
 }
 
-class Reimbursement {
-  final String title;
-  final double amount;
-  final DateTime date;
-  final String status; // Paid / Pending / Rejected
-  Reimbursement({
-    required this.title,
-    required this.amount,
-    required this.date,
-    this.status = 'Paid',
+@immutable
+class HrInviteHistoryItem {
+  final String idInvite;
+  final String email;
+  final String roleId;
+  final String roleName;
+  final bool isPrimaryRole;
+  final DateTime? expiresAt;
+  final DateTime? usedAt;
+
+  const HrInviteHistoryItem({
+    required this.idInvite,
+    required this.email,
+    required this.roleId,
+    required this.roleName,
+    required this.isPrimaryRole,
+    this.expiresAt,
+    this.usedAt,
   });
+
+  factory HrInviteHistoryItem.fromJson(Map<String, dynamic> j) {
+    DateTime? _dt(String? s) =>
+        s == null || s.isEmpty ? null : DateTime.tryParse(s);
+    return HrInviteHistoryItem(
+      idInvite: (j['idHrInvite'] ?? j['id'] ?? '').toString(),
+      email: (j['email'] ?? '').toString(),
+      roleId: (j['adminRole']?['idAdminRole'] ?? j['role']?['id'] ?? '')
+          .toString(),
+      roleName: (j['adminRole']?['name'] ?? j['role']?['name'] ?? '')
+          .toString(),
+      isPrimaryRole: (j['adminRole']?['isPrimary'] ?? false) == true,
+      expiresAt: _dt(j['expires_at']?.toString()),
+      usedAt: _dt(j['used_at']?.toString()),
+    );
+  }
 }
+
+@immutable
+class InviteSubmitResult {
+  final Map<String, dynamic> user; // minimal fields, bebas dipakai UI
+  final Map<String, dynamic> token; // access_token, refresh_token
+
+  const InviteSubmitResult({required this.user, required this.token});
+
+  factory InviteSubmitResult.fromJson(Map<String, dynamic> j) =>
+      InviteSubmitResult(
+        user: (j['data'] as Map?)?.cast<String, dynamic>() ?? const {},
+        token: (j['token'] as Map?)?.cast<String, dynamic>() ?? const {},
+      );
+}
+
+/// =========================
+/// Admin Menu Models (untuk builder payload role.menu)
+/// =========================
+
+@immutable
+class AdminSubmenu {
+  final int id;
+  final String name;
+  final String page;
+  final String icon;
+
+  const AdminSubmenu({
+    required this.id,
+    required this.name,
+    required this.page,
+    required this.icon,
+  });
+
+  factory AdminSubmenu.fromJson(Map<String, dynamic> j) => AdminSubmenu(
+    id: (j['id'] as num?)?.toInt() ?? 0,
+    name: (j['name'] ?? '').toString(),
+    page: (j['page'] ?? '').toString(),
+    icon: (j['icon'] ?? '').toString(),
+  );
+}
+
+@immutable
+class AdminMenu {
+  final int id;
+  final String name;
+  final String page;
+  final String icon;
+  final List<AdminSubmenu> submenu;
+
+  const AdminMenu({
+    required this.id,
+    required this.name,
+    required this.page,
+    required this.icon,
+    required this.submenu,
+  });
+
+  factory AdminMenu.fromJson(Map<String, dynamic> j) => AdminMenu(
+    id: (j['id'] as num?)?.toInt() ?? 0,
+    name: (j['name'] ?? '').toString(),
+    page: (j['page'] ?? '').toString(),
+    icon: (j['icon'] ?? '').toString(),
+    submenu: ((j['submenu'] as List?) ?? const [])
+        .map((e) => AdminSubmenu.fromJson((e as Map).cast<String, dynamic>()))
+        .toList(),
+  );
+}
+
+/// =========================
+/// PROVIDER
+/// =========================
 
 class HrProvider extends ChangeNotifier {
-  final List<Employee> _employees = [
-    Employee(
-      id: '2004882',
-      name: 'Mirna Sari',
-      photoUrl: 'https://i.pravatar.cc/150?img=47',
-    ),
-    Employee(
-      id: '2004882',
-      name: 'Sinthya',
-      photoUrl: 'https://i.pravatar.cc/150?img=12',
-    ),
-    Employee(
-      id: '2004882',
-      name: 'Jamal',
-      photoUrl: 'https://i.pravatar.cc/150?img=30',
-    ),
-    Employee(
-      id: '2004882',
-      name: 'Intan N',
-      photoUrl: 'https://i.pravatar.cc/150?img=32',
-    ),
-    Employee(
-      id: '2004882',
-      name: 'Ursula',
-      photoUrl: 'https://i.pravatar.cc/150?img=5',
-    ),
-    Employee(
-      id: '2004882',
-      name: 'Mita Khunaira',
-      photoUrl: 'https://i.pravatar.cc/150?img=66',
-    ),
-  ];
+  // ====== CONFIGURABLE PATHS (ubah jika backend beda) ======
+  String _rolesListPath(String bizId) =>
+      '/waveup/$bizId/role'; // <= LIST & CREATE ROLE SESUAI SPEK BARU
+  String _rolesBase(String bizId) =>
+      '/waveup/$bizId/hr/role'; // (legacy) untuk UPDATE/DELETE bila diperlukan
+  String _roleDetail(String bizId, String id) =>
+      '/waveup/$bizId/hr/role/$id'; // (legacy) untuk UPDATE/DELETE
+  String _invitePath(String bizId) => '/waveup/$bizId/hr/invite';
+  String _inviteHistoryPath(String bizId) => '/waveup/$bizId/hr/history';
+  String _inviteTokenPath(String token) => '/waveup/invite/$token';
+  String _adminMenuPath(String bizId) => '/waveup/$bizId/admin/menu';
 
-  // Dummy data
-  final Map<String, int> _leaveBalance = {
-    'Mirna Sari': 6,
-    'Sinthya': 8,
-    'Jamal': 10,
-    'Intan N': 12,
-    'Ursula': 7,
-    'Mita Khunaira': 9,
-  };
+  // ====== STATE: Roles ======
+  final List<HrRole> _roles = [];
+  bool _loadingRoles = false;
+  String? _rolesError;
+  PageMeta? _pageRoles;
 
-  final Map<String, List<LeaveDay>> _leaveHistory = {};
-  final Map<String, List<Reimbursement>> _reimbHistory = {};
-  int totalLeaveAllowance(String employeeName) => 10;
+  List<HrRole> get roles => List.unmodifiable(_roles);
+  bool get loadingRoles => _loadingRoles;
+  String? get rolesError => _rolesError;
+  PageMeta? get pageRoles => _pageRoles;
 
-  HrProvider() {
-    // generate dummy history for each employee
-    for (final e in _employees) {
-      _leaveHistory[e.name] = [
-        LeaveDay(
-          date: DateTime.now().subtract(const Duration(days: 8)),
-          days: 1,
-          reason: 'Check up',
-          status: 'Approved',
-        ),
-        LeaveDay(
-          date: DateTime.now().subtract(const Duration(days: 28)),
-          days: 2,
-          reason: 'Family matters',
-          status: 'Approved',
-        ),
-        LeaveDay(
-          date: DateTime.now().subtract(const Duration(days: 45)),
-          days: 1,
-          reason: 'Personal errand',
-          status: 'Pending',
-        ),
-      ];
-      _reimbHistory[e.name] = [
-        Reimbursement(
-          title: 'Taxi meeting client',
-          amount: 85_000,
-          date: DateTime.now().subtract(const Duration(days: 3)),
-          status: 'Pending',
-        ),
-        Reimbursement(
-          title: 'Team lunch',
-          amount: 240_000,
-          date: DateTime.now().subtract(const Duration(days: 20)),
-          status: 'Paid',
-        ),
-      ];
+  // ====== STATE: Invite History ======
+  final List<HrInviteHistoryItem> _history = [];
+  bool _loadingHistory = false;
+  String? _historyError;
+  PageMeta? _pageHistory;
+
+  List<HrInviteHistoryItem> get history => List.unmodifiable(_history);
+  bool get loadingHistory => _loadingHistory;
+  String? get historyError => _historyError;
+  PageMeta? get pageHistory => _pageHistory;
+
+  // ====== STATE: Admin Menus (untuk payload role.menu) ======
+  final List<AdminMenu> _adminMenus = [];
+  bool _loadingAdminMenus = false;
+  String? _adminMenusError;
+
+  List<AdminMenu> get adminMenus => List.unmodifiable(_adminMenus);
+  bool get loadingAdminMenus => _loadingAdminMenus;
+  String? get adminMenusError => _adminMenusError;
+
+  // ====== STATE: Actions / Errors ======
+  bool _submitting = false;
+  String? _lastError;
+  String? _lastMessage; // success message, e.g. "Undangan berhasil dikirim"
+  String? get lastError => _lastError;
+  String? get lastMessage => _lastMessage;
+  bool get submitting => _submitting;
+
+  void _setSubmitting(bool v) {
+    _submitting = v;
+    notifyListeners();
+  }
+
+  void _setRolesLoading(bool v) {
+    _loadingRoles = v;
+    notifyListeners();
+  }
+
+  void _setHistoryLoading(bool v) {
+    _loadingHistory = v;
+    notifyListeners();
+  }
+
+  void _setAdminMenusLoading(bool v) {
+    _loadingAdminMenus = v;
+    notifyListeners();
+  }
+
+  void _setRolesError(String? e) {
+    _rolesError = e;
+    notifyListeners();
+  }
+
+  void _setHistoryError(String? e) {
+    _historyError = e;
+    notifyListeners();
+  }
+
+  void _setAdminMenusError(String? e) {
+    _adminMenusError = e;
+    notifyListeners();
+  }
+
+  String? consumeLastError() {
+    final e = _lastError;
+    _lastError = null;
+    return e;
+  }
+
+  String? consumeLastMessage() {
+    final m = _lastMessage;
+    _lastMessage = null;
+    return m;
+  }
+
+  Future<String?> _requireBizId() async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      if (kDebugMode) debugPrint("[HrProvider] ❌ Business ID null/empty");
+      notifyListeners();
+      return null;
+    }
+    return bizId;
+  }
+
+  /// =========================
+  /// ROLES - LIST
+  /// =========================
+
+  Future<void> fetchRoles(BuildContext context) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return;
+
+    _setRolesError(null);
+    _setRolesLoading(true);
+
+    try {
+      final result = await FetchHelper.fetchList<HrRole>(
+        context: context,
+        path: _rolesListPath(bizId), // GET /waveup/{bizId}/role
+        parser: (json) => HrRole.fromJson(json),
+      );
+
+      _roles
+        ..clear()
+        ..addAll(result?.items ?? const []);
+      _pageRoles = result?.page;
+
+      if (kDebugMode) {
+        debugPrint('[HrProvider] roles: ${_roles.length}');
+        debugPrint('[HrProvider] page: $_pageRoles');
+      }
+      notifyListeners();
+    } catch (e, st) {
+      _roles.clear();
+      _pageRoles = null;
+      _setRolesError(e.toString());
+      if (kDebugMode) {
+        debugPrint('[HrProvider] fetchRoles ERROR: $e');
+        debugPrint('$st');
+      }
+    } finally {
+      _setRolesLoading(false);
     }
   }
 
-  List<Employee> get employees => List.unmodifiable(_employees);
+  /// =========================
+  /// ADMIN MENUS - untuk builder payload role.menu
+  /// =========================
+  Future<void> fetchAdminMenus(BuildContext context) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return;
 
-  void addEmployee(Employee e) {
-    _employees.add(e);
-    notifyListeners();
-  }
+    _setAdminMenusError(null);
+    _setAdminMenusLoading(true);
 
-  void requestReimbursement({
-    required String employeeName,
-    required String title,
-    required double amount,
-    required String bank,
-    required String accountNumber,
-    String? attachmentName, // dummy
-  }) {
-    final list = _reimbHistory[employeeName] ??= [];
-    list.add(
-      Reimbursement(
-        title: title,
-        amount: amount,
-        date: DateTime.now(),
-        status: 'Pending',
-      ),
-    );
-
-    // (dummy) langsung dianggap Paid agar tampilan "Accepted"
-    list[list.length - 1] = Reimbursement(
-      title: title,
-      amount: amount,
-      date: DateTime.now(),
-      status: 'Paid',
-    );
-
-    notifyListeners();
-  }
-
-  void requestLeave({
-    required String employeeName,
-    required DateTime start,
-    required DateTime end,
-    required String reason,
-    String? attachmentName,
-  }) {
-    // hitung jumlah hari inklusif
-    final days = end.difference(start).inDays + 1;
-
-    // kurangi balance (pastikan minimal 0)
-    final current = _leaveBalance[employeeName] ?? 0;
-    _leaveBalance[employeeName] = (current - days).clamp(0, 365);
-
-    // masukkan ke history dengan status Pending -> Approved (dummy)
-    final list = _leaveHistory[employeeName] ??= [];
-    list.add(
-      LeaveDay(date: start, days: days, reason: reason, status: 'Pending'),
-    );
-
-    // (opsional) langsung set Approved biar sama seperti desain
-    list[list.length - 1] = LeaveDay(
-      date: start,
-      days: days,
-      reason: reason,
-      status: 'Approved',
-    );
-
-    notifyListeners();
-  }
-
-  Employee? getByName(String name) {
     try {
-      return _employees.firstWhere((e) => e.name == name);
-    } catch (_) {
+      final result = await FetchHelper.fetchList<AdminMenu>(
+        context: context,
+        path: _adminMenuPath(bizId), // GET /waveup/{bizId}/admin/menu
+        parser: (json) => AdminMenu.fromJson(json),
+      );
+
+      _adminMenus
+        ..clear()
+        ..addAll(result?.items ?? const []);
+      if (kDebugMode) {
+        debugPrint('[HrProvider] adminMenus: ${_adminMenus.length}');
+      }
+      notifyListeners();
+    } catch (e, st) {
+      _adminMenus.clear();
+      _setAdminMenusError(e.toString());
+      if (kDebugMode) {
+        debugPrint('[HrProvider] fetchAdminMenus ERROR: $e');
+        debugPrint('$st');
+      }
+    } finally {
+      _setAdminMenusLoading(false);
+    }
+  }
+
+  /// =========================
+  /// ROLES - CREATE / UPDATE / DELETE
+  /// =========================
+
+  /// Create Role (payload baru: name + menu)
+  /// [menuSelections] = Map<menuId, Set<submenuId>>.
+  /// - Jika Set kosong → kirim "submenu": []
+  /// - Field "permissions" tetap didukung (tidak mengurangi konteks lama)
+  Future<HrRole?> createRole(
+    BuildContext context, {
+    required String name,
+    Map<int, Set<int>> menuSelections = const {},
+    List<String> permissions = const [],
+  }) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return null;
+
+    _setSubmitting(true);
+    try {
+      final payloadMenu = menuSelections.entries.map((e) {
+        return {"id": e.key, "submenu": e.value.map((x) => x).toList()};
+      }).toList();
+
+      final payload = {
+        "name": name,
+        "menu": payloadMenu, // sesuai spesifikasi baru
+        if (permissions.isNotEmpty)
+          "permissions": permissions, // kompatibel konteks lama
+      };
+
+      if (kDebugMode) {
+        debugPrint('[HrProvider] POST ${_rolesListPath(bizId)}');
+        debugPrint('[HrProvider] payload: $payload');
+      }
+
+      final j = await ApiJson.postMap(
+        context,
+        _rolesListPath(bizId), // POST /waveup/{bizId}/role
+        payload,
+        withAccessToken: true,
+      );
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      if (!ok) {
+        _lastError =
+            j?['msg']?.toString() ??
+            j?['message']?.toString() ??
+            'Failed to create role';
+        notifyListeners();
+        return null;
+      }
+
+      // Jika API mengembalikan data role baru
+      final data = (j['data'] ?? j['role']) as Map?;
+      HrRole? created;
+      if (data != null && data.isNotEmpty) {
+        created = HrRole.fromJson(data.cast<String, dynamic>());
+        _roles.insert(0, created);
+        notifyListeners();
+      } else {
+        // fallback: refresh list
+        await fetchRoles(context);
+      }
+
+      _lastMessage = j['msg']?.toString() ?? 'Role created';
+      return created;
+    } catch (e, st) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[HrProvider] createRole ERROR: $e');
+        debugPrint('$st');
+      }
+      notifyListeners();
+      return null;
+    } finally {
+      _setSubmitting(false);
+    }
+  }
+
+  /// Update role (endpoint legacy yang sudah ada — dibiarkan untuk kompatibilitas)
+  Future<bool> updateRole(
+    BuildContext context, {
+    required String id,
+    String? name,
+    List<String>? permissions,
+  }) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return false;
+
+    _setSubmitting(true);
+    try {
+      final payload = <String, dynamic>{};
+      if (name != null) payload['name'] = name;
+      if (permissions != null) payload['permissions'] = permissions;
+
+      if (kDebugMode) {
+        debugPrint('[HrProvider] PUT ${_roleDetail(bizId, id)}');
+        debugPrint('[HrProvider] payload: $payload');
+      }
+
+      // tetap memakai ApiJson.postMap sesuai konteks lama
+      final j = await ApiJson.postMap(
+        context,
+        _roleDetail(bizId, id),
+        payload,
+        withAccessToken: true,
+      );
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      if (!ok) {
+        _lastError =
+            j?['msg']?.toString() ??
+            j?['message']?.toString() ??
+            'Failed to update role';
+        notifyListeners();
+        return false;
+      }
+
+      // update in-memory
+      final idx = _roles.indexWhere((r) => r.id == id);
+      if (idx != -1) {
+        final merged = HrRole(
+          id: id,
+          name: name ?? _roles[idx].name,
+          isPrimary: _roles[idx].isPrimary,
+          permissions: permissions ?? _roles[idx].permissions,
+        );
+        _roles[idx] = merged;
+        notifyListeners();
+      }
+      return true;
+    } catch (e, st) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[HrProvider] updateRole ERROR: $e');
+        debugPrint('$st');
+      }
+      notifyListeners();
+      return false;
+    } finally {
+      _setSubmitting(false);
+    }
+  }
+
+  /// Delete role (endpoint legacy & method lama dipertahankan)
+  Future<bool> deleteRole(BuildContext context, String id) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return false;
+
+    _setSubmitting(true);
+    try {
+      if (kDebugMode) {
+        debugPrint('[HrProvider] DELETE ${_roleDetail(bizId, id)}');
+      }
+
+      // tetap pakai getMap sesuai konteks lama
+      final j = await ApiJson.getMap(
+        context,
+        _roleDetail(bizId, id),
+        withAccessToken: true,
+      );
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      if (!ok) {
+        _lastError =
+            j?['msg']?.toString() ??
+            j?['message']?.toString() ??
+            'Failed to delete role';
+        notifyListeners();
+        return false;
+      }
+
+      _roles.removeWhere((r) => r.id == id);
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[HrProvider] deleteRole ERROR: $e');
+        debugPrint('$st');
+      }
+      notifyListeners();
+      return false;
+    } finally {
+      _setSubmitting(false);
+    }
+  }
+
+  /// =========================
+  /// EMPLOYEE INVITE FLOW
+  /// =========================
+
+  /// Step 1: Kirim undangan ke email + role id
+  Future<String?> inviteEmployee(
+    BuildContext context, {
+    required String email,
+    required String roleId,
+  }) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return null;
+
+    _setSubmitting(true);
+    try {
+      final payload = {'email': email, 'role': roleId};
+
+      if (kDebugMode) {
+        debugPrint('[HrProvider] POST ${_invitePath(bizId)}');
+        debugPrint('[HrProvider] payload: $payload');
+      }
+
+      final j = await ApiJson.postMap(
+        context,
+        _invitePath(bizId),
+        payload,
+        withAccessToken: true,
+      );
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      if (!ok) {
+        _lastError =
+            j?['msg']?.toString() ??
+            j?['message']?.toString() ??
+            'Failed to send invite';
+        notifyListeners();
+        return null;
+      }
+
+      final url = (j['invite_url'] ?? '').toString();
+      _lastMessage = j['msg']?.toString() ?? 'Undangan berhasil dikirim';
+      notifyListeners();
+      return url;
+    } catch (e, st) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[HrProvider] inviteEmployee ERROR: $e');
+        debugPrint('$st');
+      }
+      notifyListeners();
+      return null;
+    } finally {
+      _setSubmitting(false);
+    }
+  }
+
+  /// Step 2: Cek data undangan (halaman verifikasi)
+  Future<HrInvitePreview?> getInviteData(
+    BuildContext context, {
+    required String token,
+  }) async {
+    try {
+      final path = _inviteTokenPath(token);
+      if (kDebugMode) debugPrint('[HrProvider] GET $path');
+
+      final j = await ApiJson.getMap(
+        context,
+        path,
+        withAccessToken: false, // public endpoint
+      );
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      if (!ok) {
+        _lastError =
+            j?['msg']?.toString() ??
+            j?['message']?.toString() ??
+            'Failed to get invite data';
+        notifyListeners();
+        return null;
+      }
+
+      final preview = HrInvitePreview.fromJson(j.cast<String, dynamic>());
+      return preview;
+    } catch (e, st) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[HrProvider] getInviteData ERROR: $e');
+        debugPrint('$st');
+      }
+      notifyListeners();
       return null;
     }
   }
 
-  int usedLeaveAllowance(String employeeName) {
-    final total = totalLeaveAllowance(employeeName);
-    final remaining = leaveBalance(employeeName);
-    final used = total - remaining;
-    return used.clamp(0, total);
+  /// Step 3 (Last Step): Submit registrasi & join business
+  Future<InviteSubmitResult?> completeInvite(
+    BuildContext context, {
+    required String token,
+    required String user, // email/username
+    required String password,
+    String referralCode = '',
+    required String deviceId,
+    required String deviceName,
+    String fcmToken = '',
+  }) async {
+    try {
+      final payload = {
+        'user': user,
+        'password': password,
+        'referral_code': referralCode,
+        'device_id': deviceId,
+        'device_name': deviceName,
+        'fcm_token': fcmToken,
+      };
+
+      final path = _inviteTokenPath(token);
+      if (kDebugMode) {
+        debugPrint('[HrProvider] POST $path');
+        debugPrint('[HrProvider] payload: $payload');
+      }
+
+      final j = await ApiJson.postMap(
+        context,
+        path,
+        payload,
+        withAccessToken: false, // register/join via invite
+      );
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      if (!ok) {
+        _lastError =
+            j?['msg']?.toString() ??
+            j?['message']?.toString() ??
+            'Failed to complete invite';
+        notifyListeners();
+        return null;
+      }
+
+      _lastMessage =
+          j['msg']?.toString() ?? 'Registrasi berhasil dan bergabung';
+      final res = InviteSubmitResult.fromJson(j.cast<String, dynamic>());
+      notifyListeners();
+      return res;
+    } catch (e, st) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[HrProvider] completeInvite ERROR: $e');
+        debugPrint('$st');
+      }
+      notifyListeners();
+      return null;
+    }
   }
 
-  Employee? getByIndex(int index) {
-    if (index < 0 || index >= _employees.length) return null;
-    return _employees[index];
-  }
+  /// Riwayat undangan pada business saat ini
+  Future<void> fetchInviteHistory(BuildContext context) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return;
 
-  int leaveBalance(String employeeName) => _leaveBalance[employeeName] ?? 0;
+    _setHistoryError(null);
+    _setHistoryLoading(true);
 
-  List<LeaveDay> leaveHistory(String employeeName) =>
-      List.unmodifiable(_leaveHistory[employeeName] ?? const []);
+    try {
+      final result = await FetchHelper.fetchList<HrInviteHistoryItem>(
+        context: context,
+        path: _inviteHistoryPath(bizId),
+        parser: (json) => HrInviteHistoryItem.fromJson(json),
+      );
 
-  List<Reimbursement> reimbursementHistory(String employeeName) =>
-      List.unmodifiable(_reimbHistory[employeeName] ?? const []);
+      _history
+        ..clear()
+        ..addAll(result?.items ?? const []);
+      _pageHistory = result?.page;
 
-  double reimbursementPendingTotal(String employeeName) {
-    final list = _reimbHistory[employeeName] ?? const [];
-    return list
-        .where((r) => r.status == 'Pending')
-        .fold(0.0, (sum, r) => sum + r.amount);
+      if (kDebugMode) {
+        debugPrint('[HrProvider] history: ${_history.length}');
+        debugPrint('[HrProvider] page: $_pageHistory');
+      }
+      notifyListeners();
+    } catch (e, st) {
+      _history.clear();
+      _pageHistory = null;
+      _setHistoryError(e.toString());
+      if (kDebugMode) {
+        debugPrint('[HrProvider] fetchInviteHistory ERROR: $e');
+        debugPrint('$st');
+      }
+    } finally {
+      _setHistoryLoading(false);
+    }
   }
 }

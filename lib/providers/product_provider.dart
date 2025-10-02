@@ -87,6 +87,10 @@ class ProductProvider with ChangeNotifier {
 
   String? _lastError;
 
+  // NEW: error khusus produk
+  String? _productError;
+  String? get productError => _productError;
+
   List<Product> get products => List.unmodifiable(_products);
   List<ProductBrand> get brands => List.unmodifiable(_brands);
   List<ProductCategory> get categories => List.unmodifiable(_categories);
@@ -126,10 +130,13 @@ class ProductProvider with ChangeNotifier {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _products.clear();
+      _pageProducts = null;
+      _productError = "Business ID is not available.";
       notifyListeners();
       return;
     }
 
+    _productError = null; // NEW: clear error
     _setLoading(products: true);
     try {
       final result = await FetchHelper.fetchList<Product>(
@@ -141,6 +148,8 @@ class ProductProvider with ChangeNotifier {
       if (result == null) {
         _products.clear();
         _pageProducts = null;
+        _productError = 'Failed to load products.'; // NEW
+        notifyListeners(); // NEW
         return;
       }
 
@@ -148,6 +157,13 @@ class ProductProvider with ChangeNotifier {
         ..clear()
         ..addAll(result.items);
       _pageProducts = result.page;
+      _productError = null; // success
+      notifyListeners(); // reflect new data
+    } catch (e) {
+      _products.clear();
+      _pageProducts = null;
+      _productError = e.toString(); // NEW
+      notifyListeners(); // NEW
     } finally {
       _setLoading(products: false);
     }
@@ -212,6 +228,15 @@ class ProductProvider with ChangeNotifier {
       _pageCategories = result.page;
     } finally {
       _setLoading(categories: false);
+    }
+  }
+
+  // === Aliases biar cocok dengan UI picker ===
+  Future<void> loadProducts(BuildContext context) => fetchProducts(context);
+
+  Future<void> loadProductsIfEmpty(BuildContext context) async {
+    if (!_loadingProducts && _products.isEmpty) {
+      await fetchProducts(context);
     }
   }
 

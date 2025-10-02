@@ -114,6 +114,30 @@ class DS {
   }
 }
 
+class UI {
+  static const blue = Color(0xFF426FD4);
+  static const bg = Color(0xFFF7F8FA);
+  static const text = Color(0xFF111827);
+  static const sub = Color(0xFF6B7280);
+  static const line = Color(0xFFE5E7EB);
+
+  static InputDecoration input([String? hint]) => InputDecoration(
+    hintText: hint,
+    isDense: true,
+    filled: true,
+    fillColor: Colors.white,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: line),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: line),
+    ),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+  );
+}
+
 // Simple rupiah formatter (tanpa intl)
 String formatRp(int v) {
   final s = v.toString();

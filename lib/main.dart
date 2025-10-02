@@ -8,7 +8,13 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
+import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
+import 'package:wa_blast/screens/hr/role_screen.dart';
+import 'package:wa_blast/screens/manage_report_screen.dart';
+import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
+import 'package:wa_blast/screens/sales/costumer_screen.dart';
+import 'package:wa_blast/screens/sales/manage_sales_screen.dart';
 import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
 import 'package:wa_blast/screens/sales_report_detail_screen.dart';
 import 'package:wa_blast/screens/sales_report_screen.dart';
@@ -41,7 +47,7 @@ import 'package:wa_blast/screens/purchase/purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_list_screen.dart';
 import 'package:wa_blast/screens/detail_purchase_screen.dart';
 import 'package:wa_blast/screens/edit_purchase_screen.dart';
-import 'package:wa_blast/screens/hr_screen.dart';
+import 'package:wa_blast/screens/hr/hr_screen.dart';
 import 'package:wa_blast/screens/detail_employee_screen.dart';
 import 'package:wa_blast/screens/leave_days_screen.dart';
 import 'package:wa_blast/screens/request_leave_days_screen.dart';
@@ -253,6 +259,8 @@ class MyApp extends StatelessWidget {
             return _fadeRoute(settings, const ManagePurchaseScreen());
           case '/purchase/list':
             return _fadeRoute(settings, const PurchaseScreen());
+          case '/purchase/add':
+            return _fadeRoute(settings, const AddPurchasePage());
           case '/purchase/supplier':
             return _fadeRoute(settings, const SupplierScreen());
           case '/purchase/supplier/detail':
@@ -318,7 +326,11 @@ class MyApp extends StatelessWidget {
           case '/edit-profile':
             return _fadeRoute(settings, const EditProfileScreen());
           case '/report':
+            return _fadeRoute(settings, const ManageReportScreen());
+          case '/report/sales':
             return _fadeRoute(settings, const SalesReportScreen());
+          case '/report/purchase':
+            return _fadeRoute(settings, const PurchaseScreen());
           case '/report/detail':
             {
               final args = settings.arguments;
@@ -346,82 +358,90 @@ class MyApp extends StatelessWidget {
               );
             }
           case '/hr':
+            return _fadeRoute(settings, const ManageHRScreen());
+          case '/hr/role':
+            return _fadeRoute(settings, const RoleScreen());
+          case '/hr/employee/invitation':
             return _fadeRoute(settings, const HrScreen());
-          case '/hr/detail':
-            {
-              final args = settings.arguments;
-              final index = (args is Map) ? args['index'] as int? : null;
-              if (index == null) {
-                return _fadeRoute(
-                  settings,
-                  const _RouteErrorScreen(
-                    message: 'Butuh argumen index employee',
-                  ),
-                );
-              }
-              return _fadeRoute(settings, DetailEmployeeScreen(index: index));
-            }
-          case '/hr/leave-days':
-            {
-              final args = settings.arguments;
-              final index = (args is Map) ? args['index'] as int? : null;
-              if (index == null) {
-                return _fadeRoute(
-                  settings,
-                  const _RouteErrorScreen(
-                    message: 'Butuh argumen index employee',
-                  ),
-                );
-              }
-              return _fadeRoute(settings, LeaveDaysScreen(index: index));
-            }
-          case '/hr/leave-days/request':
-            {
-              final args = settings.arguments;
-              final index = (args is Map) ? args['index'] as int? : null;
-              if (index == null) {
-                return _fadeRoute(
-                  settings,
-                  const _RouteErrorScreen(
-                    message: 'Butuh argumen index employee',
-                  ),
-                );
-              }
-              return _fadeRoute(settings, RequestLeaveDayScreen(index: index));
-            }
-          case '/hr/reimbursement':
-            {
-              final args = settings.arguments;
-              final index = (args is Map) ? args['index'] as int? : null;
-              if (index == null) {
-                return _fadeRoute(
-                  settings,
-                  const _RouteErrorScreen(
-                    message: 'Butuh argumen index employee',
-                  ),
-                );
-              }
-              return _fadeRoute(settings, ReimbursementScreen(index: index));
-            }
-          case '/hr/reimbursement/request':
-            {
-              final args = settings.arguments;
-              final index = (args is Map) ? args['index'] as int? : null;
-              if (index == null) {
-                return _fadeRoute(
-                  settings,
-                  const _RouteErrorScreen(
-                    message: 'Butuh argumen index employee',
-                  ),
-                );
-              }
-              return _fadeRoute(
-                settings,
-                RequestReimbursementScreen(index: index),
-              );
-            }
+          // case '/hr/detail':
+          //   {
+          //     final args = settings.arguments;
+          //     final index = (args is Map) ? args['index'] as int? : null;
+          //     if (index == null) {
+          //       return _fadeRoute(
+          //         settings,
+          //         const _RouteErrorScreen(
+          //           message: 'Butuh argumen index employee',
+          //         ),
+          //       );
+          //     }
+          //     return _fadeRoute(settings, DetailEmployeeScreen(index: index));
+          //   }
+          // case '/hr/leave-days':
+          //   {
+          //     final args = settings.arguments;
+          //     final index = (args is Map) ? args['index'] as int? : null;
+          //     if (index == null) {
+          //       return _fadeRoute(
+          //         settings,
+          //         const _RouteErrorScreen(
+          //           message: 'Butuh argumen index employee',
+          //         ),
+          //       );
+          //     }
+          //     return _fadeRoute(settings, LeaveDaysScreen(index: index));
+          //   }
+          // case '/hr/leave-days/request':
+          //   {
+          //     final args = settings.arguments;
+          //     final index = (args is Map) ? args['index'] as int? : null;
+          //     if (index == null) {
+          //       return _fadeRoute(
+          //         settings,
+          //         const _RouteErrorScreen(
+          //           message: 'Butuh argumen index employee',
+          //         ),
+          //       );
+          //     }
+          //     return _fadeRoute(settings, RequestLeaveDayScreen(index: index));
+          //   }
+          // case '/hr/reimbursement':
+          //   {
+          //     final args = settings.arguments;
+          //     final index = (args is Map) ? args['index'] as int? : null;
+          //     if (index == null) {
+          //       return _fadeRoute(
+          //         settings,
+          //         const _RouteErrorScreen(
+          //           message: 'Butuh argumen index employee',
+          //         ),
+          //       );
+          //     }
+          //     return _fadeRoute(settings, ReimbursementScreen(index: index));
+          //   }
+          // case '/hr/reimbursement/request':
+          //   {
+          //     final args = settings.arguments;
+          //     final index = (args is Map) ? args['index'] as int? : null;
+          //     if (index == null) {
+          //       return _fadeRoute(
+          //         settings,
+          //         const _RouteErrorScreen(
+          //           message: 'Butuh argumen index employee',
+          //         ),
+          //       );
+          //     }
+          //     return _fadeRoute(
+          //       settings,
+          //       RequestReimbursementScreen(index: index),
+          //     );
+          //   }
           case '/sales':
+            return _fadeRoute(settings, const ManageSalesScreen());
+          case '/sales/add':
             return _fadeRoute(settings, const SalesStepperWrapper());
+          case '/sales/customer':
+            return _fadeRoute(settings, const CustomerListScreen());
           default:
             return _fadeRoute(settings, const SplashScreen());
         }
