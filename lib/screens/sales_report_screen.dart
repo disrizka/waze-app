@@ -34,7 +34,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
         scrolledUnderElevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/home'),
+          onPressed: () => Navigator.pushReplacementNamed(context, '/report'),
         ),
         title: const Text(
           'Sales Report',
