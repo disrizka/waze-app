@@ -14,12 +14,14 @@ class LinkRegisterStepperWrapper extends StatelessWidget {
     required this.inviteToken,
     this.businessName, // <- opsional dari link
     this.businessLogo, // <- opsional (asset path / url)
+    this.inviteRoleName, // <- ✅ role undangan dari preview
   });
 
   final String inviteEmail;
   final String inviteToken;
   final String? businessName;
   final String? businessLogo;
+  final String? inviteRoleName; // ✅ NEW
 
   Color get _primary => const Color(0xFF426FD4);
   Color get _lineInactive => const Color(0xFFE5E7EB);
@@ -32,6 +34,7 @@ class LinkRegisterStepperWrapper extends StatelessWidget {
         inviteToken: inviteToken,
         inviteBusinessName: businessName,
         inviteBusinessLogo: businessLogo,
+        inviteRoleName: inviteRoleName, // ✅ pass role ke provider
       ),
       child: Builder(
         builder: (context) {

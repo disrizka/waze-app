@@ -47,15 +47,31 @@ String _asStr(dynamic v, [String def = '']) => v?.toString() ?? def;
 
 /// ===== Cache businessId biar enggak get prefs berulang =====
 class BizIdCache {
-  static String? _cached;
+  /// Selalu baca dari SharedPreferences (tidak pakai cache sama sekali)
   static Future<String?> get() async {
-    if (_cached != null && _cached!.isNotEmpty) return _cached;
     final prefs = await SharedPreferences.getInstance();
-    _cached = prefs.getString('activeBizId');
-    return _cached;
+    final id = prefs.getString('activeBizId');
+    if (kDebugMode) debugPrint('[BizIdCache] get() -> $id');
+    return id;
   }
 
-  static void invalidate() => _cached = null;
+  /// Set & persist bizId (dipakai saat login atau switch business)
+  static Future<void> set(String? id) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (id == null || id.isEmpty) {
+      await prefs.remove('activeBizId');
+    } else {
+      await prefs.setString('activeBizId', id);
+    }
+    if (kDebugMode) debugPrint('[BizIdCache] set($id)');
+  }
+
+  /// Reset data di prefs (opsional)
+  static Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('activeBizId');
+    if (kDebugMode) debugPrint('[BizIdCache] clear()');
+  }
 }
 
 /// ===== API JSON wrapper tipis (selalu balikin Map) =====

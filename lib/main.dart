@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
@@ -19,6 +20,7 @@ import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
 import 'package:wa_blast/screens/sales_report_detail_screen.dart';
 import 'package:wa_blast/screens/sales_report_screen.dart';
 import 'package:wa_blast/screens/store_list_screen.dart';
+import 'package:wa_blast/services/deep_link_service.dart';
 import 'firebase_options.dart';
 
 // providers
@@ -111,6 +113,8 @@ class _Bootstrapper extends StatefulWidget {
 class _BootstrapperState extends State<_Bootstrapper> {
   bool _inited = false;
 
+  late final DeepLinkService _deepLinkService = DeepLinkService();
+
   @override
   void initState() {
     super.initState();
@@ -146,10 +150,19 @@ class _BootstrapperState extends State<_Bootstrapper> {
 
       // 4) Minta permission & ambil token TANPA mengganggu UI
       unawaited(_askNotifPermissionAndToken());
+
+      _deepLinkService.init();
     } catch (e) {
       // Jangan ganggu UI kalau gagal init
       debugPrint('Bootstrap error: $e');
     }
+  }
+
+  @override
+  void dispose() {
+    // ⬅️ pastikan listener dibersihkan
+    _deepLinkService.dispose();
+    super.dispose();
   }
 
   Future<void> _askNotifPermissionAndToken() async {
@@ -196,6 +209,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'Wave Up',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

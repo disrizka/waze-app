@@ -5,6 +5,41 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/services/api_service.dart';
 
+// Optional: kecilkan model agar enak dipakai di UI
+@immutable
+class BusinessInfo {
+  final String idBusiness;
+  final String name;
+  final String username;
+  final String logoPath;
+  final bool isActive;
+  const BusinessInfo({
+    required this.idBusiness,
+    required this.name,
+    required this.username,
+    required this.logoPath,
+    this.isActive = false,
+  });
+
+  factory BusinessInfo.fromJson(Map<String, dynamic> j, {String? activeId}) {
+    final id = (j['idBusiness'] ?? '').toString();
+    return BusinessInfo(
+      idBusiness: id,
+      name: (j['name'] ?? '').toString(),
+      username: (j['username'] ?? '').toString(),
+      logoPath: (j['logoPath'] ?? j['logo'] ?? '').toString(),
+      isActive: activeId != null && activeId == id,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'idBusiness': idBusiness,
+    'name': name,
+    'username': username,
+    'logoPath': logoPath,
+  };
+}
+
 class AuthProvider with ChangeNotifier {
   // Internal fields
   String? _accessToken;
@@ -850,5 +885,108 @@ class AuthProvider with ChangeNotifier {
         }
       }
     }
+  }
+
+  /// Ambil daftar bisnis yang tersimpan dari SharedPreferences
+  Future<List<BusinessInfo>> getBusinesses() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('business');
+    final activeId = prefs.getString('activeBizId');
+    if (raw == null || raw.isEmpty) return const [];
+
+    try {
+      final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+      return list
+          .map((e) => BusinessInfo.fromJson(e, activeId: activeId))
+          .toList();
+    } catch (e) {
+      debugPrint('getBusinesses parse error: $e');
+      return const [];
+    }
+  }
+
+  /// Getter singkat untuk bisnis aktif saat ini (atau null)
+  Future<BusinessInfo?> getActiveBusiness() async {
+    final prefs = await SharedPreferences.getInstance();
+    final activeId = prefs.getString('activeBizId') ?? '';
+    final all = await getBusinesses();
+
+    if (all.isEmpty) return null; // boleh null di level fungsi
+    if (activeId.isEmpty) return all.first; // pilih default ke item pertama
+
+    // orElse WAJIB mengembalikan BusinessInfo (bukan null)
+    return all.firstWhere(
+      (b) => b.idBusiness == activeId,
+      orElse: () => all.first,
+    );
+  }
+
+  /// Ganti active business by idBusiness, *tanpa* perlu login ulang.
+  /// - Update keys: activeBizId, activeBizName, activeBizUsername, activeBizLogoPath
+  /// - Update snapshot "account_<email>" agar konsisten saat cold start
+  /// - Optional: jika API butuh header bisnis, panggil hook di ApiService
+  Future<bool> switchActiveBusiness(String idBusiness) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1) Cari bisnis yang dimaksud dari list yg tersimpan
+    final businesses = await getBusinesses();
+    final target = businesses.firstWhere(
+      (b) => b.idBusiness == idBusiness,
+      orElse: () => const BusinessInfo(
+        idBusiness: '',
+        name: '',
+        username: '',
+        logoPath: '',
+      ),
+    );
+    if (target.idBusiness.isEmpty) {
+      _error = 'Business tidak ditemukan';
+      notifyListeners();
+      return false;
+    }
+
+    // 2) Persist ke prefs (single keys)
+    await prefs.setString('activeBizId', target.idBusiness);
+    await prefs.setString('activeBizName', target.name);
+    await prefs.setString('activeBizUsername', target.username);
+    await prefs.setString('activeBizLogoPath', target.logoPath);
+
+    // 3) Update snapshot akun aktif (account_<email>)
+    final emailKey = _email ?? prefs.getString(kActiveAccountKey);
+    if (emailKey != null && emailKey.isNotEmpty) {
+      final key = 'account_$emailKey';
+      final snapStr = prefs.getString(key);
+      if (snapStr != null) {
+        try {
+          final snap = jsonDecode(snapStr) as Map<String, dynamic>;
+          final activeBiz =
+              (snap['activeBusiness'] as Map?)?.cast<String, dynamic>() ?? {};
+          activeBiz['idBusiness'] = target.idBusiness;
+          activeBiz['name'] = target.name;
+          activeBiz['username'] = target.username;
+          activeBiz['logoPath'] = target.logoPath;
+          snap['activeBusiness'] = activeBiz;
+          await prefs.setString(key, jsonEncode(snap));
+        } catch (e) {
+          debugPrint('switchActiveBusiness: update snapshot error: $e');
+        }
+      }
+      // Pastikan pointer akun aktif juga ke email ini
+      await prefs.setString(kActiveAccountKey, emailKey);
+    }
+
+    // 4) Optional: inform ApiService kalau butuh header khusus per bisnis
+    try {
+      // Jika kamu punya hook seperti ini, aktifkan:
+      // ApiService.setActiveBusinessId(target.idBusiness);
+      // atau, jika perlu custom header:
+      // ApiService.updateDefaultHeaders({'X-Business-Id': target.idBusiness});
+    } catch (_) {}
+
+    // 5) Update state in-memory (jika kamu ingin expose ke UI lewat provider)
+    // (Tidak ada field khusus di state, tapi kita bisa notify agar UI refresh)
+    _error = null;
+    notifyListeners();
+    return true;
   }
 }

@@ -8,13 +8,50 @@ class LinkRegisterProvider extends ChangeNotifier {
     required this.inviteToken,
     this.inviteBusinessName,
     this.inviteBusinessLogo,
+    this.inviteRoleName, // ✅ NEW: role yang akan diberikan
   });
 
+  /// Helper untuk inisialisasi dari meta undangan (mis. hasil getInviteData)
+  factory LinkRegisterProvider.fromInvitePreview({
+    required String email,
+    required String token,
+    required String businessName,
+    String? businessLogo,
+    String? roleName,
+  }) {
+    return LinkRegisterProvider(
+      inviteEmail: email,
+      inviteToken: token,
+      inviteBusinessName: businessName,
+      inviteBusinessLogo: businessLogo,
+      inviteRoleName: roleName,
+    );
+  }
+
   // ====== INVITE META ======
-  final String inviteEmail;
-  final String inviteToken;
-  final String? inviteBusinessName; // <- optional dari link
-  final String? inviteBusinessLogo; // <- optional (asset path / url)
+  final String inviteEmail; // siapa yang diundang
+  final String inviteToken; // token undangan
+  final String? inviteBusinessName; // nama bisnis pengundang
+  final String? inviteBusinessLogo; // logo bisnis (url/asset)
+  final String? inviteRoleName; // ✅ role yang akan diberikan
+
+  // ====== Convenience getters untuk UI (dengan fallback aman) ======
+  String get displayInviteEmail =>
+      inviteEmail.isNotEmpty ? inviteEmail : 'your@email.com';
+
+  String get displayBusinessName => (inviteBusinessName ?? '').trim().isNotEmpty
+      ? inviteBusinessName!.trim()
+      : 'Business';
+
+  /// bisa null -> UI sediakan fallback icon
+  String? get displayBusinessLogo =>
+      (inviteBusinessLogo ?? '').trim().isNotEmpty
+      ? inviteBusinessLogo!.trim()
+      : null;
+
+  String get displayRoleName => (inviteRoleName ?? '').trim().isNotEmpty
+      ? inviteRoleName!.trim()
+      : 'Member';
 
   // ====== WELCOME STATE ======
   bool _showWelcome = true;
@@ -70,6 +107,10 @@ class LinkRegisterProvider extends ChangeNotifier {
   String? _joinedBusinessLogo; // asset path / url
   String? get joinedBusinessLogo => _joinedBusinessLogo;
 
+  // (opsional) role yang tersimpan setelah join (kalau backend kirim)
+  String? _joinedRoleName;
+  String? get joinedRoleName => _joinedRoleName ?? inviteRoleName;
+
   // ====== VALIDATORS ======
   String? validatePassword(String? v) {
     final t = (v ?? '').trim();
@@ -123,14 +164,24 @@ class LinkRegisterProvider extends ChangeNotifier {
 
     try {
       final result = await acceptInviteAndRegister(payload);
+
       // Simpan hasil join business
       _joinedBusinessName =
-          result['business_name'] as String? ??
-          inviteBusinessName ??
-          'Your Business';
+          (result['business_name'] as String?)?.trim().isNotEmpty == true
+          ? (result['business_name'] as String).trim()
+          : inviteBusinessName ?? 'Your Business';
+
       _joinedBusinessLogo =
-          result['business_logo'] as String? ??
-          inviteBusinessLogo; // boleh null (nanti fallback di UI)
+          (result['business_logo'] as String?)?.trim().isNotEmpty == true
+          ? (result['business_logo'] as String).trim()
+          : inviteBusinessLogo;
+
+      // Simpan role jika backend mengembalikan, kalau tidak ya pakai role undangan
+      _joinedRoleName =
+          (result['role_name'] as String?)?.trim().isNotEmpty == true
+          ? (result['role_name'] as String).trim()
+          : inviteRoleName;
+
       _completed = true;
       notifyListeners();
       return null;
@@ -143,6 +194,7 @@ class LinkRegisterProvider extends ChangeNotifier {
   }
 
   /// ====== API STUB (ganti dengan service/API asli) ======
+  /// Idealnya ini memanggil HrProvider.completeInvite(...)
   Future<Map<String, dynamic>> acceptInviteAndRegister(
     Map<String, dynamic> payload,
   ) async {
@@ -151,11 +203,21 @@ class LinkRegisterProvider extends ChangeNotifier {
       print('[LinkRegister] Submit payload: $payload');
     }
     await Future.delayed(const Duration(milliseconds: 700));
-    // Return contoh data dari backend:
+
+    // Contoh response backend:
+    // {
+    //   "status": 200,
+    //   "msg": "Registrasi berhasil",
+    //   "business_name": "PT. Coffee Roasters",
+    //   "business_logo": "https://....",
+    //   "role_name": "Product Manager",
+    //   "token": {...}, "data": {...}
+    // }
+
     return {
       'business_name': inviteBusinessName ?? 'Wave Cafe',
-      'business_logo':
-          inviteBusinessLogo, // contoh: 'assets/business_dummy_logo.png'
+      'business_logo': inviteBusinessLogo,
+      'role_name': inviteRoleName ?? 'Member',
     };
   }
 

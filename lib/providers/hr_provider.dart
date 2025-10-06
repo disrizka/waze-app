@@ -1,12 +1,40 @@
 // lib/providers/hr_provider.dart
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'package:wa_blast/core/provider_helper.dart'; // BizIdCache, ApiJson, FetchHelper, PageMeta
+import 'package:wa_blast/core/provider_helper.dart';
+import 'package:wa_blast/screens/register/link/link_register_stepper_wrapper.dart'; // BizIdCache, ApiJson, FetchHelper, PageMeta
 
 /// =========================
 /// MODELS
 /// =========================
+
+@immutable
+class InviteData {
+  final String email;
+  final String token;
+  final String businessName;
+  final String? businessLogo;
+
+  const InviteData({
+    required this.email,
+    required this.token,
+    required this.businessName,
+    this.businessLogo,
+  });
+
+  factory InviteData.fromJson(String token, Map<String, dynamic> j) {
+    return InviteData(
+      email: (j['email'] ?? '').toString(),
+      token: token,
+      businessName: (j['business_name'] ?? j['business']?['name'] ?? '')
+          .toString(),
+      businessLogo: (j['business_logo'] ?? j['business']?['logo'])?.toString(),
+    );
+  }
+}
 
 @immutable
 class HrRole {
@@ -171,6 +199,25 @@ class AdminMenu {
         .map((e) => AdminSubmenu.fromJson((e as Map).cast<String, dynamic>()))
         .toList(),
   );
+}
+
+String? extractInviteTokenFromUrl(String url) {
+  try {
+    final u = Uri.parse(url);
+
+    // 1) Coba ambil dari fallback query param (kalau ada)
+    final fb = u.queryParameters['fallback'];
+    if (fb != null && fb.isNotEmpty) {
+      final fu = Uri.parse(fb);
+      if (fu.pathSegments.isNotEmpty) return fu.pathSegments.last;
+    }
+
+    // 2) Ambil dari URL utama (custom scheme atau https)
+    if (u.pathSegments.isNotEmpty) return u.pathSegments.last;
+    return null;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// =========================
@@ -581,6 +628,13 @@ class HrProvider extends ChangeNotifier {
         withAccessToken: true,
       );
 
+      // 🔍 Pretty print full response
+      if (kDebugMode) {
+        const encoder = JsonEncoder.withIndent('  ');
+        final pretty = encoder.convert(j);
+        debugPrint('[HrProvider] 🔄 Full response:\n$pretty');
+      }
+
       final ok = j != null && (j['status'] as num?)?.toInt() == 200;
       if (!ok) {
         _lastError =
@@ -593,6 +647,9 @@ class HrProvider extends ChangeNotifier {
 
       final url = (j['invite_url'] ?? '').toString();
       _lastMessage = j['msg']?.toString() ?? 'Undangan berhasil dikirim';
+      debugPrint('[HrProvider] ✅ status: ${j['status']}');
+      debugPrint('[HrProvider] 📨 message: ${j['msg']}');
+      debugPrint('[HrProvider] 🔗 invite_url: ${j['invite_url']}');
       notifyListeners();
       return url;
     } catch (e, st) {
@@ -623,6 +680,14 @@ class HrProvider extends ChangeNotifier {
         withAccessToken: false, // public endpoint
       );
 
+      // Pretty print untuk debug
+      if (kDebugMode) {
+        const enc = JsonEncoder.withIndent('  ');
+        debugPrint(
+          '[HrProvider] 📦 invite detail response:\n${enc.convert(j)}',
+        );
+      }
+
       final ok = j != null && (j['status'] as num?)?.toInt() == 200;
       if (!ok) {
         _lastError =
@@ -633,6 +698,7 @@ class HrProvider extends ChangeNotifier {
         return null;
       }
 
+      // ✅ langsung pakai root JSON (sesuai respons terbarumu)
       final preview = HrInvitePreview.fromJson(j.cast<String, dynamic>());
       return preview;
     } catch (e, st) {
@@ -741,6 +807,57 @@ class HrProvider extends ChangeNotifier {
       }
     } finally {
       _setHistoryLoading(false);
+    }
+  }
+
+  Future<void> openInviteFromUrl(BuildContext context, String inviteUrl) async {
+    final token = extractInviteTokenFromUrl(inviteUrl);
+    if (kDebugMode) {
+      debugPrint('[HrProvider] 🔗 inviteUrl tapped: $inviteUrl');
+      debugPrint('[HrProvider] 🔑 extracted token: $token');
+    }
+
+    if (token == null || token.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Invalid invite link')));
+      return;
+    }
+
+    _setSubmitting(true);
+    try {
+      final preview = await getInviteData(context, token: token);
+      if (preview == null) {
+        final err = _lastError ?? 'Failed to open invite';
+        if (kDebugMode) debugPrint('[HrProvider] ❌ $err');
+        return;
+      }
+
+      if (kDebugMode) {
+        debugPrint(
+          '[HrProvider] ✅ invite resolved: '
+          'email=${preview.email}, '
+          'biz=${preview.businessName}, '
+          'role=${preview.roleName}',
+        );
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => LinkRegisterStepperWrapper(
+            inviteEmail: preview.email,
+            inviteToken: preview.token.isNotEmpty ? preview.token : token,
+            businessName: preview.businessName,
+            businessLogo: (preview.businessLogo.isNotEmpty)
+                ? preview.businessLogo
+                : 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200',
+            inviteRoleName: preview.roleName,
+          ),
+        ),
+      );
+    } finally {
+      _setSubmitting(false);
     }
   }
 }
