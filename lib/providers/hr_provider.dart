@@ -3,8 +3,10 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:wa_blast/core/provider_helper.dart';
+import 'package:wa_blast/providers/auth_provider.dart';
 import 'package:wa_blast/screens/register/link/link_register_stepper_wrapper.dart'; // BizIdCache, ApiJson, FetchHelper, PageMeta
 
 /// =========================
@@ -712,11 +714,18 @@ class HrProvider extends ChangeNotifier {
     }
   }
 
+  String _maskToken(String? s) {
+    final t = (s ?? '').trim();
+    if (t.isEmpty) return '';
+    if (t.length <= 12) return '${t.substring(0, 3)}...';
+    return '${t.substring(0, 6)}...${t.substring(t.length - 4)}';
+  }
+
   /// Step 3 (Last Step): Submit registrasi & join business
   Future<InviteSubmitResult?> completeInvite(
     BuildContext context, {
     required String token,
-    required String user, // email/username
+    required String user,
     required String password,
     String referralCode = '',
     required String deviceId,
@@ -756,9 +765,74 @@ class HrProvider extends ChangeNotifier {
         return null;
       }
 
+      // === Pretty log full response (token masked)
+      if (kDebugMode) {
+        const enc = JsonEncoder.withIndent('  ');
+        final masked = {
+          'status': j['status'],
+          'data': j['data'],
+          'token': {
+            'access_token': _maskToken(j['token']?['access_token']?.toString()),
+            'refresh_token': _maskToken(
+              j['token']?['refresh_token']?.toString(),
+            ),
+          },
+          'msg': j['msg'],
+        };
+        debugPrint('[HrProvider] 🎉 completeInvite SUCCESS');
+        debugPrint(
+          '[HrProvider] 📦 FULL RESPONSE (masked):\n${enc.convert(masked)}',
+        );
+
+        final data = (j['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+        debugPrint('[HrProvider] ── USER ─────────────');
+        debugPrint('• idUser       : ${data['idUser']}');
+        debugPrint('• email        : ${data['email']}');
+        debugPrint('• username     : ${data['username']}');
+        debugPrint('• hasPage      : ${data['hasPage']}');
+        debugPrint('• userRoleName : ${data['userRoleName']}');
+      }
+
       _lastMessage =
           j['msg']?.toString() ?? 'Registrasi berhasil dan bergabung';
       final res = InviteSubmitResult.fromJson(j.cast<String, dynamic>());
+
+      // === AUTO-LOGIN ===
+      try {
+        final data = (j['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+        final loginEmail = (data['email']?.toString() ?? '').isNotEmpty
+            ? data['email'].toString()
+            : user;
+
+        final auth = context.read<AuthProvider>();
+        final loginOk = await auth.login(
+          context: context,
+          email: loginEmail,
+          password: password,
+          fcmToken: fcmToken,
+          deviceId: deviceId,
+          deviceName: deviceName,
+        );
+
+        if (loginOk) {
+          if (kDebugMode) debugPrint('[HrProvider] AUTOLOGIN ✅ -> /splash');
+          if (context.mounted) {
+            Navigator.pushNamedAndRemoveUntil(context, '/splash', (r) => false);
+          }
+        } else {
+          if (kDebugMode) {
+            debugPrint(
+              '[HrProvider] AUTOLOGIN ❌ ${auth.error ?? "(unknown error)"}',
+            );
+          }
+        }
+      } catch (e, st) {
+        if (kDebugMode) {
+          debugPrint('[HrProvider] AUTOLOGIN exception: $e');
+          debugPrint('$st');
+        }
+      }
+
       notifyListeners();
       return res;
     } catch (e, st) {
@@ -807,57 +881,6 @@ class HrProvider extends ChangeNotifier {
       }
     } finally {
       _setHistoryLoading(false);
-    }
-  }
-
-  Future<void> openInviteFromUrl(BuildContext context, String inviteUrl) async {
-    final token = extractInviteTokenFromUrl(inviteUrl);
-    if (kDebugMode) {
-      debugPrint('[HrProvider] 🔗 inviteUrl tapped: $inviteUrl');
-      debugPrint('[HrProvider] 🔑 extracted token: $token');
-    }
-
-    if (token == null || token.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Invalid invite link')));
-      return;
-    }
-
-    _setSubmitting(true);
-    try {
-      final preview = await getInviteData(context, token: token);
-      if (preview == null) {
-        final err = _lastError ?? 'Failed to open invite';
-        if (kDebugMode) debugPrint('[HrProvider] ❌ $err');
-        return;
-      }
-
-      if (kDebugMode) {
-        debugPrint(
-          '[HrProvider] ✅ invite resolved: '
-          'email=${preview.email}, '
-          'biz=${preview.businessName}, '
-          'role=${preview.roleName}',
-        );
-      }
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => LinkRegisterStepperWrapper(
-            inviteEmail: preview.email,
-            inviteToken: preview.token.isNotEmpty ? preview.token : token,
-            businessName: preview.businessName,
-            businessLogo: (preview.businessLogo.isNotEmpty)
-                ? preview.businessLogo
-                : 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200',
-            inviteRoleName: preview.roleName,
-          ),
-        ),
-      );
-    } finally {
-      _setSubmitting(false);
     }
   }
 }

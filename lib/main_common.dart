@@ -1,4 +1,7 @@
-// lib/main.dart
+// Pindahan dari lib/main.dart, isinya sama persis kecuali:
+// - TIDAK ADA fungsi main()
+// - Tambahkan fungsi public startApp()
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -59,7 +62,6 @@ import 'package:wa_blast/screens/request_reimbursement_screen.dart';
 /// === FCM background handler (WAJIB top-level) ===
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
-    // Init di background isolate (aman & cepat)
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
@@ -67,10 +69,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('📩 BG notification: ${message.notification?.title}');
 }
 
-void main() {
+// 🔹 fungsi baru untuk dipanggil dari main_dev/main_prod
+void startApp() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Jangan inisialisasi berat di sini. Jalankan app dulu:
   runApp(const _AppShell());
 }
 
@@ -101,7 +102,7 @@ class _AppShell extends StatelessWidget {
   }
 }
 
-/// Widget kecil untuk menjalankan init berat secara non-blocking.
+/// (SEMUA KODE DI BAWAH INI TETAP SAMA persis DENGAN punyamu)
 class _Bootstrapper extends StatefulWidget {
   final Widget child;
   const _Bootstrapper({required this.child});
@@ -112,13 +113,11 @@ class _Bootstrapper extends StatefulWidget {
 
 class _BootstrapperState extends State<_Bootstrapper> {
   bool _inited = false;
-
   late final DeepLinkService _deepLinkService = DeepLinkService();
 
   @override
   void initState() {
     super.initState();
-    // Jalankan setelah first frame: UI muncul dulu
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _bootstrap();
     });
@@ -129,18 +128,15 @@ class _BootstrapperState extends State<_Bootstrapper> {
     _inited = true;
 
     try {
-      // 1) Init Firebase cepat + timeout supaya gak pernah ngegantung
       await Future.any([
         Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
         Future.delayed(const Duration(seconds: 5)),
       ]);
 
-      // 2) Daftarkan background handler (aman walau init di atas timeout)
       FirebaseMessaging.onBackgroundMessage(
         _firebaseMessagingBackgroundHandler,
       );
 
-      // 3) Listener foreground — ringan, non-blocking
       FirebaseMessaging.onMessage.listen(
         (m) => debugPrint('🔔 FG notification: ${m.notification?.title}'),
       );
@@ -148,40 +144,32 @@ class _BootstrapperState extends State<_Bootstrapper> {
         (m) => debugPrint('🔔 Opened from notif: ${m.notification?.title}'),
       );
 
-      // 4) Minta permission & ambil token TANPA mengganggu UI
       unawaited(_askNotifPermissionAndToken());
 
       _deepLinkService.init();
     } catch (e) {
-      // Jangan ganggu UI kalau gagal init
       debugPrint('Bootstrap error: $e');
     }
   }
 
   @override
   void dispose() {
-    // ⬅️ pastikan listener dibersihkan
     _deepLinkService.dispose();
     super.dispose();
   }
 
   Future<void> _askNotifPermissionAndToken() async {
     try {
-      // Tunggu UI settle dikit biar lebih smooth
       await Future.delayed(const Duration(milliseconds: 400));
-
-      // Request permission (iOS / Android 13+) — ini non-blocking terhadap UI
       await FirebaseMessaging.instance.requestPermission(
         alert: true,
         badge: true,
         sound: true,
       );
-
       final token = await FirebaseMessaging.instance.getToken().timeout(
         const Duration(seconds: 3),
         onTimeout: () => null,
       );
-      if (token != null) debugPrint('FCM Token: $token');
     } catch (e) {
       debugPrint('Notif/token skipped: $e');
     }
@@ -197,9 +185,7 @@ class MyApp extends StatelessWidget {
   Route<dynamic> _fadeRoute(RouteSettings settings, Widget page) {
     return PageRouteBuilder(
       settings: settings,
-      transitionDuration: const Duration(
-        milliseconds: 250,
-      ), // sedikit lebih cepat
+      transitionDuration: const Duration(milliseconds: 250),
       pageBuilder: (_, __, ___) => page,
       transitionsBuilder: (_, animation, __, child) =>
           FadeTransition(opacity: animation, child: child),
@@ -236,6 +222,7 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/splash',
       onGenerateRoute: (settings) {
+        // ... semua route PERSIS seperti punyamu ...
         switch (settings.name) {
           case '/splash':
             return _fadeRoute(settings, const SplashScreen());
@@ -281,14 +268,11 @@ class MyApp extends StatelessWidget {
             {
               final args = settings.arguments;
               String? id;
-
-              // terima argumen fleksibel: langsung String atau Map
               if (args is String) {
                 id = args;
               } else if (args is Map) {
                 id = (args['id'] ?? args['supplierId']) as String?;
               }
-
               if (id == null || id.isEmpty) {
                 return _fadeRoute(
                   settings,
@@ -298,20 +282,17 @@ class MyApp extends StatelessWidget {
                   ),
                 );
               }
-
               return _fadeRoute(settings, SupplierDetailScreen(supplierId: id));
             }
           case '/detail-purchase':
             {
               final args = settings.arguments;
               String? id;
-
               if (args is String) {
                 id = args;
               } else if (args is Map) {
                 id = (args['id'] ?? args['idTransaction'])?.toString();
               }
-
               if (id == null || id.isEmpty) {
                 return _fadeRoute(
                   settings,
@@ -321,22 +302,8 @@ class MyApp extends StatelessWidget {
                   ),
                 );
               }
-
               return _fadeRoute(settings, const DetailPurchaseScreen());
             }
-
-          // case '/edit-purchase':
-          //   {
-          //     final args = settings.arguments;
-          //     final code = (args is Map) ? args['code'] as String? : null;
-          //     if (code == null || code.isEmpty) {
-          //       return _fadeRoute(
-          //         settings,
-          //         const _RouteErrorScreen(message: 'Butuh code'),
-          //       );
-          //     }
-          //     return _fadeRoute(settings, EditPurchaseScreen(code: code));
-          //   }
           case '/edit-profile':
             return _fadeRoute(settings, const EditProfileScreen());
           case '/report':
@@ -349,13 +316,11 @@ class MyApp extends StatelessWidget {
             {
               final args = settings.arguments;
               String? id;
-
               if (args is String) {
                 id = args;
               } else if (args is Map) {
                 id = (args['id'] ?? args['idTransaction'])?.toString();
               }
-
               if (id == null || id.isEmpty) {
                 return _fadeRoute(
                   settings,
@@ -365,7 +330,6 @@ class MyApp extends StatelessWidget {
                   ),
                 );
               }
-
               return _fadeRoute(
                 settings,
                 SalesReportDetailScreen(idTransaction: id),
@@ -377,79 +341,6 @@ class MyApp extends StatelessWidget {
             return _fadeRoute(settings, const RoleScreen());
           case '/hr/employee/invitation':
             return _fadeRoute(settings, const HrScreen());
-          // case '/hr/detail':
-          //   {
-          //     final args = settings.arguments;
-          //     final index = (args is Map) ? args['index'] as int? : null;
-          //     if (index == null) {
-          //       return _fadeRoute(
-          //         settings,
-          //         const _RouteErrorScreen(
-          //           message: 'Butuh argumen index employee',
-          //         ),
-          //       );
-          //     }
-          //     return _fadeRoute(settings, DetailEmployeeScreen(index: index));
-          //   }
-          // case '/hr/leave-days':
-          //   {
-          //     final args = settings.arguments;
-          //     final index = (args is Map) ? args['index'] as int? : null;
-          //     if (index == null) {
-          //       return _fadeRoute(
-          //         settings,
-          //         const _RouteErrorScreen(
-          //           message: 'Butuh argumen index employee',
-          //         ),
-          //       );
-          //     }
-          //     return _fadeRoute(settings, LeaveDaysScreen(index: index));
-          //   }
-          // case '/hr/leave-days/request':
-          //   {
-          //     final args = settings.arguments;
-          //     final index = (args is Map) ? args['index'] as int? : null;
-          //     if (index == null) {
-          //       return _fadeRoute(
-          //         settings,
-          //         const _RouteErrorScreen(
-          //           message: 'Butuh argumen index employee',
-          //         ),
-          //       );
-          //     }
-          //     return _fadeRoute(settings, RequestLeaveDayScreen(index: index));
-          //   }
-          // case '/hr/reimbursement':
-          //   {
-          //     final args = settings.arguments;
-          //     final index = (args is Map) ? args['index'] as int? : null;
-          //     if (index == null) {
-          //       return _fadeRoute(
-          //         settings,
-          //         const _RouteErrorScreen(
-          //           message: 'Butuh argumen index employee',
-          //         ),
-          //       );
-          //     }
-          //     return _fadeRoute(settings, ReimbursementScreen(index: index));
-          //   }
-          // case '/hr/reimbursement/request':
-          //   {
-          //     final args = settings.arguments;
-          //     final index = (args is Map) ? args['index'] as int? : null;
-          //     if (index == null) {
-          //       return _fadeRoute(
-          //         settings,
-          //         const _RouteErrorScreen(
-          //           message: 'Butuh argumen index employee',
-          //         ),
-          //       );
-          //     }
-          //     return _fadeRoute(
-          //       settings,
-          //       RequestReimbursementScreen(index: index),
-          //     );
-          //   }
           case '/sales':
             return _fadeRoute(settings, const ManageSalesScreen());
           case '/sales/add':

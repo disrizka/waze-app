@@ -1,7 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:midtrans_sdk/midtrans_sdk.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 import 'package:wa_blast/core/provider_helper.dart'; // BizIdCache, ApiJson, FetchHelper, PageMeta
 import 'package:wa_blast/providers/product_provider.dart' as catalog;
@@ -10,6 +16,328 @@ import 'package:wa_blast/models/product_model.dart' as model;
 /// =========================
 /// CART SKU (ringan)
 /// =========================
+
+// =========================
+// SALES DETAIL MODELS (NEW)
+// =========================
+@immutable
+class StoreProvince {
+  final String id;
+  final String name;
+  const StoreProvince({required this.id, required this.name});
+
+  factory StoreProvince.fromJson(Map<String, dynamic> j) => StoreProvince(
+    id: (j['id'] ?? '').toString(),
+    name: (j['name'] ?? '').toString(),
+  );
+}
+
+@immutable
+class StoreCity {
+  final String id;
+  final String name;
+  final StoreProvince? province;
+  const StoreCity({required this.id, required this.name, this.province});
+
+  factory StoreCity.fromJson(Map<String, dynamic> j) => StoreCity(
+    id: (j['id'] ?? '').toString(),
+    name: (j['name'] ?? '').toString(),
+    province: (j['province'] is Map)
+        ? StoreProvince.fromJson((j['province'] as Map).cast<String, dynamic>())
+        : null,
+  );
+}
+
+@immutable
+class StoreLocationLite {
+  final String idStoreLocation;
+  final String name;
+  final StoreCity? city;
+
+  const StoreLocationLite({
+    required this.idStoreLocation,
+    required this.name,
+    this.city,
+  });
+
+  factory StoreLocationLite.fromJson(Map<String, dynamic> j) =>
+      StoreLocationLite(
+        idStoreLocation: (j['idStoreLocation'] ?? '').toString(),
+        name: (j['name'] ?? '').toString(),
+        city: (j['city'] is Map)
+            ? StoreCity.fromJson((j['city'] as Map).cast<String, dynamic>())
+            : null,
+      );
+}
+
+@immutable
+class CustomerLite {
+  final String idCustomer;
+  final String name;
+  final String phone;
+  final String email;
+  final String address;
+
+  const CustomerLite({
+    required this.idCustomer,
+    required this.name,
+    required this.phone,
+    required this.email,
+    required this.address,
+  });
+
+  factory CustomerLite.fromJson(Map<String, dynamic> j) => CustomerLite(
+    idCustomer: (j['idCustomer'] ?? '').toString(),
+    name: (j['name'] ?? '').toString(),
+    phone: (j['phone'] ?? '').toString(),
+    email: (j['email'] ?? '').toString(),
+    address: (j['address'] ?? '').toString(),
+  );
+}
+
+@immutable
+class ProductLite {
+  final String idProduct;
+  final String name;
+  final String? imagePath;
+  final String? brand;
+  final String? category;
+
+  const ProductLite({
+    required this.idProduct,
+    required this.name,
+    this.imagePath,
+    this.brand,
+    this.category,
+  });
+
+  factory ProductLite.fromJson(Map<String, dynamic> j) {
+    String? img() {
+      final imgs = j['productImages'];
+      if (imgs is List && imgs.isNotEmpty && imgs.first is Map) {
+        return (imgs.first['imagePath'] ?? '').toString();
+      }
+      return null;
+    }
+
+    return ProductLite(
+      idProduct: (j['idProduct'] ?? '').toString(),
+      name: (j['name'] ?? '').toString(),
+      imagePath: img(),
+      brand: (j['productBrand'] is Map)
+          ? ((j['productBrand']['name'] ?? '').toString())
+          : null,
+      category: (j['productCategory'] is Map)
+          ? ((j['productCategory']['name'] ?? '').toString())
+          : null,
+    );
+  }
+}
+
+@immutable
+class ProductSkuLite {
+  final String idProductSku;
+  final String code;
+  final int price;
+  final List<Map<String, String>> attributes; // [{name, value}, ...]
+
+  const ProductSkuLite({
+    required this.idProductSku,
+    required this.code,
+    required this.price,
+    required this.attributes,
+  });
+
+  factory ProductSkuLite.fromJson(Map<String, dynamic> j) => ProductSkuLite(
+    idProductSku: (j['idProductSku'] ?? '').toString(),
+    code: (j['code'] ?? '').toString(),
+    price: (j['price'] is num)
+        ? (j['price'] as num).toInt()
+        : int.tryParse('${j['price'] ?? 0}') ?? 0,
+    attributes: ((j['attributes'] as List?) ?? [])
+        .whereType<Map>()
+        .map(
+          (e) => {
+            'name': (e['name'] ?? '').toString(),
+            'value': (e['value'] ?? '').toString(),
+          },
+        )
+        .toList(),
+  );
+}
+
+@immutable
+class SalesDetailItem {
+  final String productId;
+  final String productSkuId;
+  final int qtyOut;
+  final int price;
+  final int discount;
+  final ProductLite? product;
+  final ProductSkuLite? productSku;
+
+  const SalesDetailItem({
+    required this.productId,
+    required this.productSkuId,
+    required this.qtyOut,
+    required this.price,
+    required this.discount,
+    this.product,
+    this.productSku,
+  });
+
+  factory SalesDetailItem.fromJson(Map<String, dynamic> j) => SalesDetailItem(
+    productId: (j['product_id'] ?? '').toString(),
+    productSkuId: (j['product_sku_id'] ?? '').toString(),
+    qtyOut: (j['qty_out'] is num)
+        ? (j['qty_out'] as num).toInt()
+        : int.tryParse('${j['qty_out'] ?? 0}') ?? 0,
+    price: (j['price'] is num)
+        ? (j['price'] as num).toInt()
+        : int.tryParse('${j['price'] ?? 0}') ?? 0,
+    discount: (j['discount'] is num)
+        ? (j['discount'] as num).toInt()
+        : int.tryParse('${j['discount'] ?? 0}') ?? 0,
+    product: (j['product'] is Map)
+        ? ProductLite.fromJson((j['product'] as Map).cast<String, dynamic>())
+        : null,
+    productSku: (j['product_sku'] is Map)
+        ? ProductSkuLite.fromJson(
+            (j['product_sku'] as Map).cast<String, dynamic>(),
+          )
+        : null,
+  );
+}
+
+@immutable
+class SalesCalculation {
+  final int subtotal;
+  final int discount;
+  final int shippingFee;
+  final int grandtotal;
+
+  const SalesCalculation({
+    required this.subtotal,
+    required this.discount,
+    required this.shippingFee,
+    required this.grandtotal,
+  });
+
+  factory SalesCalculation.fromJson(Map<String, dynamic> j) => SalesCalculation(
+    subtotal: (j['subtotal'] is num)
+        ? (j['subtotal'] as num).toInt()
+        : int.tryParse('${j['subtotal'] ?? 0}') ?? 0,
+    discount: (j['discount'] is num)
+        ? (j['discount'] as num).toInt()
+        : int.tryParse('${j['discount'] ?? 0}') ?? 0,
+    shippingFee: (j['shipping_fee'] is num)
+        ? (j['shipping_fee'] as num).toInt()
+        : int.tryParse('${j['shipping_fee'] ?? 0}') ?? 0,
+    grandtotal: (j['grandtotal'] is num)
+        ? (j['grandtotal'] as num).toInt()
+        : int.tryParse('${j['grandtotal'] ?? 0}') ?? 0,
+  );
+}
+
+@immutable
+class SalesDetail {
+  final String idTransaction;
+  final String number;
+  final String status;
+  final String reference;
+  final String note;
+  final int amount;
+  final int discount;
+  final int shippingFee;
+  final int paymentMethod;
+  final DateTime time; // from order_at or created_at
+  final StoreLocationLite? storeLocation;
+  final CustomerLite? customer;
+  final List<SalesDetailItem> items;
+  final SalesCalculation? calculation;
+
+  const SalesDetail({
+    required this.idTransaction,
+    required this.number,
+    required this.status,
+    required this.reference,
+    required this.note,
+    required this.amount,
+    required this.discount,
+    required this.shippingFee,
+    required this.paymentMethod,
+    required this.time,
+    required this.items,
+    this.storeLocation,
+    this.customer,
+    this.calculation,
+  });
+
+  static DateTime _parseTime(dynamic orderAt, dynamic createdAtIso) {
+    if (orderAt is num) {
+      return DateTime.fromMillisecondsSinceEpoch(orderAt.toInt() * 1000);
+    }
+    if (orderAt is String) {
+      final n = int.tryParse(orderAt);
+      if (n != null) {
+        return DateTime.fromMillisecondsSinceEpoch(n * 1000);
+      }
+    }
+    if (createdAtIso is String) {
+      final t = DateTime.tryParse(createdAtIso);
+      if (t != null) return t;
+    }
+    return DateTime.now();
+  }
+
+  factory SalesDetail.fromJson(Map<String, dynamic> j) {
+    final data = (j['data'] as Map?)?.cast<String, dynamic>() ?? j;
+
+    final items = ((data['items'] as List?) ?? [])
+        .whereType<Map>()
+        .map((e) => SalesDetailItem.fromJson(e.cast<String, dynamic>()))
+        .toList();
+
+    final calc = (j['calculation'] is Map)
+        ? SalesCalculation.fromJson(
+            (j['calculation'] as Map).cast<String, dynamic>(),
+          )
+        : null;
+
+    return SalesDetail(
+      idTransaction: (data['idTransaction'] ?? '').toString(),
+      number: (data['number'] ?? '').toString(),
+      status: (data['status'] ?? '').toString(),
+      reference: (data['reference'] ?? '').toString(),
+      note: (data['note'] ?? '').toString(),
+      amount: (data['amount'] is num)
+          ? (data['amount'] as num).toInt()
+          : int.tryParse('${data['amount'] ?? 0}') ?? 0,
+      discount: (data['discount'] is num)
+          ? (data['discount'] as num).toInt()
+          : int.tryParse('${data['discount'] ?? 0}') ?? 0,
+      shippingFee: (data['shipping_fee'] is num)
+          ? (data['shipping_fee'] as num).toInt()
+          : int.tryParse('${data['shipping_fee'] ?? 0}') ?? 0,
+      paymentMethod: (data['payment_method'] is num)
+          ? (data['payment_method'] as num).toInt()
+          : int.tryParse('${data['payment_method'] ?? 0}') ?? 0,
+      time: _parseTime(data['order_at'], data['created_at']),
+      storeLocation: (data['store_location'] is Map)
+          ? StoreLocationLite.fromJson(
+              (data['store_location'] as Map).cast<String, dynamic>(),
+            )
+          : null,
+      customer: (data['customer'] is Map)
+          ? CustomerLite.fromJson(
+              (data['customer'] as Map).cast<String, dynamic>(),
+            )
+          : null,
+      items: items,
+      calculation: calc,
+    );
+  }
+}
 
 /// Representasi 1 SKU yang bisa dijual (ringan untuk cart)
 class PosSku {
@@ -162,6 +490,24 @@ class Customer {
   };
 }
 
+class PaymentResult {
+  final String status; // settlement | pending | cancel | failure | etc.
+  final String? transactionId; // dari TransactionResult
+  final String? paymentType; // dari TransactionResult
+  final String? message; // dari TransactionResult
+  final String?
+  orderId; // [Opsional] isi dari sistemmu sendiri / finish URL / server
+  final String? raw;
+  const PaymentResult(
+    this.status, {
+    this.transactionId,
+    this.paymentType,
+    this.message,
+    this.orderId,
+    this.raw,
+  });
+}
+
 /// =========================
 /// PROVIDER
 /// =========================
@@ -212,6 +558,130 @@ class SalesProvider extends ChangeNotifier {
   PageMeta? get pageCustomers => _pageCustomers;
   Customer? get selectedCustomer => _selectedCustomer;
 
+  String? _storeLocationId;
+  String? _storeLocationName;
+  int? _discount = 0;
+  int? _shippingFee = 0;
+  String? _note;
+  String? _reference;
+  int? _paymentMethod = 1;
+
+  // ✅ TAMBAH:
+  String? _customerId;
+  String? _customerName;
+
+  String? get storeLocationId => _storeLocationId;
+  String? get storeLocationName => _storeLocationName;
+  int? get discount => _discount;
+  int? get shippingFee => _shippingFee;
+  String? get note => _note;
+  String? get currentReference => _reference;
+  int? get paymentMethod => _paymentMethod;
+
+  // ✅ (opsional, untuk UI)
+  String? get customerId => _customerId;
+  String? get customerName => _customerName;
+
+  MidtransSDK? _midtrans;
+
+  /// Subtotal base (tanpa diskon apa pun)
+  int get subtotalBase =>
+      cartItems.fold(0, (s, it) => s + it.sku.price * it.qty);
+
+  // ====== SALES DETAIL (NEW) ======
+  SalesDetail? _salesDetail;
+  bool _loadingSalesDetail = false;
+  String? _salesDetailError;
+
+  SalesDetail? get salesDetail => _salesDetail;
+  bool get loadingSalesDetail => _loadingSalesDetail;
+  String? get salesDetailError => _salesDetailError;
+
+  Completer<PaymentResult>? _snapCompleter;
+
+  void _setLoadingSalesDetail(bool v) {
+    _loadingSalesDetail = v;
+    notifyListeners();
+  }
+
+  void _setSalesDetailError(String? v) {
+    _salesDetailError = v;
+    notifyListeners();
+  }
+
+  /// GET /waveup/{bizId}/transaction/sales/:id   (NEW)
+  Future<SalesDetail?> fetchSalesDetail(
+    BuildContext context,
+    String idTransaction,
+  ) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return null;
+
+    final path = '/waveup/$bizId/transaction/sales/$idTransaction';
+    if (kDebugMode) debugPrint('[SalesProvider] GET $path (detail)');
+
+    _setSalesDetailError(null);
+    _setLoadingSalesDetail(true);
+
+    try {
+      final j = await ApiJson.getMap(context, path, withAccessToken: true);
+      if (kDebugMode) _debugBig('[SalesProvider] sales detail resp', j);
+
+      if (j == null || (j['status'] as num?)?.toInt() != 200) {
+        _salesDetail = null;
+        _setSalesDetailError(
+          j?['message']?.toString() ?? 'Failed to fetch sales detail',
+        );
+        return null;
+      }
+
+      final detail = SalesDetail.fromJson(j);
+      _salesDetail = detail;
+      notifyListeners();
+      return detail;
+    } catch (e, st) {
+      _salesDetail = null;
+      _setSalesDetailError('$e');
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] fetchSalesDetail exception: $e');
+        debugPrint('$st');
+      }
+      return null;
+    } finally {
+      _setLoadingSalesDetail(false);
+    }
+  }
+
+  /// Subtotal setelah per-item discount saja
+  int get subtotalAfterItemDisc {
+    var sum = 0;
+    for (final it in _cart.values) {
+      final unit = (it.sku.price - perItemDiscountOf(it.sku.skuId));
+      sum += (unit > 0 ? unit : 0) * it.qty;
+    }
+    return sum;
+  }
+
+  /// Total alokasi order-level discount (jumlah disc/unit * qty)
+  int get orderDiscountAllocatedTotal {
+    final map = allocOrderDiscountPerUnit();
+    var sum = 0;
+    for (final it in _cart.values) {
+      sum += (map[it.sku.skuId] ?? 0) * it.qty;
+    }
+    return sum;
+  }
+
+  /// Subtotal efektif (setelah per-item + alokasi order discount)
+  int get subtotalEffective =>
+      (subtotalAfterItemDisc - orderDiscountAllocatedTotal).clamp(0, 1 << 31);
+
+  /// Service fee terhadap subtotal efektif (kalau ini yang diinginkan)
+  int get serviceFeeOnEffective => (subtotalEffective * serviceFeeRate).round();
+
+  /// Grand total efektif + service fee (opsional untuk UI)
+  int get grandTotalEffective => subtotalEffective + serviceFeeOnEffective;
+
   void _setLoadingCustomers(bool v) {
     _loadingCustomers = v;
     notifyListeners();
@@ -230,6 +700,231 @@ class SalesProvider extends ChangeNotifier {
   void _setLoadingReports(bool v) {
     _loadingReports = v;
     notifyListeners();
+  }
+
+  void _attachMidtransCallback() {
+    _midtrans?.setTransactionFinishedCallback((result) {
+      debugPrint(
+        '🔔 Midtrans Callback:'
+        '\n  transactionId=${result.transactionId}'
+        '\n  status=${result.status}'
+        '\n  message=${result.message}'
+        '\n  paymentType=${result.paymentType}',
+      );
+
+      final status = (result.status ?? '').toLowerCase();
+      final pr = PaymentResult(
+        status.isEmpty ? 'unknown' : status,
+        transactionId: result.transactionId,
+        paymentType: result.paymentType,
+        message: result.message,
+        raw: result.toString(),
+      );
+
+      // ⬇️ WAJIB: selesaikan future supaya pemanggil dapat hasil
+      _snapCompleter?..complete(pr);
+      _snapCompleter = null;
+      notifyListeners();
+    });
+  }
+
+  // Di class SalesProvider:
+
+  // PENTING: pastikan kamu punya ini juga
+  Future<void> _initMidtransIfNeeded(BuildContext context) async {
+    if (_midtrans != null) return;
+    _midtrans = await MidtransSDK.init(
+      config: MidtransConfig(
+        clientKey: '',
+        merchantBaseUrl: 'https://wave-api.eon.id/',
+        colorTheme: ColorTheme(
+          colorPrimary: Theme.of(context).colorScheme.primary,
+          colorPrimaryDark: Theme.of(context).colorScheme.primary,
+          colorSecondary: Theme.of(context).colorScheme.secondary,
+        ),
+        enableLog: kDebugMode,
+      ),
+    );
+  }
+
+  /// Start Snap dan tunggu hasilnya.
+  /// Selalu mengembalikan PaymentResult (kecuali terjadi error fatal di init).
+  Future<PaymentResult?> _startSnap(String token, BuildContext context) async {
+    debugPrint('🚀 [Midtrans] _startSnap() BEGIN dengan token: $token');
+
+    try {
+      await _initMidtransIfNeeded(context);
+      debugPrint('✅ [Midtrans] SDK sudah di-init');
+    } catch (e, st) {
+      debugPrint('❌ [Midtrans] init error: $e\n$st');
+      return PaymentResult('error', message: 'Init Midtrans gagal: $e');
+    }
+
+    // Cancel flow lama kalau masih aktif
+    if (_snapCompleter != null && !(_snapCompleter!.isCompleted)) {
+      debugPrint(
+        '⚠️ [Midtrans] Completer lama belum complete, diselesaikan paksa.',
+      );
+      _snapCompleter!.complete(
+        PaymentResult('aborted', message: 'Flow sebelumnya digantikan'),
+      );
+    }
+    _snapCompleter = Completer<PaymentResult>();
+
+    // Hapus callback lama
+    try {
+      _midtrans?.removeTransactionFinishedCallback();
+      debugPrint('🧹 [Midtrans] Callback lama dihapus');
+    } catch (_) {}
+
+    // Pasang callback baru
+    _midtrans?.setTransactionFinishedCallback((result) {
+      debugPrint('🔔 [Midtrans] CALLBACK TERPANGGIL!');
+      try {
+        debugPrint('🧾 result = ${result.toString()}');
+        debugPrint('   transactionId=${result.transactionId}');
+        debugPrint('   status=${result.status}');
+        debugPrint('   message=${result.message}');
+        debugPrint('   paymentType=${result.paymentType}');
+      } catch (e) {
+        debugPrint('⚠️ [Midtrans] gagal print result: $e');
+      }
+
+      // Proteksi: semua field diubah ke string aman
+      String? _s(Object? v) => v?.toString();
+      final status = (_s(result.status) ?? '').toLowerCase();
+      final pr = PaymentResult(
+        status.isEmpty ? 'unknown' : status,
+        transactionId: _s(result.transactionId),
+        paymentType: _s(result.paymentType),
+        message: _s(result.message),
+        raw: result.toString(),
+      );
+
+      if (!(_snapCompleter?.isCompleted ?? true)) {
+        debugPrint('✅ [Midtrans] Completer diselesaikan via callback');
+        _snapCompleter!.complete(pr);
+      }
+    });
+
+    // Jalankan UI Flow
+    try {
+      debugPrint('▶️ [Midtrans] Memulai startPaymentUiFlow...');
+      await _midtrans?.startPaymentUiFlow(token: token);
+      debugPrint(
+        '⏳ [Midtrans] startPaymentUiFlow() selesai, menunggu callback...',
+      );
+    } catch (e, st) {
+      debugPrint('❌ [Midtrans] startPaymentUiFlow error: $e\n$st');
+      if (!(_snapCompleter?.isCompleted ?? true)) {
+        _snapCompleter!.complete(
+          PaymentResult('error', message: 'Gagal membuka Snap UI: $e'),
+        );
+      }
+    }
+
+    // Tunggu hasil
+    PaymentResult result;
+    try {
+      result = await _snapCompleter!.future.timeout(
+        const Duration(minutes: 5),
+        onTimeout: () {
+          debugPrint('⏰ [Midtrans] Timeout 5 menit, callback tidak diterima.');
+          return PaymentResult('timeout', message: 'Tidak ada callback');
+        },
+      );
+    } catch (e, st) {
+      debugPrint('❌ [Midtrans] Future error: $e\n$st');
+      result = PaymentResult('error', message: 'Future error: $e');
+    } finally {
+      try {
+        _midtrans?.removeTransactionFinishedCallback();
+        debugPrint('🧹 [Midtrans] Callback dilepas setelah flow selesai.');
+      } catch (_) {}
+      _snapCompleter = null;
+    }
+
+    debugPrint(
+      '🏁 [Midtrans] _startSnap() SELESAI dengan status: ${result.status}',
+    );
+    return result;
+  }
+
+  // Future<PaymentResult?> openSnapInWebView(
+  //   BuildContext context,
+  //   Uri url,
+  // ) async {
+  //   return Navigator.of(context).push<PaymentResult>(
+  //     MaterialPageRoute(
+  //       builder: (_) => Scaffold(
+  //         appBar: AppBar(title: const Text('Payment')),
+  //         body: WebView(
+  //           initialUrl: url.toString(),
+  //           javascriptMode: JavascriptMode.unrestricted,
+  //           navigationDelegate: (nav) {
+  //             final u = Uri.parse(nav.url);
+  //             if (u.host == 'yourapp.example.com' &&
+  //                 u.path.startsWith('/payment/')) {
+  //               // Ambil feedback dari query params:
+  //               final status = (u.queryParameters['transaction_status'] ?? '')
+  //                   .toLowerCase();
+  //               final orderId = u.queryParameters['order_id'];
+  //               final trxId = u.queryParameters['transaction_id'];
+  //               final pr = PaymentResult(
+  //                 status.isEmpty ? 'unknown' : status,
+  //                 transactionId: trxId,
+  //                 orderId: orderId,
+  //                 raw: nav.url,
+  //               );
+  //               Navigator.of(context).pop(pr);
+  //               return NavigationDecision.prevent;
+  //             }
+  //             return NavigationDecision.navigate;
+  //           },
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  // }
+
+  // Ubah signature:
+  String _s(Object? v) => v?.toString() ?? '';
+
+  Future<PaymentResult?> _openMidtransIfAny(
+    Map<String, dynamic> resp,
+    BuildContext context,
+  ) async {
+    final Object? dataObj = resp['data']; // biarkan dynamic
+    String pick(Object? o, String k) {
+      if (o is Map) return _s(o[k]); // aman untuk Map dynamic
+      return '';
+    }
+
+    final link = _s(resp['payment_link'] ?? pick(dataObj, 'payment_link'));
+    final token = _s(resp['payment_token'] ?? pick(dataObj, 'payment_token'));
+
+    if (link.isEmpty) {
+      if (kDebugMode)
+        debugPrint(
+          '[SalesProvider] payment_link null/empty — skip open Midtrans.',
+        );
+      return null;
+    }
+
+    if (token.isNotEmpty) {
+      try {
+        debugPrint('Start Snap');
+        final res = await _startSnap(token, context);
+        return res;
+      } catch (e) {
+        debugPrint('[SalesProvider] Snap UI error, fallback ke URL. $e');
+      }
+    }
+
+    // TODO: kalau mau fallback WebView, panggil helper kamu di sini
+    // final pr = await openSnapInWebView(context, Uri.parse(link));
+    // return pr;
+    return null;
   }
 
   SalesReportItem _salesItemFromApi(Map<String, dynamic> j) {
@@ -506,6 +1201,24 @@ class SalesProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ===== PER-ITEM DISCOUNT (IDR) =====
+  final Map<String, int> _itemDiscount = {}; // key: skuId -> disc per item
+
+  int perItemDiscountOf(String skuId) => _itemDiscount[skuId] ?? 0;
+
+  void setPerItemDiscount({
+    required String skuId,
+    required int discountPerItem,
+  }) {
+    final v = discountPerItem < 0 ? 0 : discountPerItem;
+    if (v == 0) {
+      _itemDiscount.remove(skuId);
+    } else {
+      _itemDiscount[skuId] = v;
+    }
+    notifyListeners();
+  }
+
   // ===== CART =====
   final Map<String, CartItem> _cart = {};
   List<CartItem> get cartItems => _cart.values.toList(growable: false);
@@ -562,6 +1275,7 @@ class SalesProvider extends ChangeNotifier {
       item.qty -= 1;
     } else {
       _cart.remove(key);
+      _itemDiscount.remove(s.skuId); // <-- bersihkan
     }
     notifyListeners();
   }
@@ -569,6 +1283,7 @@ class SalesProvider extends ChangeNotifier {
   void removeAll(PosSku s) {
     final key = _keyFor(s);
     _cart.remove(key);
+    _itemDiscount.remove(s.skuId); // <-- bersihkan
     notifyListeners();
   }
 
@@ -581,23 +1296,6 @@ class SalesProvider extends ChangeNotifier {
   // ===== ORDER NUMBER (display only) =====
   String get orderNumber =>
       'ODR${DateTime.now().millisecondsSinceEpoch % 1000000}'.padLeft(10, '0');
-
-  // ===== ORDER META (form CheckOrderStep) =====
-  String? _storeLocationId;
-  String? _storeLocationName;
-  int? _discount = 0;
-  int? _shippingFee = 0;
-  String? _note;
-  String? _reference; // REF-xxxxxx (editable)
-  int? _paymentMethod = 1; // 1=Tunai, 2=Debit, 3=QRIS/VA
-
-  String? get storeLocationId => _storeLocationId;
-  String? get storeLocationName => _storeLocationName;
-  int? get discount => _discount;
-  int? get shippingFee => _shippingFee;
-  String? get note => _note;
-  String? get currentReference => _reference;
-  int? get paymentMethod => _paymentMethod;
 
   String generateDefaultReference() {
     final rnd = Random();
@@ -621,6 +1319,10 @@ class SalesProvider extends ChangeNotifier {
     String? note,
     String? reference,
     int? paymentMethod,
+
+    // ✅ TAMBAH PARAM
+    String? customerId,
+    String? customerName,
   }) {
     _storeLocationId = storeLocationId ?? _storeLocationId;
     _storeLocationName = storeLocationName ?? _storeLocationName;
@@ -633,7 +1335,23 @@ class SalesProvider extends ChangeNotifier {
     }
 
     _paymentMethod = paymentMethod ?? _paymentMethod ?? 1;
+
+    // ✅ SIMPAN CUSTOMER
+    if (customerId != null && customerId.isNotEmpty) {
+      _customerId = customerId;
+    }
+    if (customerName != null && customerName.isNotEmpty) {
+      _customerName = customerName;
+    }
+
     notifyListeners();
+  }
+
+  Object? get _customerIdForPayload {
+    final id = _customerId;
+    if (id == null || id.isEmpty) return null;
+    final asInt = int.tryParse(id);
+    return asInt ?? id;
   }
 
   /// Payload final saat submit ke backend (items dari cart)
@@ -641,22 +1359,47 @@ class SalesProvider extends ChangeNotifier {
     ensureReferenceInitialized(notify: false);
     return {
       "store_location_id": _storeLocationId,
-      "store_id": 0, // sesuai instruksi
+      // ✅ PAKAI ID CUSTOMER TERPILIH (BUKAN 0)
+      "customer_id": _customerIdForPayload,
       "discount": _discount ?? 0,
       "shipping_fee": _shippingFee ?? 0,
       "note": _note ?? "",
-      "reference": _reference!, // REF-xxxxxx
-      "payment_method": _paymentMethod ?? 1, // 1/2/3
+      "reference": "",
+      "payment_method": _paymentMethod ?? 1,
       "items": cartItems.map((it) {
+        final sku = it.sku;
+        final discPerItem = perItemDiscountOf(sku.skuId);
         return {
-          "product_id": it.sku.productId,
-          "product_sku_id": it.sku.skuId,
-          "discount": 0,
+          "product_id": sku.productId,
+          "product_sku_id": sku.skuId,
+          "discount": discPerItem, // <-- per-item discount per unit
           "qty": it.qty,
-          "price": it.sku.price,
+          "price": sku.price, // <-- base price (biar tidak double-discount)
         };
       }).toList(),
     };
+  }
+
+  void _debugBig(String prefix, Object? data, {int chunk = 900}) {
+    if (!kDebugMode) return;
+
+    // konversi ke teks rapi
+    final text = () {
+      if (data == null) return 'null';
+      if (data is String) return data;
+      try {
+        return const JsonEncoder.withIndent('  ').convert(data);
+      } catch (_) {
+        return data.toString();
+      }
+    }();
+
+    for (var i = 0; i < text.length; i += chunk) {
+      final end = math.min(i + chunk, text.length);
+      final seg = text.substring(i, end);
+      // tambah "(cont.)" agar mudah dibaca di log
+      debugPrint('$prefix${i == 0 ? '' : ' (cont.)'}: $seg');
+    }
   }
 
   /// POST ke /waveup/{idBusiness}/transaction/sales
@@ -671,6 +1414,11 @@ class SalesProvider extends ChangeNotifier {
     }
     if ((storeLocationId ?? '').isEmpty) {
       _lastError = "Store location must be selected.";
+      return false;
+    }
+
+    if ((_customerId ?? '').isEmpty) {
+      _lastError = "Customer must be selected.";
       return false;
     }
 
@@ -694,7 +1442,7 @@ class SalesProvider extends ChangeNotifier {
       );
 
       if (kDebugMode) {
-        debugPrint("[SalesProvider] 🔄 Server response: $j");
+        _debugBig("[SalesProvider] 🔄 Server response", j);
       }
 
       final ok = j != null && (j['status'] as num?)?.toInt() == 200;
@@ -712,6 +1460,11 @@ class SalesProvider extends ChangeNotifier {
 
       if (kDebugMode) {
         debugPrint("[SalesProvider] ✅ Submit success");
+      }
+      try {
+        await _openMidtransIfAny(j, context);
+      } catch (e, st) {
+        debugPrint('[SalesProvider] openMidtrans error: $e\n$st');
       }
       return true;
     } catch (e, st) {
@@ -821,13 +1574,15 @@ class SalesProvider extends ChangeNotifier {
     }
   }
 
-  /// POST /waveup/{bizId}/customer -> create
+  // Sebelumnya:
+  // Future<Customer?> createCustomer(BuildContext context, { ..., required int cityId, ... })
+
   Future<Customer?> createCustomer(
     BuildContext context, {
     required String name,
     required String phone,
     required String email,
-    required int cityId,
+    required Object cityId, // <= fleksibel
     required String address,
   }) async {
     final bizId = await _requireBizId();
@@ -838,7 +1593,7 @@ class SalesProvider extends ChangeNotifier {
       "name": name,
       "phone": phone,
       "email": email,
-      "city_id": cityId,
+      "city_id": cityId, // <= TIDAK dipaksa ke int
       "address": address,
     };
 
@@ -864,10 +1619,8 @@ class SalesProvider extends ChangeNotifier {
       final data = (j['data'] as Map).cast<String, dynamic>();
       final c = Customer.fromJson(data);
 
-      // opsional: tambahkan ke list saat ini (jika ingin terlihat langsung)
       _customers.insert(0, c);
       notifyListeners();
-
       return c;
     } catch (e, st) {
       _lastError = '$e';
@@ -879,14 +1632,13 @@ class SalesProvider extends ChangeNotifier {
     }
   }
 
-  /// POST /waveup/{bizId}/customer/{idCustomer} -> edit/update
   Future<Customer?> updateCustomer(
     BuildContext context, {
     required String idCustomer,
     required String name,
     required String phone,
     required String email,
-    required int cityId,
+    required Object cityId, // <= fleksibel
     required String address,
   }) async {
     final bizId = await _requireBizId();
@@ -897,7 +1649,7 @@ class SalesProvider extends ChangeNotifier {
       "name": name,
       "phone": phone,
       "email": email,
-      "city_id": cityId,
+      "city_id": cityId, // <= TIDAK dipaksa ke int
       "address": address,
     };
 
@@ -923,17 +1675,12 @@ class SalesProvider extends ChangeNotifier {
       final data = (j['data'] as Map).cast<String, dynamic>();
       final updated = Customer.fromJson(data);
 
-      // sinkronkan di list
       final idx = _customers.indexWhere((e) => e.idCustomer == idCustomer);
-      if (idx >= 0) {
-        _customers[idx] = updated;
-      }
-      // sinkronkan selected jika sedang terbuka
+      if (idx >= 0) _customers[idx] = updated;
       if (_selectedCustomer?.idCustomer == idCustomer) {
         _selectedCustomer = updated;
       }
       notifyListeners();
-
       return updated;
     } catch (e, st) {
       _lastError = '$e';
@@ -979,6 +1726,58 @@ class SalesProvider extends ChangeNotifier {
     }
   }
 
+  Map<String, int> allocOrderDiscountPerUnit() {
+    final od = _discount ?? 0;
+    if (od <= 0 || _cart.isEmpty) return const {};
+
+    final bases = <String, int>{};
+    var baseSum = 0;
+
+    for (final it in _cart.values) {
+      final skuId = it.sku.skuId;
+      final afterItem = (it.sku.price - perItemDiscountOf(skuId));
+      final base = (afterItem > 0 ? afterItem : 0) * it.qty;
+      if (base > 0) {
+        bases[skuId] = base;
+        baseSum += base;
+      }
+    }
+    if (baseSum == 0) return const {};
+
+    final perUnit = <String, int>{};
+    var allocated = 0;
+
+    for (final it in _cart.values) {
+      final skuId = it.sku.skuId;
+      final base = bases[skuId] ?? 0;
+      if (base == 0) {
+        perUnit[skuId] = 0;
+        continue;
+      }
+      final rowDisc = (od * base) ~/ baseSum;
+      allocated += rowDisc;
+      perUnit[skuId] = it.qty > 0 ? (rowDisc ~/ it.qty) : 0;
+    }
+
+    // sisa pembulatan -> baris pertama (sederhana)
+    final remain = od - allocated;
+    if (remain > 0 && _cart.isNotEmpty) {
+      final first = _cart.values.first;
+      final d0 = perUnit[first.sku.skuId] ?? 0;
+      perUnit[first.sku.skuId] =
+          d0 + (remain ~/ (first.qty > 0 ? first.qty : 1));
+    }
+
+    // clamp supaya tidak melebihi unitAfterItem
+    perUnit.updateAll((skuId, d) {
+      final sku = _cart.values.firstWhere((x) => x.sku.skuId == skuId).sku;
+      final maxDisc = (sku.price - perItemDiscountOf(skuId));
+      return d.clamp(0, maxDisc);
+    });
+
+    return perUnit;
+  }
+
   void reset() {
     _cart.clear();
     _currentStep = 0;
@@ -990,6 +1789,9 @@ class SalesProvider extends ChangeNotifier {
     _note = null;
     _reference = null; // supaya transaksi baru dapat REF baru
     _paymentMethod = 1;
+    _customerId = null;
+    _customerName = null;
+    _itemDiscount.clear();
 
     notifyListeners();
   }

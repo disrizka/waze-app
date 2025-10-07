@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wa_blast/app_nav.dart';
+import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/services/api_service.dart';
 
 // Optional: kecilkan model agar enak dipakai di UI
@@ -70,6 +74,22 @@ class AuthProvider with ChangeNotifier {
     return prefs.getString(kActiveAccountKey) ?? prefs.getString('email');
   }
 
+  // Tambahkan helper ini di dalam class AuthProvider
+  String _pickMsg(
+    dynamic j, {
+    int? httpStatus,
+    String fallback = 'Login gagal',
+  }) {
+    try {
+      if (j is Map<String, dynamic>) {
+        final m = j['msg'] ?? j['message'] ?? j['error'] ?? j['detail'];
+        if (m != null && m.toString().trim().isNotEmpty) return m.toString();
+      }
+    } catch (_) {}
+    return httpStatus != null ? '$fallback ($httpStatus)' : fallback;
+  }
+
+  // Ganti seluruh method login() dengan versi ini
   Future<bool> login({
     required BuildContext context,
     required String email,
@@ -96,10 +116,7 @@ class AuthProvider with ChangeNotifier {
         "fcm_token": fcmToken,
       };
 
-      final response = await ApiService.login(
-        '/user/login',
-        body,
-      ); // <- gunakan method login khusus
+      final response = await ApiService.login('/user/login', body);
 
       debugPrint("LOGIN ◀︎ status: ${response.statusCode}");
       final rawBody = response.body;
@@ -107,14 +124,38 @@ class AuthProvider with ChangeNotifier {
         "LOGIN ◀︎ body: ${rawBody.length > 500 ? rawBody.substring(0, 500) + '…' : rawBody}",
       );
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(rawBody) as Map<String, dynamic>;
-        final tokenObj = (decoded['token'] ?? {}) as Map<String, dynamic>;
-        final userObj = (decoded['data'] ?? {}) as Map<String, dynamic>;
-        final bizList =
-            (decoded['business'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      // Selalu coba decode body agar bisa baca msg dari server
+      Map<String, dynamic>? decoded;
+      try {
+        decoded = jsonDecode(rawBody) as Map<String, dynamic>?;
+      } catch (_) {}
 
-        // ===== Validasi token =====
+      // CASE A: HTTP 200 tetapi status di body bukan 200 (mis. 401)
+      if (response.statusCode == 200) {
+        final apiStatus = (decoded?['status'] as num?)?.toInt();
+        if (apiStatus != null && apiStatus != 200) {
+          final msg = _pickMsg(
+            decoded,
+            httpStatus: apiStatus,
+            fallback: 'Login gagal',
+          );
+          _error = msg;
+          if (context.mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(msg)));
+          }
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+
+        // === SUCCESS FLOW (status benar-benar 200) ===
+        final tokenObj = (decoded?['token'] ?? {}) as Map<String, dynamic>;
+        final userObj = (decoded?['data'] ?? {}) as Map<String, dynamic>;
+        final bizList =
+            (decoded?['business'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
         final accessToken = tokenObj['access_token'] as String?;
         final refreshToken = tokenObj['refresh_token'] as String?;
         if (accessToken == null || accessToken.isEmpty) {
@@ -124,7 +165,7 @@ class AuthProvider with ChangeNotifier {
           return false;
         }
 
-        // ===== Derive beberapa field yang sering dipakai =====
+        // derive fields
         final firstname = (userObj['firstname'] ?? '') as String;
         final lastname = (userObj['lastname'] ?? '') as String;
         final fullName = '$firstname $lastname'.trim();
@@ -132,7 +173,6 @@ class AuthProvider with ChangeNotifier {
         final username = (userObj['username'] ?? '') as String;
         final photoPath = (userObj['photoPath'] ?? '') as String;
 
-        // Ambil business pertama sebagai "active business" (kalau diperlukan)
         final Map<String, dynamic>? firstBiz = bizList.isNotEmpty
             ? bizList.first
             : null;
@@ -143,14 +183,14 @@ class AuthProvider with ChangeNotifier {
         final String activeBizLogoPath =
             (firstBiz?['logoPath'] ?? firstBiz?['logo'] ?? '') as String;
 
-        // ===== Simpan ke state lokal =====
+        // set state
         _accessToken = accessToken;
         _refreshToken = refreshToken;
         _name = fullName.isNotEmpty ? fullName : null;
         _email = serverEmail;
         _isActivated = true;
 
-        // ===== Persist SEMUA DATA ke SharedPreferences =====
+        // persist
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('login_raw', rawBody);
         await prefs.setString('token', jsonEncode(tokenObj));
@@ -174,7 +214,6 @@ class AuthProvider with ChangeNotifier {
           'userRoleName',
           (userObj['userRoleName'] ?? '').toString(),
         );
-
         await prefs.setString('activeBizId', activeBizId);
         await prefs.setString('activeBizName', activeBizName);
         await prefs.setString('activeBizUsername', activeBizUsername);
@@ -198,12 +237,10 @@ class AuthProvider with ChangeNotifier {
             'logoPath': activeBizLogoPath,
           },
         };
-
         await prefs.setString(
           'account_${_email!}',
           jsonEncode(accountSnapshot),
         );
-
         final accounts = prefs.getStringList(kAccountsKey) ?? [];
         if (!accounts.contains(_email)) {
           accounts.add(_email!);
@@ -215,15 +252,29 @@ class AuthProvider with ChangeNotifier {
         _isLoading = false;
         notifyListeners();
         return true;
-      } else {
-        final err = jsonDecode(rawBody);
-        _error = err['message'] ?? 'Login gagal (${response.statusCode})';
-        debugPrint("LOGIN ❌ error: $_error");
+      }
+
+      // CASE B: HTTP non-200 → tampilkan pesan dari body bila ada
+      final msg = _pickMsg(
+        decoded ?? {},
+        httpStatus: response.statusCode,
+        fallback: 'Login gagal',
+      );
+      _error = msg;
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e, st) {
       _error = "Terjadi kesalahan: $e";
       debugPrint("LOGIN ❌ exception: $e");
       debugPrint("$st");
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Terjadi kesalahan saat login.')),
+        );
+      }
     }
 
     _isLoading = false;
@@ -368,7 +419,13 @@ class AuthProvider with ChangeNotifier {
         }
 
         try {
-          final res = await ApiService.refreshAccessToken();
+          final res = await ApiService.refreshAccessToken().timeout(
+            const Duration(seconds: 2),
+            onTimeout: () {
+              throw TimeoutException('refresh timeout');
+            },
+          );
+
           final raw = res.body;
           debugPrint(
             "REFRESH TOKEN ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
@@ -378,17 +435,14 @@ class AuthProvider with ChangeNotifier {
             final j = jsonDecode(raw) as Map<String, dynamic>;
             final newAccess = (j['access_token'] ?? '').toString();
             if (newAccess.isEmpty) {
-              // gagal walau 200, aman-kan: logout
               await logoutWithoutNavigation();
               notifyListeners();
               return;
             }
-            // Simpan access token BARU
             _accessToken = newAccess;
             await prefs.setString('accessToken', newAccess);
 
-            // (Opsional) update di snapshot akun aktif agar tidak selalu refresh saat cold start
-            // -> kalau kamu ingin benar-benar tidak mengubah prefs lain, hapus blok opsional ini.
+            // sinkronkan snapshot akun aktif (opsional)
             if (_email != null) {
               final key = 'account_${_email!}';
               final snapStr = prefs.getString(key);
@@ -401,14 +455,18 @@ class AuthProvider with ChangeNotifier {
               }
             }
 
-            // 4) Setelah token baru, fetch user terbaru & persist field user saja
-            await _fetchAndPersistCurrentUser(context);
+            // ⬅️ FETCH USER dengan TIMEOUT juga
+            await _fetchAndPersistCurrentUser(
+              context,
+            ).timeout(const Duration(seconds: 2), onTimeout: () => false);
           } else {
-            // Refresh gagal → logout
             await logoutWithoutNavigation();
             notifyListeners();
             return;
           }
+        } on TimeoutException catch (_) {
+          // Jangan ngegantung di Splash — fail-open: pakai data lokal saja
+          debugPrint('REFRESH TOKEN ❌ timeout -> keep local state');
         } catch (e, st) {
           debugPrint('REFRESH TOKEN ❌ $e\n$st');
           await logoutWithoutNavigation();
@@ -449,12 +507,14 @@ class AuthProvider with ChangeNotifier {
       final currentEmail = _email;
       final accounts = prefs.getStringList(kAccountsKey) ?? [];
 
-      // Hapus akun aktif dari daftar dan data JSON-nya
+      // bersihkan daftar & snapshot akun
       accounts.remove(currentEmail);
       await prefs.setStringList(kAccountsKey, accounts);
-      await prefs.remove('account_$currentEmail');
+      if (currentEmail != null) {
+        await prefs.remove('account_$currentEmail');
+      }
 
-      // Clear data akun aktif
+      // clear session
       _accessToken = null;
       _refreshToken = null;
       _name = null;
@@ -471,21 +531,25 @@ class AuthProvider with ChangeNotifier {
 
       notifyListeners();
 
+      // ⬅️ RESET Splash guard sebelum navigasi
+      final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
+      sp?.resetNavigationGuards();
+      sp?.deeplinkInProgress = false;
+
+      // ⬅️ Gunakan navigator global supaya tidak nyasar ke nested navigator
+      final nav = appNavigatorKey.currentState;
+
       if (accounts.isNotEmpty) {
         final nextEmail = accounts.first;
         final success = await switchAccount(nextEmail);
 
         if (success) {
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            '/splash',
-            (route) => false,
-          );
+          nav?.pushNamedAndRemoveUntil('/splash', (r) => false);
           return;
         }
       }
 
-      Navigator.pushNamedAndRemoveUntil(context, '/splash', (route) => false);
+      nav?.pushNamedAndRemoveUntil('/splash', (r) => false);
     } catch (e) {
       debugPrint("Gagal logout: $e");
     }
