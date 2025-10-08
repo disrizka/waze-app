@@ -3,8 +3,10 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/constants/app_colors.dart';
+import 'package:wa_blast/providers/auth_provider.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -119,6 +121,42 @@ class _HeaderGradientState extends State<_HeaderGradient> {
   void initState() {
     super.initState();
     _loadPrefs();
+  }
+
+  Future<void> _openBusinessSwitcher() async {
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => const _BusinessSwitcherSheet(),
+    );
+
+    if (changed == true && mounted) {
+      // reload label/logo setelah switch
+      await _loadPrefs();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.check_circle_outline, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(child: Text('Active business updated successfully')),
+            ],
+          ),
+          backgroundColor: Colors.green.shade600,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.only(top: 16, left: 12, right: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Future<void> _loadPrefs() async {
@@ -273,7 +311,6 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                 ),
                 child: Row(
                   children: [
-                    // Account User
                     Expanded(
                       child: _InfoBlock(
                         caption: 'Account User',
@@ -317,7 +354,8 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                                 ),
                         ),
                         title: _accountName,
-                        subtitle: 'id: $_accountUsername',
+                        subtitle:
+                            '@$_accountUsername', // ⬅️ was: 'id: $_accountUsername'
                       ),
                     ),
 
@@ -374,7 +412,8 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                                 ),
                         ),
                         title: _businessName,
-                        subtitle: 'id: $_businessUsername',
+                        subtitle: '@${_shortId(_businessUsername)}',
+                        onTap: _openBusinessSwitcher,
                       ),
                     ),
                   ],
@@ -391,17 +430,26 @@ class _HeaderGradientState extends State<_HeaderGradient> {
   }
 }
 
+String _shortId(String raw) {
+  if (raw.isEmpty) return '';
+  // ambil 4 karakter pertama, lalu tambahkan "..."
+  final short = raw.length > 9 ? raw.substring(0, 9) : raw;
+  return '$short...';
+}
+
 class _InfoBlock extends StatelessWidget {
   final String caption;
   final Widget leading;
   final String title;
   final String subtitle;
+  final VoidCallback? onTap; // ⬅️ NEW
 
   const _InfoBlock({
     required this.caption,
     required this.leading,
     required this.title,
     required this.subtitle,
+    this.onTap, // ⬅️ NEW
   });
 
   @override
@@ -409,6 +457,38 @@ class _InfoBlock extends StatelessWidget {
     final captionColor = const Color(0xFF8A8A8A);
     final titleColor = const Color(0xFF222222);
     final subColor = const Color(0xFF9A9A9A);
+
+    final content = Row(
+      children: [
+        leading,
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: titleColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(subtitle, style: TextStyle(color: subColor, fontSize: 12)),
+            ],
+          ),
+        ),
+        if (onTap != null)
+          const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            size: 18,
+            color: Color(0xFF9A9A9A),
+          ),
+      ],
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -428,33 +508,20 @@ class _InfoBlock extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            leading,
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: titleColor,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(color: subColor, fontSize: 12),
-                  ),
-                ],
+        if (onTap == null)
+          content
+        else
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4), // ruang untuk chevron
+                child: content,
               ),
             ),
-          ],
-        ),
+          ),
       ],
     );
   }
@@ -735,6 +802,202 @@ class _StatCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+@immutable
+class _BusinessInfo {
+  final String idBusiness;
+  final String name;
+  final String username;
+  final String logoPath;
+  final bool isActive;
+
+  const _BusinessInfo({
+    required this.idBusiness,
+    required this.name,
+    required this.username,
+    required this.logoPath,
+    this.isActive = false,
+  });
+
+  factory _BusinessInfo.fromJson(Map<String, dynamic> j, {String? activeId}) {
+    final id = (j['idBusiness'] ?? '').toString();
+    return _BusinessInfo(
+      idBusiness: id,
+      name: (j['name'] ?? '').toString(),
+      username: (j['username'] ?? '').toString(),
+      logoPath: (j['logoPath'] ?? j['logo'] ?? '').toString(),
+      isActive: activeId != null && activeId == id,
+    );
+  }
+}
+
+class _BusinessSwitcherSheet extends StatefulWidget {
+  const _BusinessSwitcherSheet();
+
+  @override
+  State<_BusinessSwitcherSheet> createState() => _BusinessSwitcherSheetState();
+}
+
+class _BusinessSwitcherSheetState extends State<_BusinessSwitcherSheet> {
+  late Future<List<_BusinessInfo>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadBusinesses();
+  }
+
+  Future<List<_BusinessInfo>> _loadBusinesses() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('business');
+    final activeId = prefs.getString('activeBizId');
+    if (raw == null || raw.isEmpty) return [];
+
+    try {
+      final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+      return list
+          .map((e) => _BusinessInfo.fromJson(e, activeId: activeId))
+          .toList();
+    } catch (e) {
+      debugPrint('parse business error: $e');
+      return [];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = const Color(0xFF111827);
+    final subColor = const Color(0xFF6B7280);
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          top: 12,
+          left: 16,
+          right: 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5E7EB),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const Text(
+              'Switch Business',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            FutureBuilder<List<_BusinessInfo>>(
+              future: _future,
+              builder: (context, snap) {
+                if (!snap.hasData) {
+                  return const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                final items = snap.data!;
+                if (items.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text('No business found'),
+                  );
+                }
+
+                return Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final b = items[i];
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                        ),
+                        leading: CircleAvatar(
+                          radius: 18,
+                          backgroundColor: const Color(0xFFE9F0FF),
+                          child: (b.logoPath.isNotEmpty)
+                              ? ClipOval(
+                                  child: Image.network(
+                                    b.logoPath,
+                                    width: 36,
+                                    height: 36,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Text(
+                                      b.name.isNotEmpty
+                                          ? b.name[0].toUpperCase()
+                                          : '?',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.blue,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : Text(
+                                  b.name.isNotEmpty
+                                      ? b.name[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                        ),
+                        title: Text(
+                          b.name,
+                          style: TextStyle(
+                            color: textColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'id: ${b.username}',
+                          style: TextStyle(color: subColor),
+                        ),
+                        trailing: b.isActive
+                            ? const Icon(
+                                Icons.check_circle,
+                                color: Color(0xFF16A34A),
+                              )
+                            : const Icon(
+                                Icons.radio_button_unchecked,
+                                color: Color(0xFFCBD5E1),
+                              ),
+                        onTap: () async {
+                          if (b.isActive) {
+                            Navigator.pop(context, false);
+                            return;
+                          }
+                          final ok = await context
+                              .read<AuthProvider>()
+                              .switchActiveBusiness(b.idBusiness);
+                          if (ok && mounted) {
+                            Navigator.pop(context, true);
+                          }
+                        },
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }

@@ -32,11 +32,17 @@ class ManagePurchaseScreen extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            // const SizedBox(height: 8),
+            // _MenuTile(
+            //   icon: Icons.receipt_long_rounded,
+            //   title: 'Add Purchase',
+            //   onTap: () => Navigator.pushNamed(context, '/purchase/add'),
+            // ),
             const SizedBox(height: 8),
             _MenuTile(
               icon: Icons.receipt_long_rounded,
               title: 'Purchase List',
-              onTap: () => Navigator.pushNamed(context, '/purchase/list'),
+              onTap: () => Navigator.pushNamed(context, '/report/purchase'),
             ),
             const SizedBox(height: 8),
             _MenuTile(

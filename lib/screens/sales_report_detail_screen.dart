@@ -14,22 +14,15 @@ class SalesReportDetailScreen extends StatefulWidget {
 }
 
 class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
-  bool _triedRefetch = false;
-
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final prov = context.read<SalesProvider>();
-      final hit = prov.reports.firstWhere(
-        (e) => e.idTransaction == widget.idTransaction,
-        orElse: () => null as dynamic,
+    // Ambil detail transaksi langsung dari endpoint detail
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<SalesProvider>().fetchSalesDetail(
+        context,
+        widget.idTransaction,
       );
-      if (hit == null && !_triedRefetch) {
-        _triedRefetch = true;
-        await prov.fetchSalesReports(context);
-        if (mounted) setState(() {});
-      }
     });
   }
 
@@ -54,37 +47,41 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
       ),
       body: Consumer<SalesProvider>(
         builder: (context, prov, _) {
-          final item = prov.reports.firstWhere(
-            (e) => e.idTransaction == widget.idTransaction,
-            orElse: () => null as dynamic,
-          );
-
-          if (item == null) {
-            if (prov.loadingReports) {
-              return const Center(child: CircularProgressIndicator());
-            }
+          if (prov.loadingSalesDetail) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (prov.salesDetailError != null) {
             return _ErrorBox(
-              message:
-                  'Data transaksi tidak ditemukan.\nCoba kembali ke halaman Sales Report dan tap itemnya lagi.',
-              onRetry: () => prov.fetchSalesReports(context),
+              message: prov.salesDetailError!,
+              onRetry: () =>
+                  prov.fetchSalesDetail(context, widget.idTransaction),
             );
           }
 
-          final lines = item.lines;
-          final qtyTotal = item.quantity;
-          final amount = item.totalAmount;
+          final d = prov.salesDetail;
+          if (d == null) {
+            return _ErrorBox(
+              message:
+                  'Data transaksi tidak ditemukan.\nCoba kembali dan buka lagi detailnya.',
+              onRetry: () =>
+                  prov.fetchSalesDetail(context, widget.idTransaction),
+            );
+          }
+
+          final calc = d.calculation;
+          final totalAmount = calc?.grandtotal ?? d.amount;
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
-              // Ringkasan dengan DottedBorder & ikon indigo (match purchase list)
+              // Ringkasan dengan DottedBorder
               DottedBorder(
-                options: RoundedRectDottedBorderOptions(
-                  color: const Color(0xFFD1D5DB),
-                  dashPattern: const [6, 6],
+                options: const RoundedRectDottedBorderOptions(
+                  color: Color(0xFFD1D5DB),
+                  dashPattern: [6, 6],
                   strokeWidth: 1.4,
-                  radius: const Radius.circular(12),
-                  padding: const EdgeInsets.all(0),
+                  radius: Radius.circular(12),
+                  padding: EdgeInsets.all(0),
                 ),
                 child: Container(
                   padding: const EdgeInsets.all(14),
@@ -117,10 +114,9 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                // nomor transaksi atau reference fallback
                                 Text(
-                                  (item.code.isEmpty
-                                      ? item.reference
-                                      : item.code),
+                                  (d.number.isEmpty ? d.reference : d.number),
                                   style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w800,
@@ -129,7 +125,7 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  fDate.format(item.time),
+                                  fDate.format(d.time),
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: Color(0xFF9CA3AF),
@@ -139,31 +135,55 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          _StatusChip(status: item.status),
+                          _StatusChip(status: d.status),
                         ],
                       ),
                       const SizedBox(height: 16),
+
                       // amounts
                       Row(
                         children: [
                           Expanded(
                             child: _KV(
-                              label: 'Total amount',
-                              value: 'Rp ${fMoney.format(amount)}',
+                              label: 'Grand Total',
+                              value: 'Rp ${fMoney.format(totalAmount)}',
                             ),
                           ),
                           _KV(
-                            label: 'Quantity',
-                            value: '$qtyTotal',
+                            label: 'Payment',
+                            value: _paymentLabel(d.paymentMethod),
                             alignEnd: true,
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
-                      _KV(
-                        label: 'Reference',
-                        value: item.reference.isEmpty ? '-' : item.reference,
-                      ),
+
+                      // customer & store singkat
+                      if (d.customer != null) ...[
+                        const SizedBox(height: 8),
+                        _KV(
+                          label: 'Customer',
+                          value:
+                              '${d.customer!.name} '
+                              '${d.customer!.phone.isNotEmpty ? '• ${d.customer!.phone}' : ''}',
+                        ),
+                      ],
+                      if (d.storeLocation != null) ...[
+                        const SizedBox(height: 8),
+                        _KV(
+                          label: 'Store',
+                          value:
+                              '${d.storeLocation!.name}${d.storeLocation!.city != null ? ' • ${d.storeLocation!.city!.name}' : ''}',
+                        ),
+                      ],
+                      if (d.reference.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        _KV(label: 'Reference', value: d.reference),
+                      ],
+                      if (d.note.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        _KV(label: 'Note', value: d.note),
+                      ],
                     ],
                   ),
                 ),
@@ -180,17 +200,23 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
               ),
               const SizedBox(height: 8),
 
-              // daftar item
-              ...List.generate(lines.length, (i) {
-                final l = lines[i];
-                final subtotal = l.qtyOut * l.price;
+              // daftar item detail
+              ...d.items.map((it) {
+                final lineSubtotal = it.qtyOut * it.price;
+                final img = it.product?.imagePath;
+                final title = it.product?.name ?? it.productSkuId;
+                final skuCode = it.productSku?.code ?? '';
+                final attrs = (it.productSku?.attributes ?? [])
+                    .map((a) => '${a['name']}: ${a['value']}')
+                    .join(', ');
+
                 return DottedBorder(
-                  options: RoundedRectDottedBorderOptions(
-                    color: const Color(0xFFE5E7EB),
-                    dashPattern: const [6, 6],
+                  options: const RoundedRectDottedBorderOptions(
+                    color: Color(0xFFE5E7EB),
+                    dashPattern: [6, 6],
                     strokeWidth: 1.2,
-                    radius: const Radius.circular(10),
-                    padding: const EdgeInsets.all(0),
+                    radius: Radius.circular(10),
+                    padding: EdgeInsets.all(0),
                   ),
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 10),
@@ -201,26 +227,15 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                     ),
                     child: Row(
                       children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: Colors.indigo.shade50,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            Icons.inventory_2_rounded,
-                            color: Colors.indigo.shade700,
-                          ),
-                        ),
+                        _Thumb(imageUrl: img),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // tampilkan SKU ID sebagai judul (bisa di-enrich nanti)
+                              // nama produk
                               Text(
-                                l.productSkuId,
+                                title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -230,8 +245,25 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                                 ),
                               ),
                               const SizedBox(height: 4),
+                              // sku & atribut
+                              if (skuCode.isNotEmpty || attrs.isNotEmpty)
+                                Text(
+                                  [
+                                    skuCode,
+                                    attrs,
+                                  ].where((e) => e.isNotEmpty).join(' • '),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF6B7280),
+                                  ),
+                                ),
+                              const SizedBox(height: 4),
+                              // qty x harga (+ discount per item jika ada)
                               Text(
-                                'Qty ${l.qtyOut} × Rp ${fMoney.format(l.price)}',
+                                'Qty ${it.qtyOut} × Rp ${fMoney.format(it.price)}'
+                                '${it.discount > 0 ? ' (disc Rp ${fMoney.format(it.discount)}/item)' : ''}',
                                 style: const TextStyle(
                                   fontSize: 13,
                                   color: Color(0xFF6B7280),
@@ -242,7 +274,7 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                         ),
                         const SizedBox(width: 12),
                         Text(
-                          'Rp ${fMoney.format(subtotal)}',
+                          'Rp ${fMoney.format(lineSubtotal)}',
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             color: Color(0xFF111827),
@@ -252,10 +284,94 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                     ),
                   ),
                 );
-              }),
+              }).toList(),
+
+              const SizedBox(height: 4),
+              const Divider(height: 24),
+
+              // totals
+              if (calc != null) ...[
+                _rowTotal('Subtotal', calc.subtotal, fMoney),
+                _rowTotal('Discount', -calc.discount, fMoney, discount: true),
+                _rowTotal('Shipping', calc.shippingFee, fMoney),
+                const SizedBox(height: 6),
+                _rowTotal('Grand Total', calc.grandtotal, fMoney, bold: true),
+              ] else ...[
+                _rowTotal('Amount', d.amount, fMoney, bold: true),
+              ],
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _rowTotal(
+    String label,
+    int amount,
+    NumberFormat fmt, {
+    bool bold = false,
+    bool discount = false,
+  }) {
+    final st = TextStyle(
+      fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+      color: const Color(0xFF111827),
+    );
+    final val = TextStyle(
+      fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+      color: discount ? const Color(0xFF166534) : const Color(0xFF374151),
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: st)),
+          Text('Rp ${fmt.format(amount)}', style: val),
+        ],
+      ),
+    );
+  }
+
+  String _paymentLabel(int method) {
+    switch (method) {
+      case 1:
+        return 'Cash';
+      case 4:
+        return 'EDC';
+      case 3:
+        return 'QRIS/VA';
+      default:
+        return 'Other';
+    }
+  }
+}
+
+class _Thumb extends StatelessWidget {
+  final String? imageUrl;
+  const _Thumb({this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: Colors.indigo.shade50,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(Icons.inventory_2_rounded, color: Colors.indigo.shade700),
+    );
+
+    if (imageUrl == null || imageUrl!.isEmpty) return fallback;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.network(
+        imageUrl!,
+        width: 42,
+        height: 42,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
       ),
     );
   }

@@ -4,6 +4,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:wa_blast/app_nav.dart';
+import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/utils/core_permission.dart';
 import '../providers/auth_provider.dart';
 
@@ -78,7 +80,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!mounted) return;
     if (success) {
-      Navigator.pushReplacementNamed(context, '/splash');
+      final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
+      sp?.resetNavigationGuards();
+      sp?.deeplinkInProgress = false;
+      appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+        '/splash',
+        (r) => false,
+      );
     } else {
       final errorMsg = authProvider.error ?? 'Login gagal';
       ScaffoldMessenger.of(

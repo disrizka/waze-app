@@ -34,13 +34,30 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
         scrolledUnderElevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/report'),
+          onPressed: () => Navigator.pushReplacementNamed(context, '/sales'),
         ),
-        title: const Text(
-          'Sales Report',
-          style: TextStyle(fontWeight: FontWeight.w800),
+        // 🆕 Judul alami: "Sales  /report"
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: const [
+            Text('Sales', style: TextStyle(fontWeight: FontWeight.w800)),
+            SizedBox(width: 8),
+            Text(
+              '/history',
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF9CA3AF),
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
+        centerTitle: false,
       ),
+
       body: Consumer<SalesProvider>(
         builder: (context, prov, _) {
           final items = prov.reports;
@@ -259,6 +276,30 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
             ),
           );
         },
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: FilledButton.icon(
+              onPressed: () => Navigator.pushNamed(context, '/sales/add'),
+              icon: const Icon(Icons.add, size: 20),
+              label: const Text(
+                'Add Sales',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF426FD4),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
