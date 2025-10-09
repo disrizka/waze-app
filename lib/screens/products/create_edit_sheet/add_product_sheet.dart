@@ -73,6 +73,53 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     growable: false,
   );
 
+  // Tambah di dalam _AddProductSheetState
+  List<String> _whyDisabled() {
+    final reasons = <String>[];
+
+    // 1) Form basic
+    final formOk = (_formKey.currentState?.validate() ?? false);
+    if (!formOk) reasons.add('Form belum valid (Name/Description).');
+    if (_selectedBrandId == null) reasons.add('Brand belum dipilih.');
+    if (_selectedCategoryId == null) reasons.add('Category belum dipilih.');
+
+    // 2) Mode variants/single
+    if (_useVariants) {
+      final st = variantsKey.currentState;
+      if (st == null || !st.hasAtLeastOneRow) {
+        reasons.add('Belum ada SKU di Variants.');
+      }
+      if (_useMultiPrice && !_variantPricesUniform) {
+        reasons.add('Harga semua SKU harus identik untuk Multi Price.');
+      }
+    } else {
+      if (_skuNoSpaceValidator(_singleSkuNameC.text) != null) {
+        reasons.add('SKU Code required & tanpa spasi.');
+      }
+      if (_toInt(_singleSkuPriceC.text) <= 0) {
+        reasons.add('SKU Price harus > 0.');
+      }
+    }
+
+    // 3) Multi price rules
+    if (_useMultiPrice) {
+      final anyTier = _prices.any((e) => e.isFilled);
+      if (!anyTier) {
+        reasons.add('Minimal 1 tier harga (Min Qty & Price) harus diisi.');
+      }
+      if (!_allTierPricesValid) {
+        final base = _skuBasePrice;
+        if (base == null) {
+          reasons.add('Base SKU price belum valid.');
+        } else {
+          reasons.add('Ada tier price yang >= base price.');
+        }
+      }
+    }
+
+    return reasons;
+  }
+
   Future<void> _chooseImageFor(int idx) async {
     if (!_slotEnabled(idx)) return;
     final src = await showModalBottomSheet<ImageSource>(

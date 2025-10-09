@@ -293,7 +293,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
               if (calc != null) ...[
                 _rowTotal('Subtotal', calc.subtotal, fMoney),
                 _rowTotal('Discount', -calc.discount, fMoney, discount: true),
-                _rowTotal('Shipping', calc.shippingFee, fMoney),
                 const SizedBox(height: 6),
                 _rowTotal('Grand Total', calc.grandtotal, fMoney, bold: true),
               ] else ...[

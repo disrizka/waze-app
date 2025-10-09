@@ -82,12 +82,9 @@ class LinkRegisterDetailsStep extends StatelessWidget {
   Future<void> _handleSubmit(BuildContext context) async {
     FocusScope.of(context).unfocus();
     final p = context.read<LinkRegisterProvider>();
-    final err = await p.submit();
+    final err = await p.submit(context); // ⬅️ kirim context
     if (err != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-    } else {
-      // TODO: Navigate ke home/login sesuai kebutuhan
-      // Navigator.of(context).pushReplacementNamed('/home');
     }
   }
 }

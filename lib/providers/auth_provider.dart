@@ -67,6 +67,8 @@ class AuthProvider with ChangeNotifier {
   static const String kActiveAccountKey = 'activeAccountEmail';
   String? get activeAccountEmail => _email;
 
+  final nav = appNavigatorKey.currentState;
+
   Future<String?> getCurrentUserEmailFromPrefs() async {
     if (_email != null && _email!.isNotEmpty) return _email;
     final prefs = await SharedPreferences.getInstance();
@@ -369,6 +371,7 @@ class AuthProvider with ChangeNotifier {
   }
 
   // Autologin saat app dibuka
+  // ganti isi tryAutoLogin agar TANPA cek exp / refresh proaktif
   Future<void> tryAutoLogin(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
     final activeEmail = prefs.getString(kActiveAccountKey);
@@ -379,7 +382,6 @@ class AuthProvider with ChangeNotifier {
     try {
       final accountData = accountJson != null ? jsonDecode(accountJson) : null;
 
-      // 1) Prefer accessToken dari prefs (biar selalu pakai yang terbaru)
       _accessToken =
           prefs.getString('accessToken') ??
           (accountData != null ? accountData['accessToken'] as String? : null);
@@ -391,11 +393,11 @@ class AuthProvider with ChangeNotifier {
       _name =
           prefs.getString('name') ??
           (accountData != null ? accountData['name'] as String? : null);
+
       _email =
           prefs.getString('email') ??
           (accountData != null ? accountData['email'] as String? : null);
 
-      // isActivated: prefer prefs, fallback snapshot, default false
       _isActivated =
           prefs.getBool('isActivated') ??
           (accountData != null
@@ -403,78 +405,7 @@ class AuthProvider with ChangeNotifier {
               : null) ??
           false;
 
-      // 2) Jika tidak ada token sama sekali → berhenti
-      if ((_accessToken ?? '').isEmpty) {
-        notifyListeners();
-        return;
-      }
-
-      // 3) Jika token expired → refresh
-      if (_isJwtExpired(_accessToken!)) {
-        final refresh = _refreshToken ?? '';
-        if (refresh.isEmpty) {
-          await logoutWithoutNavigation();
-          notifyListeners();
-          return;
-        }
-
-        try {
-          final res = await ApiService.refreshAccessToken().timeout(
-            const Duration(seconds: 2),
-            onTimeout: () {
-              throw TimeoutException('refresh timeout');
-            },
-          );
-
-          final raw = res.body;
-          debugPrint(
-            "REFRESH TOKEN ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
-          );
-
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            final j = jsonDecode(raw) as Map<String, dynamic>;
-            final newAccess = (j['access_token'] ?? '').toString();
-            if (newAccess.isEmpty) {
-              await logoutWithoutNavigation();
-              notifyListeners();
-              return;
-            }
-            _accessToken = newAccess;
-            await prefs.setString('accessToken', newAccess);
-
-            // sinkronkan snapshot akun aktif (opsional)
-            if (_email != null) {
-              final key = 'account_${_email!}';
-              final snapStr = prefs.getString(key);
-              if (snapStr != null) {
-                try {
-                  final snap = jsonDecode(snapStr) as Map<String, dynamic>;
-                  snap['accessToken'] = newAccess;
-                  await prefs.setString(key, jsonEncode(snap));
-                } catch (_) {}
-              }
-            }
-
-            // ⬅️ FETCH USER dengan TIMEOUT juga
-            await _fetchAndPersistCurrentUser(
-              context,
-            ).timeout(const Duration(seconds: 2), onTimeout: () => false);
-          } else {
-            await logoutWithoutNavigation();
-            notifyListeners();
-            return;
-          }
-        } on TimeoutException catch (_) {
-          // Jangan ngegantung di Splash — fail-open: pakai data lokal saja
-          debugPrint('REFRESH TOKEN ❌ timeout -> keep local state');
-        } catch (e, st) {
-          debugPrint('REFRESH TOKEN ❌ $e\n$st');
-          await logoutWithoutNavigation();
-          notifyListeners();
-          return;
-        }
-      }
-
+      // Tidak ada cek exp / refresh di sini.
       notifyListeners();
     } catch (e) {
       debugPrint("AutoLogin parsing error: $e");
@@ -534,10 +465,9 @@ class AuthProvider with ChangeNotifier {
       // ⬅️ RESET Splash guard sebelum navigasi
       final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
       sp?.resetNavigationGuards();
-      sp?.deeplinkInProgress = false;
+      sp?.abortDeepLink();
 
       // ⬅️ Gunakan navigator global supaya tidak nyasar ke nested navigator
-      final nav = appNavigatorKey.currentState;
 
       if (accounts.isNotEmpty) {
         final nextEmail = accounts.first;
@@ -680,20 +610,22 @@ class AuthProvider with ChangeNotifier {
         await prefs.setBool('isActivated', true);
 
         // 4) Fetch user profile terbaru dan persist
-        await _fetchAndPersistCurrentUser(context);
+        await refreshCurrentUser(context);
 
         // 5) Redirect
         if (context.mounted) {
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            '/splash',
-            (route) => false,
-          );
+          final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
+          sp?.resetNavigationGuards();
+          sp?.abortDeepLink();
+
+          final navNow = appNavigatorKey.currentState;
+          navNow?.pushNamedAndRemoveUntil('/splash', (r) => false);
         }
 
         debugPrint(
           'REGISTER STEP2 ✅ idBusiness=$idBusiness (logo=${uploadedFilename ?? '-'}) → refreshed user → /splash',
         );
+        await refreshCurrentUser(context);
         return true;
       } else {
         try {
@@ -716,7 +648,7 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<bool> _fetchAndPersistCurrentUser(BuildContext context) async {
+  Future<bool> fetchAndPersistCurrentUser(BuildContext context) async {
     try {
       final res = await ApiService.get(context, '/user', withAccessToken: true);
       final raw = res.body;
@@ -786,6 +718,33 @@ class AuthProvider with ChangeNotifier {
       debugPrint('FETCH USER ❌ $e\n$st');
       return false;
     }
+  }
+
+  // di dalam class AuthProvider
+  Future<void> updateAccessToken(String newAccess) async {
+    if (newAccess.isEmpty) return;
+    _accessToken = newAccess;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('accessToken', newAccess);
+
+    // Sinkronkan snapshot akun aktif (account_<email>)
+    final emailKey = _email ?? prefs.getString(kActiveAccountKey);
+    if (emailKey != null && emailKey.isNotEmpty) {
+      final key = 'account_$emailKey';
+      final snapStr = prefs.getString(key);
+      if (snapStr != null) {
+        try {
+          final snap = jsonDecode(snapStr) as Map<String, dynamic>;
+          snap['accessToken'] = newAccess;
+          await prefs.setString(key, jsonEncode(snap));
+        } catch (e) {
+          debugPrint('updateAccessToken: snapshot sync failed: $e');
+        }
+      }
+    }
+
+    notifyListeners();
   }
 
   /// Persist state & SharedPreferences dari payload AUTH (struktur mirip /login)
@@ -983,6 +942,146 @@ class AuthProvider with ChangeNotifier {
       (b) => b.idBusiness == activeId,
       orElse: () => all.first,
     );
+  }
+
+  // === NEW: Simpan daftar bisnis user + role dari /user/business ===
+  Future<bool> fetchAndPersistUserBusiness(BuildContext context) async {
+    try {
+      final res = await ApiService.get(
+        context,
+        '/user/business',
+        withAccessToken: true,
+      );
+      final raw = res.body;
+      debugPrint(
+        "FETCH USER BUSINESS ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
+      );
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        debugPrint("FETCH USER BUSINESS ❌ status ${res.statusCode}");
+        return false;
+      }
+
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      final List data = (j['data'] as List?) ?? const [];
+
+      // Simpan raw response untuk auditing
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userBusinessRaw', raw);
+
+      // Turunkan ke array "business" (dipakai oleh getBusinesses())
+      final List<Map<String, dynamic>> simplifiedBusiness = data
+          .map<Map<String, dynamic>>((e) {
+            final b =
+                (e as Map)['business'] as Map<String, dynamic>? ?? const {};
+            return {
+              'idBusiness': (b['idBusiness'] ?? '').toString(),
+              'name': (b['name'] ?? '').toString(),
+              'username': (b['username'] ?? '').toString(),
+              'logoPath': (b['logoPath'] ?? b['logo'] ?? '').toString(),
+            };
+          })
+          .toList();
+
+      // Simpan daftar bisnis “standar” (agar kompatibel dgn getBusinesses())
+      await prefs.setString('business', jsonEncode(simplifiedBusiness));
+
+      // Simpan role per bisnis dalam map: { idBusiness: {idAdminRole, name, isPrimary} }
+      final Map<String, dynamic> roleMap = {};
+      for (final item in data) {
+        final m = (item as Map).cast<String, dynamic>();
+        final biz = (m['business'] ?? const {}) as Map<String, dynamic>;
+        final role = (m['adminRole'] ?? const {}) as Map<String, dynamic>;
+        final idBiz = (biz['idBusiness'] ?? '').toString();
+        if (idBiz.isNotEmpty) {
+          roleMap[idBiz] = {
+            'idAdminRole': (role['idAdminRole'] ?? '').toString(),
+            'name': (role['name'] ?? '').toString(),
+            'isPrimary': (role['isPrimary'] ?? false) == true,
+          };
+        }
+      }
+      await prefs.setString('businessRoles', jsonEncode(roleMap));
+
+      // Set active business = item pertama
+      if (simplifiedBusiness.isNotEmpty) {
+        final first = simplifiedBusiness.first;
+        await prefs.setString('activeBizId', first['idBusiness'] ?? '');
+        await prefs.setString('activeBizName', first['name'] ?? '');
+        await prefs.setString('activeBizUsername', first['username'] ?? '');
+        await prefs.setString('activeBizLogoPath', first['logoPath'] ?? '');
+
+        // Sekalian simpan active role (kalau ada)
+        final rb = roleMap[first['idBusiness']];
+        await prefs.setString(
+          'activeBizRoleId',
+          (rb?['idAdminRole'] ?? '').toString(),
+        );
+        await prefs.setString(
+          'activeBizRoleName',
+          (rb?['name'] ?? '').toString(),
+        );
+        await prefs.setBool(
+          'activeBizRoleIsPrimary',
+          (rb?['isPrimary'] ?? false) == true,
+        );
+
+        // Sinkronkan snapshot account_<email>
+        final emailKey = _email ?? prefs.getString(kActiveAccountKey);
+        if (emailKey != null && emailKey.isNotEmpty) {
+          final key = 'account_$emailKey';
+          final snapStr = prefs.getString(key);
+          if (snapStr != null) {
+            try {
+              final snap = jsonDecode(snapStr) as Map<String, dynamic>;
+              snap['business'] = simplifiedBusiness;
+              snap['activeBusiness'] = {
+                'idBusiness': first['idBusiness'],
+                'name': first['name'],
+                'username': first['username'],
+                'logoPath': first['logoPath'],
+              };
+              snap['businessRoles'] = roleMap;
+              snap['activeBusinessRole'] = {
+                'idAdminRole': (rb?['idAdminRole'] ?? '').toString(),
+                'name': (rb?['name'] ?? '').toString(),
+                'isPrimary': (rb?['isPrimary'] ?? false) == true,
+              };
+              await prefs.setString(key, jsonEncode(snap));
+            } catch (e) {
+              debugPrint('SYNC SNAPSHOT (user business) ❌ $e');
+            }
+          }
+        }
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      debugPrint('FETCH USER BUSINESS ❌ $e\n$st');
+      return false;
+    }
+  }
+
+  // Make the private fetcher callable from outside
+  // di dalam class AuthProvider
+  Future<bool> refreshCurrentUser(BuildContext context) async {
+    debugPrint('refreshCurrentUser ▶︎ start');
+
+    // 1) Ambil daftar bisnis + role dulu
+    try {
+      final okBiz = await fetchAndPersistUserBusiness(context);
+      debugPrint('refreshCurrentUser ▶︎ fetchAndPersistUserBusiness = $okBiz');
+    } catch (e, st) {
+      debugPrint('refreshCurrentUser ❌ userBusiness error: $e\n$st');
+    }
+
+    // 2) Lalu fetch user (ini yang jadi nilai return)
+    final okUser = await fetchAndPersistCurrentUser(context);
+    debugPrint('refreshCurrentUser ▶︎ fetchAndPersistCurrentUser = $okUser');
+
+    debugPrint('refreshCurrentUser ◀︎ done');
+    return okUser;
   }
 
   /// Ganti active business by idBusiness, *tanpa* perlu login ulang.

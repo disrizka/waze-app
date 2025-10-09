@@ -1,12 +1,17 @@
 // lib/providers/hr_provider.dart
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:wa_blast/app_nav.dart';
 
 import 'package:wa_blast/core/provider_helper.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
+import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/screens/register/link/link_register_stepper_wrapper.dart'; // BizIdCache, ApiJson, FetchHelper, PageMeta
 
 /// =========================
@@ -76,6 +81,7 @@ class HrInvitePreview {
   final String roleId;
   final String roleName;
   final String token;
+  final bool isAccountExists;
 
   const HrInvitePreview({
     required this.email,
@@ -85,6 +91,7 @@ class HrInvitePreview {
     required this.roleId,
     required this.roleName,
     required this.token,
+    required this.isAccountExists, // ⬅️ NEW
   });
 
   factory HrInvitePreview.fromJson(Map<String, dynamic> j) => HrInvitePreview(
@@ -96,6 +103,7 @@ class HrInvitePreview {
     roleId: (j['role']?['id'] ?? '').toString(),
     roleName: (j['role']?['name'] ?? '').toString(),
     token: (j['token'] ?? '').toString(),
+    isAccountExists: (j['isAccountExists'] ?? false) == true, // ⬅️ NEW
   );
 }
 
@@ -244,6 +252,7 @@ class HrProvider extends ChangeNotifier {
   bool _loadingRoles = false;
   String? _rolesError;
   PageMeta? _pageRoles;
+  final nav = appNavigatorKey.currentState;
 
   List<HrRole> get roles => List.unmodifiable(_roles);
   bool get loadingRoles => _loadingRoles;
@@ -690,18 +699,45 @@ class HrProvider extends ChangeNotifier {
         );
       }
 
-      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      final status = (j?['status'] as num?)?.toInt() ?? 0;
+      final ok = j != null && status == 200;
+
       if (!ok) {
         _lastError =
             j?['msg']?.toString() ??
             j?['message']?.toString() ??
             'Failed to get invite data';
         notifyListeners();
+
+        // === penting: jangan bikin UI ngegantung ===
+        final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
+        sp?.resetNavigationGuards();
+        sp?.abortDeepLink();
+
+        // Info user (non-blocking)
+        if (context.mounted) {
+          final msg = (status == 410)
+              ? (_lastError?.isNotEmpty == true
+                    ? _lastError!
+                    : 'Token undangan sudah kadaluarsa.')
+              : _lastError ?? 'Gagal memuat data undangan.';
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(msg)));
+        }
+
+        // Navigate dengan navigator TERKINI, bukan field
+        final navNow = appNavigatorKey.currentState;
+        // Pilih rute yang kamu mau. Disini saya arahkan ke /login agar jelas.
+        // navNow?.pushNamedAndRemoveUntil('/login', (r) => false);
+        // Kalau tetap ingin kembali ke Splash:
+        navNow?.pushNamedAndRemoveUntil('/splash', (r) => false);
+
         return null;
       }
 
-      // ✅ langsung pakai root JSON (sesuai respons terbarumu)
-      final preview = HrInvitePreview.fromJson(j.cast<String, dynamic>());
+      // ✅ langsung pakai root JSON (sesuai respons terbaru)
+      final preview = HrInvitePreview.fromJson(j!.cast<String, dynamic>());
       return preview;
     } catch (e, st) {
       _lastError = e.toString();
@@ -709,6 +745,23 @@ class HrProvider extends ChangeNotifier {
         debugPrint('[HrProvider] getInviteData ERROR: $e');
         debugPrint('$st');
       }
+
+      // Pastikan guard splash tidak membuat app “diam”
+      final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
+      sp?.resetNavigationGuards();
+      sp?.abortDeepLink(consumeToken: true);
+
+      // Info user
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Terjadi kesalahan memuat undangan.')),
+        );
+      }
+
+      final navNow = appNavigatorKey.currentState;
+      navNow?.pushNamedAndRemoveUntil('/splash', (r) => false);
+      // atau '/splash' jika itu alurnya
+
       notifyListeners();
       return null;
     }
@@ -727,16 +780,43 @@ class HrProvider extends ChangeNotifier {
     required String token,
     required String user,
     required String password,
+    required String firstName,
+    required String lastName,
     String referralCode = '',
-    required String deviceId,
-    required String deviceName,
-    String fcmToken = '',
   }) async {
     try {
+      // ====== 🔧 Dapatkan device info & FCM token ======
+      String deviceId = 'UNKNOWN_ID';
+      String deviceName = 'UNKNOWN_DEVICE';
+      String fcmToken = '';
+
+      try {
+        final deviceInfo = DeviceInfoPlugin();
+        if (Platform.isAndroid) {
+          final info = await deviceInfo.androidInfo;
+          deviceId = info.id ?? info.serialNumber ?? 'android-unknown';
+          deviceName = info.model ?? 'Android Device';
+        } else if (Platform.isIOS) {
+          final info = await deviceInfo.iosInfo;
+          deviceId = info.identifierForVendor ?? 'ios-unknown';
+          deviceName = info.utsname.machine ?? 'iPhone';
+        }
+
+        final messaging = FirebaseMessaging.instance;
+        fcmToken = await messaging.getToken() ?? '';
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[HrProvider] ⚠️ Device/FCM fetch failed: $e');
+        }
+      }
+
+      // ====== 🔧 Bangun payload ======
       final payload = {
-        'user': user,
+        'user': user.trim(),
         'password': password,
-        'referral_code': referralCode,
+        'first_name': firstName.trim(),
+        'last_name': lastName.trim(),
+        'referral_code': referralCode.trim(),
         'device_id': deviceId,
         'device_name': deviceName,
         'fcm_token': fcmToken,
@@ -744,16 +824,23 @@ class HrProvider extends ChangeNotifier {
 
       final path = _inviteTokenPath(token);
       if (kDebugMode) {
-        debugPrint('[HrProvider] POST $path');
-        debugPrint('[HrProvider] payload: $payload');
+        debugPrint('[HrProvider] 📤 POST $path');
+        debugPrint('[HrProvider] Payload: $payload');
       }
 
+      // ====== 🔧 Panggil API ======
       final j = await ApiJson.postMap(
         context,
         path,
         payload,
-        withAccessToken: false, // register/join via invite
+        withAccessToken: false,
       );
+
+      if (kDebugMode) {
+        debugPrint(
+          '[HrProvider] 📥 Raw response:\n${const JsonEncoder.withIndent("  ").convert(j)}',
+        );
+      }
 
       final ok = j != null && (j['status'] as num?)?.toInt() == 200;
       if (!ok) {
@@ -762,27 +849,20 @@ class HrProvider extends ChangeNotifier {
             j?['message']?.toString() ??
             'Failed to complete invite';
         notifyListeners();
+
+        if (context.mounted && _lastError?.isNotEmpty == true) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(_lastError!)));
+        }
         return null;
       }
 
-      // === Pretty log full response (token masked)
+      // ====== ✅ Sukses, tampilkan response detail ======
       if (kDebugMode) {
-        const enc = JsonEncoder.withIndent('  ');
-        final masked = {
-          'status': j['status'],
-          'data': j['data'],
-          'token': {
-            'access_token': _maskToken(j['token']?['access_token']?.toString()),
-            'refresh_token': _maskToken(
-              j['token']?['refresh_token']?.toString(),
-            ),
-          },
-          'msg': j['msg'],
-        };
         debugPrint('[HrProvider] 🎉 completeInvite SUCCESS');
-        debugPrint(
-          '[HrProvider] 📦 FULL RESPONSE (masked):\n${enc.convert(masked)}',
-        );
+        const enc = JsonEncoder.withIndent('  ');
+        debugPrint('[HrProvider] 📦 Full JSON:\n${enc.convert(j)}');
 
         final data = (j['data'] as Map?)?.cast<String, dynamic>() ?? const {};
         debugPrint('[HrProvider] ── USER ─────────────');
@@ -797,7 +877,7 @@ class HrProvider extends ChangeNotifier {
           j['msg']?.toString() ?? 'Registrasi berhasil dan bergabung';
       final res = InviteSubmitResult.fromJson(j.cast<String, dynamic>());
 
-      // === AUTO-LOGIN ===
+      // ====== 🔐 AUTO-LOGIN ======
       try {
         final data = (j['data'] as Map?)?.cast<String, dynamic>() ?? const {};
         final loginEmail = (data['email']?.toString() ?? '').isNotEmpty
@@ -815,9 +895,27 @@ class HrProvider extends ChangeNotifier {
         );
 
         if (loginOk) {
-          if (kDebugMode) debugPrint('[HrProvider] AUTOLOGIN ✅ -> /splash');
           if (context.mounted) {
-            Navigator.pushNamedAndRemoveUntil(context, '/splash', (r) => false);
+            final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
+            sp?.resetNavigationGuards();
+            sp?.abortDeepLink();
+
+            // 2) Navigate
+            nav?.pushNamedAndRemoveUntil('/splash', (r) => false);
+
+            // 3) Tampilkan SnackBar sukses SETELAH navigasi, pakai root context
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              final rootCtx = appNavigatorKey.currentContext;
+              if (rootCtx != null && _lastMessage?.isNotEmpty == true) {
+                ScaffoldMessenger.of(rootCtx).showSnackBar(
+                  SnackBar(
+                    content: Text(_lastMessage!),
+                    behavior: SnackBarBehavior
+                        .floating, // (opsional) biar aman dari overlap
+                  ),
+                );
+              }
+            });
           }
         } else {
           if (kDebugMode) {
@@ -825,6 +923,10 @@ class HrProvider extends ChangeNotifier {
               '[HrProvider] AUTOLOGIN ❌ ${auth.error ?? "(unknown error)"}',
             );
           }
+          final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
+          sp?.resetNavigationGuards();
+          sp?.abortDeepLink();
+          nav?.pushNamedAndRemoveUntil('/splash', (r) => false);
         }
       } catch (e, st) {
         if (kDebugMode) {
@@ -843,6 +945,167 @@ class HrProvider extends ChangeNotifier {
       }
       notifyListeners();
       return null;
+    }
+  }
+
+  /// Step 3 (variant logged-in): Accept undangan SAAT user SUDAH login.
+  /// - Kirim body minimal:
+  ///   - firstname: null
+  ///   - last_name: null
+  ///   - device_id, device_name, fcm_token: diisi (berguna untuk backend)
+  // lib/providers/hr_provider.dart
+  Future<bool> acceptInviteLoggedIn({
+    required BuildContext context,
+    required String token,
+  }) async {
+    try {
+      final path = _inviteTokenPath(token);
+      if (kDebugMode) {
+        debugPrint(
+          '[HrProvider] 📤 POST $path (no body, withAccessToken=true)',
+        );
+      }
+
+      // ⬇️ TANPA BODY
+      final j = await ApiJson.postMap(
+        context,
+        path,
+        const {},
+        withAccessToken: true,
+      );
+
+      if (kDebugMode) {
+        debugPrint(
+          '[HrProvider] 📥 Raw:\n${const JsonEncoder.withIndent("  ").convert(j)}',
+        );
+      }
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      if (!ok) {
+        _lastError =
+            j?['msg']?.toString() ??
+            j?['message']?.toString() ??
+            'Failed to accept invite';
+        notifyListeners();
+        if (context.mounted && _lastError?.isNotEmpty == true) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(_lastError!)));
+        }
+        return false;
+      }
+
+      _lastMessage = j?['msg']?.toString() ?? 'Undangan diterima';
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_lastMessage!),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[HrProvider] acceptInviteLoggedIn ERROR: $e');
+        debugPrint('$st');
+      }
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> acceptInviteAfterLoginWithDevice({
+    required BuildContext context,
+    required String token,
+  }) async {
+    try {
+      // Kumpulkan device + FCM
+      String deviceId = 'UNKNOWN_ID';
+      String deviceName = 'UNKNOWN_DEVICE';
+      String fcmToken = '';
+      try {
+        final deviceInfo = DeviceInfoPlugin();
+        if (Platform.isAndroid) {
+          final info = await deviceInfo.androidInfo;
+          deviceId = info.id ?? info.serialNumber ?? 'android-unknown';
+          deviceName = info.model ?? 'Android Device';
+        } else if (Platform.isIOS) {
+          final info = await deviceInfo.iosInfo;
+          deviceId = info.identifierForVendor ?? 'ios-unknown';
+          deviceName = info.utsname.machine ?? 'iPhone';
+        }
+        fcmToken = await FirebaseMessaging.instance.getToken() ?? '';
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[HrProvider] ⚠️ Device/FCM fetch failed: $e');
+        }
+      }
+
+      // ⬇️ BODY sesuai permintaan (nama null)
+      final payload = <String, dynamic>{
+        'firstname': null,
+        'last_name': null,
+        'device_id': deviceId,
+        'device_name': deviceName,
+        'fcm_token': fcmToken,
+      };
+
+      final path = _inviteTokenPath(token);
+      if (kDebugMode) {
+        debugPrint('[HrProvider] 📤 POST $path (withAccessToken=true)');
+        debugPrint('[HrProvider] Payload: $payload');
+      }
+
+      final j = await ApiJson.postMap(
+        context,
+        path,
+        payload,
+        withAccessToken: true, // setelah login sudah punya token
+      );
+
+      if (kDebugMode) {
+        debugPrint(
+          '[HrProvider] 📥 Raw:\n${const JsonEncoder.withIndent("  ").convert(j)}',
+        );
+      }
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+      if (!ok) {
+        _lastError =
+            j?['msg']?.toString() ??
+            j?['message']?.toString() ??
+            'Failed to accept invite';
+        notifyListeners();
+        if (context.mounted && _lastError?.isNotEmpty == true) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(_lastError!)));
+        }
+        return false;
+      }
+
+      _lastMessage = j?['msg']?.toString() ?? 'Undangan diterima';
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_lastMessage!),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[HrProvider] acceptInviteAfterLoginWithDevice ERROR: $e');
+        debugPrint('$st');
+      }
+      notifyListeners();
+      return false;
     }
   }
 

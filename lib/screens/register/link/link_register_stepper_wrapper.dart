@@ -6,22 +6,45 @@ import 'package:wa_blast/screens/register/link/link_success_step.dart';
 import 'link_register_password_step.dart';
 import 'link_register_details_step.dart';
 import 'link_register_welcome_step.dart';
+import 'link_register_login_step.dart';
 
-class LinkRegisterStepperWrapper extends StatelessWidget {
+class LinkRegisterStepperWrapper extends StatefulWidget {
   const LinkRegisterStepperWrapper({
     super.key,
     required this.inviteEmail,
     required this.inviteToken,
-    this.businessName, // <- opsional dari link
-    this.businessLogo, // <- opsional (asset path / url)
-    this.inviteRoleName, // <- ✅ role undangan dari preview
+    this.businessName,
+    this.businessLogo,
+    this.inviteRoleName,
+
+    /// Kondisi #2: hanya Welcome + LoginStep
+    this.loginOnlyFlow =
+        false, // ⬅️ ADD (default false supaya tidak ubah alur existing)
   });
 
   final String inviteEmail;
   final String inviteToken;
   final String? businessName;
   final String? businessLogo;
-  final String? inviteRoleName; // ✅ NEW
+  final String? inviteRoleName;
+  final bool loginOnlyFlow; // ⬅️ ADD
+
+  @override
+  State<LinkRegisterStepperWrapper> createState() =>
+      _LinkRegisterStepperWrapperState();
+}
+
+class _LinkRegisterStepperWrapperState
+    extends State<LinkRegisterStepperWrapper> {
+  bool _popGuard = true;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) setState(() => _popGuard = false);
+    });
+  }
 
   Color get _primary => const Color(0xFF426FD4);
   Color get _lineInactive => const Color(0xFFE5E7EB);
@@ -30,54 +53,63 @@ class LinkRegisterStepperWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => LinkRegisterProvider(
-        inviteEmail: inviteEmail,
-        inviteToken: inviteToken,
-        inviteBusinessName: businessName,
-        inviteBusinessLogo: businessLogo,
-        inviteRoleName: inviteRoleName, // ✅ pass role ke provider
+        inviteEmail: widget.inviteEmail,
+        inviteToken: widget.inviteToken,
+        inviteBusinessName: widget.businessName,
+        inviteBusinessLogo: widget.businessLogo,
+        inviteRoleName: widget.inviteRoleName,
+        // kalau provider kamu butuh tahu mode ini, bisa ditambahkan field opsional juga
       ),
-      child: Builder(
-        builder: (context) {
-          final p = context.watch<LinkRegisterProvider>();
-          final steps = const ['Password', 'Details'];
+      child: WillPopScope(
+        onWillPop: () async => !_popGuard,
+        child: Builder(
+          builder: (context) {
+            final p = context.watch<LinkRegisterProvider>();
 
-          return AnimatedSwitcher(
-            duration: const Duration(milliseconds: 320),
-            switchInCurve: Curves.easeInOut,
-            switchOutCurve: Curves.easeInCubic,
-            layoutBuilder: (currentChild, previousChildren) => Stack(
-              children: [
-                ...previousChildren,
-                if (currentChild != null) currentChild,
-              ],
-            ),
-            transitionBuilder: (child, animation) {
-              final key = (child.key is ValueKey)
-                  ? (child.key as ValueKey).value
-                  : '';
-              final slideIn = (key == 'stepper' || key == 'success');
-              final offsetAnim = Tween<Offset>(
-                begin: slideIn ? const Offset(0.08, 0) : Offset.zero,
-                end: Offset.zero,
-              ).animate(animation);
+            // ===== Step titles tergantung mode =====
+            final steps = widget.loginOnlyFlow
+                ? const ['Login'] // di UI stepper hanya 1 (setelah Welcome)
+                : const ['Password', 'Details'];
 
-              return FadeTransition(
-                opacity: animation,
-                child: SlideTransition(position: offsetAnim, child: child),
-              );
-            },
-            child: p.showWelcome
-                ? const _WelcomeStage(key: ValueKey('welcome'))
-                : p.completed
-                ? const _SuccessStage(key: ValueKey('success'))
-                : _StepperStage(
-                    key: const ValueKey('stepper'),
-                    steps: steps,
-                    primary: _primary,
-                    lineInactive: _lineInactive,
-                  ),
-          );
-        },
+            return AnimatedSwitcher(
+              duration: const Duration(milliseconds: 320),
+              switchInCurve: Curves.easeInOut,
+              switchOutCurve: Curves.easeInCubic,
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                children: [
+                  ...previousChildren,
+                  if (currentChild != null) currentChild,
+                ],
+              ),
+              transitionBuilder: (child, animation) {
+                final key = (child.key is ValueKey)
+                    ? (child.key as ValueKey).value
+                    : '';
+                final slideIn = (key == 'stepper' || key == 'success');
+                final offsetAnim = Tween<Offset>(
+                  begin: slideIn ? const Offset(0.08, 0) : Offset.zero,
+                  end: Offset.zero,
+                ).animate(animation);
+
+                return FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(position: offsetAnim, child: child),
+                );
+              },
+              child: p.showWelcome
+                  ? const _WelcomeStage(key: ValueKey('welcome'))
+                  : p.completed
+                  ? const _SuccessStage(key: ValueKey('success'))
+                  : _StepperStage(
+                      key: const ValueKey('stepper'),
+                      steps: steps,
+                      primary: _primary,
+                      lineInactive: _lineInactive,
+                      loginOnlyFlow: widget.loginOnlyFlow, // ⬅️ ADD
+                    ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -101,11 +133,13 @@ class _StepperStage extends StatelessWidget {
     required this.steps,
     required this.primary,
     required this.lineInactive,
+    required this.loginOnlyFlow, // ⬅️ ADD
   });
 
   final List<String> steps;
   final Color primary;
   final Color lineInactive;
+  final bool loginOnlyFlow; // ⬅️ ADD
 
   @override
   Widget build(BuildContext context) {
@@ -114,10 +148,10 @@ class _StepperStage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
-        title: const Text('Create Account'),
+        title: Text(loginOnlyFlow ? 'Login to Continue' : 'Create Account'),
         centerTitle: false,
         automaticallyImplyLeading: false,
-        leading: p.currentStep == 1
+        leading: p.currentStep == 1 || loginOnlyFlow
             ? IconButton(
                 icon: const Icon(Icons.arrow_back_ios_new_rounded),
                 onPressed: () {
@@ -158,19 +192,32 @@ class _StepperStage extends StatelessWidget {
                 duration: const Duration(milliseconds: 250),
                 switchInCurve: Curves.easeOut,
                 switchOutCurve: Curves.easeIn,
-                child: p.currentStep == 0
-                    ? const LinkRegisterPasswordStep(
-                        key: ValueKey('PasswordStep'),
-                      )
-                    : const LinkRegisterDetailsStep(
-                        key: ValueKey('DetailsStep'),
-                      ),
+                child: _buildStepContent(context, p),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildStepContent(BuildContext context, LinkRegisterProvider p) {
+    if (loginOnlyFlow) {
+      // ===== Kondisi #2: hanya LoginStep =====
+      return LinkRegisterLoginStep(
+        key: const ValueKey('LoginStep'),
+        inviteEmail: p.inviteEmail,
+        inviteToken: p.inviteToken,
+      );
+    }
+
+    // ===== Flow default: Password → Details (seperti existing)
+    switch (p.currentStep) {
+      case 0:
+        return const LinkRegisterPasswordStep(key: ValueKey('PasswordStep'));
+      default:
+        return const LinkRegisterDetailsStep(key: ValueKey('DetailsStep'));
+    }
   }
 }
 

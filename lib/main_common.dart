@@ -1,8 +1,5 @@
-// Pindahan dari lib/main.dart, isinya sama persis kecuali:
-// - TIDAK ADA fungsi main()
-// - Tambahkan fungsi public startApp()
-
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -10,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:wa_blast/app_nav.dart';
+import 'package:wa_blast/env.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
@@ -72,6 +70,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 // 🔹 fungsi baru untuk dipanggil dari main_dev/main_prod
 void startApp() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Harus sudah DEV di sini, kalau tidak: pasti ada yang nge-set sebelumnya
+  Env.debugPrintEnv(' @startApp');
+
+  BuildDiag.printSummary(' @startApp'); // biar cocok dengan Env
+
   runApp(const _AppShell());
 }
 
@@ -364,6 +368,37 @@ class _RouteErrorScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Route Error')),
       body: Center(child: Text(message)),
+    );
+  }
+}
+
+// ===== Build/Flavor diagnostics =====
+class BuildDiag {
+  // Kirim via --dart-define=FLAVOR=dev|prod (lihat bagian 4 di bawah)
+  static const String flavor = String.fromEnvironment(
+    'FLAVOR',
+    defaultValue: 'unknown',
+  );
+
+  static bool get isDev => flavor.toLowerCase() == 'dev';
+  static bool get isProd => flavor.toLowerCase() == 'prod';
+
+  static bool get isDebug => kDebugMode;
+  static bool get isProfile => kProfileMode;
+  static bool get isRelease => kReleaseMode;
+
+  static void printSummary([String where = '']) {
+    final mode = isDebug
+        ? 'DEBUG'
+        : isProfile
+        ? 'PROFILE'
+        : isRelease
+        ? 'RELEASE'
+        : 'UNKNOWN';
+    debugPrint(
+      '🔧 BuildDiag$where → flavor=$flavor '
+      '(isDev=$isDev isProd=$isProd)  mode=$mode '
+      '(isDebug=$isDebug isProfile=$isProfile isRelease=$isRelease)',
     );
   }
 }

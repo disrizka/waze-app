@@ -82,7 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (success) {
       final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
       sp?.resetNavigationGuards();
-      sp?.deeplinkInProgress = false;
+      sp?.abortDeepLink();
       appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
         '/splash',
         (r) => false,
