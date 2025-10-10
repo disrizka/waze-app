@@ -1,12 +1,13 @@
+import 'package:flutter/material.dart';
 import 'package:wa_blast/env.dart';
 
 class ApiConstant {
   static String get baseUrl {
-    if (Env.isDev) {
-      return 'https://wave-api.eon.id';
-    } else {
-      return 'https://api.wave.id';
-    }
+    // Log sekali setiap akses (boleh hapus setelah root cause ketemu)
+    debugPrint(
+      '[ApiConstant] baseUrl dibaca → ${Env.isInitialized ? Env.apiBaseUrl : '(ENV BELUM SET)'}',
+    );
+    return Env.apiBaseUrl;
   }
 
   static const String basicAuth =

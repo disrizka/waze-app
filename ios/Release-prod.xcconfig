@@ -1,0 +1,5 @@
+#include "Generated.xcconfig"
+FLUTTER_TARGET=lib/main.dart
+APP_NAME=Wave Up
+PRODUCT_BUNDLE_IDENTIFIER=com.wave.up
+DART_DEFINES=$(DART_DEFINES),RkxBVk9SPXByb2Q=

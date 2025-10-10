@@ -2,7 +2,7 @@ import 'package:wa_blast/env.dart';
 import 'main_common.dart';
 
 void main() {
-  const flavorStr = String.fromEnvironment('FLAVOR', defaultValue: 'dev');
+  const flavorStr = String.fromEnvironment('FLAVOR', defaultValue: 'prod');
   final flavor = flavorStr.toLowerCase() == 'prod' ? Flavor.prod : Flavor.dev;
 
   final base = flavor == Flavor.prod

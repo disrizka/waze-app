@@ -1,0 +1,73 @@
+{
+    "refresh_success": "Data berhasil diperbarui",
+    "refresh_failed": "Gagal memuat ulang",
+    "previewReport_title": "Pratinjau Laporan",
+    "income_day": "Pendapatan hari ini",
+    "income_month": "Pendapatan bulan ini",
+    "income_year": "Pendapatan tahun ini",
+    "header_account_caption": "Pengguna Akun",
+    "header_business_caption": "Bisnis",
+    "snackbar_business_switch_success": "Bisnis aktif berhasil diperbarui",
+    "grid_hr": "HR",
+    "grid_product": "Produk",
+    "grid_sales": "Penjualan",
+    "grid_purchase": "Pembelian",
+    "grid_report": "Laporan",
+    "grid_setting": "Pengaturan",
+    "sheet_switch_business_title": "Ganti Bisnis",
+    "sheet_no_business": "Tidak ada bisnis",
+    "sheet_business_id_label": "id: {username}",
+    "@sheet_business_id_label": {
+        "description": "Teks subtitle yang menampilkan username/kode bisnis pada daftar pemilih bisnis.",
+        "placeholders": {
+            "username": {
+                "type": "String",
+                "example": "waveup_store01"
+            }
+        }
+    },
+    "login_username": "Nama Pengguna",
+    "login_username_hint": "Mis. user0001@gmail.com",
+    "login_password": "Kata Sandi",
+    "login_password_hint": "Isi kata sandi Anda di sini",
+    "login_forgot_password": "Lupa kata sandi?",
+    "login_button": "Masuk",
+    "login_button_loading": "Sedang masuk…",
+    "login_no_account": "Belum punya akun? ",
+    "login_register_now": "Daftar Sekarang",
+    "login_empty_fields": "Nama pengguna dan kata sandi tidak boleh kosong",
+    "login_failed": "Login gagal",
+    "@login_username": {
+        "description": "Label untuk kolom nama pengguna"
+    },
+    "@login_password": {
+        "description": "Label untuk kolom kata sandi"
+    },
+    "@login_username_hint": {
+        "description": "Contoh email pada kolom username"
+    },
+    "@login_password_hint": {
+        "description": "Placeholder pada kolom password"
+    },
+    "@login_forgot_password": {
+        "description": "Tautan teks lupa kata sandi"
+    },
+    "@login_button": {
+        "description": "Teks tombol login"
+    },
+    "@login_button_loading": {
+        "description": "Teks loading shimmer tombol login"
+    },
+    "@login_no_account": {
+        "description": "Teks sebelum tautan daftar"
+    },
+    "@login_register_now": {
+        "description": "Teks tautan untuk daftar"
+    },
+    "@login_empty_fields": {
+        "description": "Pesan snackbar ketika kolom kosong"
+    },
+    "@login_failed": {
+        "description": "Pesan error default ketika login gagal"
+    }
+}

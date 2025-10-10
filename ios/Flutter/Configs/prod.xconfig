@@ -1,0 +1,4 @@
+#include "base.xcconfig"
+PRODUCT_BUNDLE_IDENTIFIER = com.wave.up
+APP_NAME = Wave Up
+APP_ICON = AppIcon

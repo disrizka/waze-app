@@ -8,6 +8,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/env.dart';
+import 'package:wa_blast/providers/locale_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
@@ -100,6 +101,10 @@ class _AppShell extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => HrProvider(), lazy: true),
         ChangeNotifierProvider(create: (_) => SalesProvider(), lazy: true),
         ChangeNotifierProvider(create: (_) => StoreProvider(), lazy: true),
+        ChangeNotifierProvider(
+          create: (_) => LocaleProvider()..loadSaved(),
+          lazy: false,
+        ),
       ],
       child: const _Bootstrapper(child: MyApp()),
     );

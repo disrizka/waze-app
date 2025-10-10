@@ -1,0 +1,73 @@
+{
+    "refresh_success": "Data updated",
+    "refresh_failed": "Failed to refresh",
+    "previewReport_title": "Preview Report",
+    "income_day": "Income this day",
+    "income_month": "Income this month",
+    "income_year": "Income this year",
+    "header_account_caption": "Account User",
+    "header_business_caption": "Business",
+    "snackbar_business_switch_success": "Active business updated successfully",
+    "grid_hr": "HR",
+    "grid_product": "Product",
+    "grid_sales": "Sales",
+    "grid_purchase": "Purchase",
+    "grid_report": "Report",
+    "grid_setting": "Setting",
+    "sheet_switch_business_title": "Switch Business",
+    "sheet_no_business": "No business found",
+    "sheet_business_id_label": "id: {username}",
+    "@sheet_business_id_label": {
+        "description": "Subtitle displaying business username/code in the switcher list.",
+        "placeholders": {
+            "username": {
+                "type": "String",
+                "example": "waveup_store01"
+            }
+        }
+    },
+    "login_username": "Username",
+    "login_username_hint": "E.g user0001@gmail.com",
+    "login_password": "Password",
+    "login_password_hint": "Fill your password here",
+    "login_forgot_password": "Forgot password?",
+    "login_button": "Login",
+    "login_button_loading": "Logging in…",
+    "login_no_account": "Don’t have account? ",
+    "login_register_now": "Register Now",
+    "login_empty_fields": "Username and password cannot be empty",
+    "login_failed": "Login failed",
+    "@login_username": {
+        "description": "Label for username field"
+    },
+    "@login_password": {
+        "description": "Label for password field"
+    },
+    "@login_username_hint": {
+        "description": "Placeholder hint in username TextField"
+    },
+    "@login_password_hint": {
+        "description": "Placeholder hint in password TextField"
+    },
+    "@login_forgot_password": {
+        "description": "Text link to forgot password flow"
+    },
+    "@login_button": {
+        "description": "Button text for login"
+    },
+    "@login_button_loading": {
+        "description": "Text shown on shimmer loading button"
+    },
+    "@login_no_account": {
+        "description": "Text before Register Now link"
+    },
+    "@login_register_now": {
+        "description": "Text for register link"
+    },
+    "@login_empty_fields": {
+        "description": "Snackbar message when fields are empty"
+    },
+    "@login_failed": {
+        "description": "Default error message when login failed"
+    }
+}
