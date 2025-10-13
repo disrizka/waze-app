@@ -69,5 +69,30 @@
     },
     "@login_failed": {
         "description": "Default error message when login failed"
-    }
+    },
+    "profile_appbar_title": "Other Menu",
+    "profile_action_switch_account": "Switch Account",
+    "profile_section_setting": "Setting",
+    "profile_section_others": "Others",
+    "profile_menu_account": "Account",
+    "profile_menu_help": "Help",
+    "profile_menu_terms": "Terms & Conditions",
+    "profile_menu_privacy": "Privacy Policy",
+    "profile_button_logout": "Logout Account",
+    "dialog_add_account_title": "Add another account?",
+    "dialog_add_account_message": "Do you want to add another account? You can log in and switch accounts anytime.",
+    "dialog_add_account_cancel": "Cancel",
+    "dialog_add_account_confirm": "Yes, add",
+    "sheet_switch_account_title": "Switch Account",
+    "sheet_add_another_account": "Add another account",
+    "sheet_active_badge": "Active",
+    "sheet_name_not_found": "Name not found",
+    "sheet_switch_account_failed": "Failed to switch account",
+    "profile_menu_language": "Language",
+    "language_sheet_title": "Change Language",
+    "language_use_system": "Use system language",
+    "language_english": "English",
+    "language_indonesian": "Indonesian",
+    "language_switched": "Language updated",
+    "language_cancel": "Cancel"
 }

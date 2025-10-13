@@ -69,5 +69,30 @@
     },
     "@login_failed": {
         "description": "Pesan error default ketika login gagal"
-    }
+    },
+    "profile_appbar_title": "Menu Lainnya",
+    "profile_action_switch_account": "Ganti Akun",
+    "profile_section_setting": "Pengaturan",
+    "profile_section_others": "Lainnya",
+    "profile_menu_account": "Akun",
+    "profile_menu_help": "Bantuan",
+    "profile_menu_terms": "Syarat & Ketentuan",
+    "profile_menu_privacy": "Kebijakan Privasi",
+    "profile_button_logout": "Keluar Akun",
+    "dialog_add_account_title": "Tambah Akun Lainnya?",
+    "dialog_add_account_message": "Apakah kamu ingin menambahkan akun lainnya? Kamu bisa login dan berpindah akun kapan saja.",
+    "dialog_add_account_cancel": "Batal",
+    "dialog_add_account_confirm": "Ya, Tambahkan",
+    "sheet_switch_account_title": "Ganti Akun",
+    "sheet_add_another_account": "Tambahkan Akun Lainnya",
+    "sheet_active_badge": "Aktif",
+    "sheet_name_not_found": "Nama tidak ditemukan",
+    "sheet_switch_account_failed": "Gagal switch akun",
+    "profile_menu_language": "Bahasa",
+    "language_sheet_title": "Ubah Bahasa",
+    "language_use_system": "Ikuti bahasa sistem",
+    "language_english": "Inggris",
+    "language_indonesian": "Indonesia",
+    "language_switched": "Bahasa diperbarui",
+    "language_cancel": "Batal"
 }

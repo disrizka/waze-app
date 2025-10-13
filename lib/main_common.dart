@@ -2,18 +2,22 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/env.dart';
+import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
+import 'package:wa_blast/providers/role_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
 import 'package:wa_blast/screens/manage_report_screen.dart';
+import 'package:wa_blast/screens/products/inventory_history_list_screen.dart';
 import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
 import 'package:wa_blast/screens/sales/costumer_screen.dart';
@@ -41,7 +45,7 @@ import 'package:wa_blast/screens/splash_screen.dart';
 import 'package:wa_blast/screens/login_screen.dart';
 import 'package:wa_blast/screens/register/register_screen_wrapper.dart';
 import 'package:wa_blast/screens/main_wrapper.dart';
-import 'package:wa_blast/screens/manage_product.dart';
+import 'package:wa_blast/screens/products/manage_product.dart';
 import 'package:wa_blast/screens/products/product_screen.dart';
 import 'package:wa_blast/screens/products/product_detail_screen.dart';
 import 'package:wa_blast/screens/products/category_list_screen.dart';
@@ -50,37 +54,27 @@ import 'package:wa_blast/screens/purchase/manage_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_list_screen.dart';
 import 'package:wa_blast/screens/detail_purchase_screen.dart';
-import 'package:wa_blast/screens/edit_purchase_screen.dart';
 import 'package:wa_blast/screens/hr/hr_screen.dart';
-import 'package:wa_blast/screens/detail_employee_screen.dart';
-import 'package:wa_blast/screens/leave_days_screen.dart';
-import 'package:wa_blast/screens/request_leave_days_screen.dart';
-import 'package:wa_blast/screens/reimbursement_screen.dart';
-import 'package:wa_blast/screens/request_reimbursement_screen.dart';
 
-/// === FCM background handler (WAJIB top-level) ===
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
   } catch (_) {}
-  debugPrint('📩 BG notification: ${message.notification?.title}');
+  debugPrint('BG notification: ${message.notification?.title}');
 }
 
-// 🔹 fungsi baru untuk dipanggil dari main_dev/main_prod
 void startApp() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Harus sudah DEV di sini, kalau tidak: pasti ada yang nge-set sebelumnya
   Env.debugPrintEnv(' @startApp');
 
-  BuildDiag.printSummary(' @startApp'); // biar cocok dengan Env
+  BuildDiag.printSummary(' @startApp');
 
   runApp(const _AppShell());
 }
 
-/// Shell ringan: provider dibuat lazy, init berat dijadwalkan setelah frame pertama.
 class _AppShell extends StatelessWidget {
   const _AppShell();
 
@@ -105,6 +99,7 @@ class _AppShell extends StatelessWidget {
           create: (_) => LocaleProvider()..loadSaved(),
           lazy: false,
         ),
+        ChangeNotifierProvider(create: (_) => RoleProvider(), lazy: true),
       ],
       child: const _Bootstrapper(child: MyApp()),
     );
@@ -175,10 +170,6 @@ class _BootstrapperState extends State<_Bootstrapper> {
         badge: true,
         sound: true,
       );
-      final token = await FirebaseMessaging.instance.getToken().timeout(
-        const Duration(seconds: 3),
-        onTimeout: () => null,
-      );
     } catch (e) {
       debugPrint('Notif/token skipped: $e');
     }
@@ -203,10 +194,28 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final localeProv = Provider.of<LocaleProvider>(context, listen: true);
+    final Locale? appLocale = (() {
+      try {
+        // Sesuaikan getter ini dengan LocaleProvider kamu (umumnya .locale)
+        return localeProv.locale;
+      } catch (_) {
+        return null; // kalau tidak ada, biar pakai locale sistem
+      }
+    })();
+
     return MaterialApp(
       navigatorKey: appNavigatorKey,
       title: 'Wave Up',
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: appLocale,
       theme: ThemeData(
         scaffoldBackgroundColor: Colors.white,
         inputDecorationTheme: const InputDecorationTheme(
@@ -231,7 +240,6 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/splash',
       onGenerateRoute: (settings) {
-        // ... semua route PERSIS seperti punyamu ...
         switch (settings.name) {
           case '/splash':
             return _fadeRoute(settings, const SplashScreen());
@@ -241,11 +249,11 @@ class MyApp extends StatelessWidget {
             return _fadeRoute(settings, const RegisterWrapper());
           case '/home':
             return _fadeRoute(settings, const MainWrapper());
-          case '/manage-product':
-            return _fadeRoute(settings, const ManageProductScreen());
           case '/product':
+            return _fadeRoute(settings, const ManageProductScreen());
+          case '/product/list':
             return _fadeRoute(settings, const ProductScreen());
-          case '/product/detail-product':
+          case '/product/list/detail':
             {
               final id = settings.arguments as String?;
               if (id == null || id.isEmpty) {
@@ -253,22 +261,42 @@ class MyApp extends StatelessWidget {
                   settings,
                   const _RouteErrorScreen(
                     message:
-                        'Route /product/detail-product membutuhkan argumen idProduct',
+                        'Route /product/list/detail membutuhkan argumen idProduct',
                   ),
                 );
               }
               return _fadeRoute(settings, ProductDetailScreen(idProduct: id));
             }
-          case '/category':
+          case '/product/inventory':
+            return _fadeRoute(settings, const InventoryHistoryListScreen());
+          case '/product/category':
             return _fadeRoute(settings, const CategoryListScreen());
-          case '/brand':
+          case '/product/brand':
             return _fadeRoute(settings, const BrandListScreen());
-          case '/store':
-            return _fadeRoute(settings, const StoreListScreen());
           case '/purchase':
             return _fadeRoute(settings, const ManagePurchaseScreen());
           case '/purchase/list':
             return _fadeRoute(settings, const PurchaseScreen());
+          case '/purchase/list/detail':
+            {
+              final args = settings.arguments;
+              String? id;
+              if (args is String) {
+                id = args;
+              } else if (args is Map) {
+                id = (args['id'] ?? args['idTransaction'])?.toString();
+              }
+              if (id == null || id.isEmpty) {
+                return _fadeRoute(
+                  settings,
+                  const _RouteErrorScreen(
+                    message:
+                        'DetailPurchaseScreen membutuhkan argumen "id" (idTransaction).',
+                  ),
+                );
+              }
+              return _fadeRoute(settings, const DetailPurchaseScreen());
+            }
           case '/purchase/add':
             return _fadeRoute(settings, const AddPurchasePage());
           case '/purchase/supplier':
@@ -293,35 +321,23 @@ class MyApp extends StatelessWidget {
               }
               return _fadeRoute(settings, SupplierDetailScreen(supplierId: id));
             }
-          case '/detail-purchase':
-            {
-              final args = settings.arguments;
-              String? id;
-              if (args is String) {
-                id = args;
-              } else if (args is Map) {
-                id = (args['id'] ?? args['idTransaction'])?.toString();
-              }
-              if (id == null || id.isEmpty) {
-                return _fadeRoute(
-                  settings,
-                  const _RouteErrorScreen(
-                    message:
-                        'DetailPurchaseScreen membutuhkan argumen "id" (idTransaction).',
-                  ),
-                );
-              }
-              return _fadeRoute(settings, const DetailPurchaseScreen());
-            }
+          case '/purchase/store':
+            return _fadeRoute(settings, const StoreListScreen());
           case '/edit-profile':
             return _fadeRoute(settings, const EditProfileScreen());
           case '/report':
             return _fadeRoute(settings, const ManageReportScreen());
-          case '/report/sales':
+          case '/hr':
+            return _fadeRoute(settings, const ManageHRScreen());
+          case '/hr/role':
+            return _fadeRoute(settings, const RoleScreen());
+          case '/hr/employee/invitation':
+            return _fadeRoute(settings, const HrScreen());
+          case '/sales':
+            return _fadeRoute(settings, const ManageSalesScreen());
+          case '/sales/list':
             return _fadeRoute(settings, const SalesReportScreen());
-          case '/report/purchase':
-            return _fadeRoute(settings, const PurchaseScreen());
-          case '/report/detail':
+          case '/sales/list/detail':
             {
               final args = settings.arguments;
               String? id;
@@ -344,14 +360,6 @@ class MyApp extends StatelessWidget {
                 SalesReportDetailScreen(idTransaction: id),
               );
             }
-          case '/hr':
-            return _fadeRoute(settings, const ManageHRScreen());
-          case '/hr/role':
-            return _fadeRoute(settings, const RoleScreen());
-          case '/hr/employee/invitation':
-            return _fadeRoute(settings, const HrScreen());
-          case '/sales':
-            return _fadeRoute(settings, const ManageSalesScreen());
           case '/sales/add':
             return _fadeRoute(settings, const SalesStepperWrapper());
           case '/sales/customer':

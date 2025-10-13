@@ -57,6 +57,122 @@ class NewImage {
   Map<String, dynamic> toJson() => {'image': filename, 'position': position};
 }
 
+// ====== Tambahkan di area MODELS (mis. setelah NewImage) ======
+
+@immutable
+class InventoryAttr {
+  final String name;
+  final String value;
+  const InventoryAttr({required this.name, required this.value});
+
+  factory InventoryAttr.fromJson(Map<String, dynamic> j) => InventoryAttr(
+    name: j['name']?.toString() ?? '',
+    value: j['value']?.toString() ?? '',
+  );
+}
+
+@immutable
+class InventoryProductSku {
+  final String idProductSku;
+  final String code;
+  final int price;
+  final List<InventoryAttr> attributes;
+
+  const InventoryProductSku({
+    required this.idProductSku,
+    required this.code,
+    required this.price,
+    required this.attributes,
+  });
+
+  factory InventoryProductSku.fromJson(Map<String, dynamic> j) =>
+      InventoryProductSku(
+        idProductSku: j['idProductSku']?.toString() ?? '',
+        code: j['code']?.toString() ?? '',
+        price: (j['price'] is num)
+            ? (j['price'] as num).toInt()
+            : int.tryParse('${j['price']}') ?? 0,
+        attributes: (j['attributes'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(InventoryAttr.fromJson)
+            .toList(),
+      );
+}
+
+@immutable
+class InventoryStoreLocationLite {
+  final String idStoreLocation;
+  final String name;
+
+  const InventoryStoreLocationLite({
+    required this.idStoreLocation,
+    required this.name,
+  });
+
+  factory InventoryStoreLocationLite.fromJson(Map<String, dynamic> j) =>
+      InventoryStoreLocationLite(
+        idStoreLocation: j['idStoreLocation']?.toString() ?? '',
+        name: j['name']?.toString() ?? '',
+      );
+}
+
+/// Item riwayat per transaksi inventory.
+@immutable
+class InventoryHistoryItem {
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String note;
+  final int qty;
+  final String referenceId;
+  final String referenceType; // e.g. "purchase"
+  final String source; // e.g. "transaction"
+  final String type; // e.g. "purchase"
+  final Product product; // pakai model Product yang sudah ada
+  final InventoryProductSku productSku;
+  final InventoryStoreLocationLite storeLocation;
+
+  const InventoryHistoryItem({
+    required this.createdAt,
+    required this.updatedAt,
+    required this.note,
+    required this.qty,
+    required this.referenceId,
+    required this.referenceType,
+    required this.source,
+    required this.type,
+    required this.product,
+    required this.productSku,
+    required this.storeLocation,
+  });
+
+  factory InventoryHistoryItem.fromJson(Map<String, dynamic> j) =>
+      InventoryHistoryItem(
+        createdAt:
+            DateTime.tryParse(j['createdAt']?.toString() ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt:
+            DateTime.tryParse(j['updatedAt']?.toString() ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+        note: j['note']?.toString() ?? '',
+        qty: (j['qty'] is num)
+            ? (j['qty'] as num).toInt()
+            : int.tryParse('${j['qty']}') ?? 0,
+        referenceId: j['referenceId']?.toString() ?? '',
+        referenceType: j['referenceType']?.toString() ?? '',
+        source: j['source']?.toString() ?? '',
+        type: j['type']?.toString() ?? '',
+        product: Product.fromJson(
+          (j['product'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
+        productSku: InventoryProductSku.fromJson(
+          (j['productSku'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
+        storeLocation: InventoryStoreLocationLite.fromJson(
+          (j['storeLocation'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
+      );
+}
+
 /// =========================
 /// PROVIDER
 /// =========================
@@ -107,6 +223,18 @@ class ProductProvider with ChangeNotifier {
       _products.isEmpty && _brands.isEmpty && _categories.isEmpty;
 
   String? get lastError => _lastError;
+
+  // --- Inventory History
+  final List<InventoryHistoryItem> _inventoryHistory = [];
+  bool _loadingInventoryHistory = false;
+  PageMeta? _pageInventoryHistory;
+  String? _inventoryHistoryError;
+
+  List<InventoryHistoryItem> get inventoryHistory =>
+      List.unmodifiable(_inventoryHistory);
+  bool get loadingInventoryHistory => _loadingInventoryHistory;
+  PageMeta? get pageInventoryHistory => _pageInventoryHistory;
+  String? get inventoryHistoryError => _inventoryHistoryError;
 
   void _setLoading({
     bool? products,
@@ -237,6 +365,63 @@ class ProductProvider with ChangeNotifier {
   Future<void> loadProductsIfEmpty(BuildContext context) async {
     if (!_loadingProducts && _products.isEmpty) {
       await fetchProducts(context);
+    }
+  }
+
+  // ====== Tambahkan method di class ProductProvider (bagian FETCH FUNCTIONS) ======
+
+  Future<void> fetchInventoryHistory(BuildContext context) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _inventoryHistory..clear();
+      _pageInventoryHistory = null;
+      _inventoryHistoryError = "Business ID is not available.";
+      notifyListeners();
+      return;
+    }
+
+    _inventoryHistoryError = null;
+    _loadingInventoryHistory = true;
+    notifyListeners();
+
+    try {
+      final result = await FetchHelper.fetchList<InventoryHistoryItem>(
+        context: context,
+        path: '/waveup/$bizId/product/history/inventory-transaction/all',
+        parser: InventoryHistoryItem.fromJson,
+      );
+
+      if (result == null) {
+        _inventoryHistory..clear();
+        _pageInventoryHistory = null;
+        _inventoryHistoryError = 'Failed to load inventory history.';
+        notifyListeners();
+        return;
+      }
+
+      _inventoryHistory
+        ..clear()
+        ..addAll(result.items);
+      _pageInventoryHistory = result.page;
+      _inventoryHistoryError = null;
+      notifyListeners();
+    } catch (e, st) {
+      _inventoryHistory..clear();
+      _pageInventoryHistory = null;
+      _inventoryHistoryError = e.toString();
+      debugPrint('[fetchInventoryHistory] Exception: $e');
+      debugPrint('$st');
+      notifyListeners();
+    } finally {
+      _loadingInventoryHistory = false;
+      notifyListeners();
+    }
+  }
+
+  /// Optional helper kalau mau lazy load
+  Future<void> loadInventoryHistoryIfEmpty(BuildContext context) async {
+    if (!_loadingInventoryHistory && _inventoryHistory.isEmpty) {
+      await fetchInventoryHistory(context);
     }
   }
 
@@ -855,11 +1040,13 @@ class ProductProvider with ChangeNotifier {
     bool products = true,
     bool brands = true,
     bool categories = true,
+    bool inventoryHistory = false,
   }) async {
     final futures = <Future<void>>[];
     if (products) futures.add(fetchProducts(context));
     if (brands) futures.add(fetchProductBrands(context));
     if (categories) futures.add(fetchProductCategories(context));
+    if (inventoryHistory) futures.add(fetchInventoryHistory(context));
     await Future.wait(futures);
   }
 
