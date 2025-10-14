@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -197,10 +198,9 @@ class MyApp extends StatelessWidget {
     final localeProv = Provider.of<LocaleProvider>(context, listen: true);
     final Locale? appLocale = (() {
       try {
-        // Sesuaikan getter ini dengan LocaleProvider kamu (umumnya .locale)
         return localeProv.locale;
       } catch (_) {
-        return null; // kalau tidak ada, biar pakai locale sistem
+        return null;
       }
     })();
 
@@ -237,46 +237,120 @@ class MyApp extends StatelessWidget {
             borderSide: BorderSide(color: Color(0xFF4C6EF5), width: 1.6),
           ),
         ),
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+            TargetPlatform.fuchsia: FadeUpwardsPageTransitionsBuilder(),
+            TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+            TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+          },
+        ),
       ),
       initialRoute: '/splash',
+      // === onGenerateRoute lengkap ===
       onGenerateRoute: (settings) {
         switch (settings.name) {
           case '/splash':
-            return _fadeRoute(settings, const SplashScreen());
+            return _platformRouteAnimated(
+              settings,
+              const SplashScreen(),
+              android: AndroidTransition.fade,
+            );
+
           case '/login':
-            return _fadeRoute(settings, const LoginScreen());
+            return _platformRouteAnimated(
+              settings,
+              const LoginScreen(),
+              android: AndroidTransition.fade,
+            );
+
           case '/register':
-            return _fadeRoute(settings, const RegisterWrapper());
+            return _platformRouteAnimated(
+              settings,
+              const RegisterWrapper(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/home':
-            return _fadeRoute(settings, const MainWrapper());
+            return _platformRouteAnimated(
+              settings,
+              const MainWrapper(),
+              android: AndroidTransition.fade,
+            );
+
+          // ===== PRODUCT =====
           case '/product':
-            return _fadeRoute(settings, const ManageProductScreen());
+            return _platformRouteAnimated(
+              settings,
+              const ManageProductScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/product/list':
-            return _fadeRoute(settings, const ProductScreen());
+            return _platformRouteAnimated(
+              settings,
+              const ProductScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/product/list/detail':
             {
               final id = settings.arguments as String?;
               if (id == null || id.isEmpty) {
-                return _fadeRoute(
+                return _platformRouteAnimated(
                   settings,
                   const _RouteErrorScreen(
                     message:
                         'Route /product/list/detail membutuhkan argumen idProduct',
                   ),
+                  android: AndroidTransition.fade,
                 );
               }
-              return _fadeRoute(settings, ProductDetailScreen(idProduct: id));
+              return _platformRouteAnimated(
+                settings,
+                ProductDetailScreen(idProduct: id),
+                android: AndroidTransition.slideUp,
+              );
             }
+
           case '/product/inventory':
-            return _fadeRoute(settings, const InventoryHistoryListScreen());
+            return _platformRouteAnimated(
+              settings,
+              const InventoryHistoryListScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/product/category':
-            return _fadeRoute(settings, const CategoryListScreen());
+            return _platformRouteAnimated(
+              settings,
+              const CategoryListScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/product/brand':
-            return _fadeRoute(settings, const BrandListScreen());
+            return _platformRouteAnimated(
+              settings,
+              const BrandListScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          // ===== PURCHASE =====
           case '/purchase':
-            return _fadeRoute(settings, const ManagePurchaseScreen());
+            return _platformRouteAnimated(
+              settings,
+              const ManagePurchaseScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/purchase/list':
-            return _fadeRoute(settings, const PurchaseScreen());
+            return _platformRouteAnimated(
+              settings,
+              const PurchaseScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/purchase/list/detail':
             {
               final args = settings.arguments;
@@ -287,20 +361,36 @@ class MyApp extends StatelessWidget {
                 id = (args['id'] ?? args['idTransaction'])?.toString();
               }
               if (id == null || id.isEmpty) {
-                return _fadeRoute(
+                return _platformRouteAnimated(
                   settings,
                   const _RouteErrorScreen(
                     message:
                         'DetailPurchaseScreen membutuhkan argumen "id" (idTransaction).',
                   ),
+                  android: AndroidTransition.fade,
                 );
               }
-              return _fadeRoute(settings, const DetailPurchaseScreen());
+              return _platformRouteAnimated(
+                settings,
+                const DetailPurchaseScreen(),
+                android: AndroidTransition.slideUp,
+              );
             }
+
           case '/purchase/add':
-            return _fadeRoute(settings, const AddPurchasePage());
+            return _platformRouteAnimated(
+              settings,
+              const AddPurchasePage(),
+              android: AndroidTransition.slideUp,
+            );
+
           case '/purchase/supplier':
-            return _fadeRoute(settings, const SupplierScreen());
+            return _platformRouteAnimated(
+              settings,
+              const SupplierScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/purchase/supplier/detail':
             {
               final args = settings.arguments;
@@ -311,32 +401,80 @@ class MyApp extends StatelessWidget {
                 id = (args['id'] ?? args['supplierId']) as String?;
               }
               if (id == null || id.isEmpty) {
-                return _fadeRoute(
+                return _platformRouteAnimated(
                   settings,
                   const _RouteErrorScreen(
                     message:
                         'SupplierDetailScreen membutuhkan argumen "id" (supplierId).',
                   ),
+                  android: AndroidTransition.fade,
                 );
               }
-              return _fadeRoute(settings, SupplierDetailScreen(supplierId: id));
+              return _platformRouteAnimated(
+                settings,
+                SupplierDetailScreen(supplierId: id),
+                android: AndroidTransition.slideUp,
+              );
             }
+
           case '/purchase/store':
-            return _fadeRoute(settings, const StoreListScreen());
+            return _platformRouteAnimated(
+              settings,
+              const StoreListScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          // ===== EDIT/REPORT/HR =====
           case '/edit-profile':
-            return _fadeRoute(settings, const EditProfileScreen());
+            return _platformRouteAnimated(
+              settings,
+              const EditProfileScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/report':
-            return _fadeRoute(settings, const ManageReportScreen());
+            return _platformRouteAnimated(
+              settings,
+              const ManageReportScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/hr':
-            return _fadeRoute(settings, const ManageHRScreen());
+            return _platformRouteAnimated(
+              settings,
+              const ManageHRScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/hr/role':
-            return _fadeRoute(settings, const RoleScreen());
+            return _platformRouteAnimated(
+              settings,
+              const RoleScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/hr/employee/invitation':
-            return _fadeRoute(settings, const HrScreen());
+            return _platformRouteAnimated(
+              settings,
+              const HrScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          // ===== SALES =====
           case '/sales':
-            return _fadeRoute(settings, const ManageSalesScreen());
+            return _platformRouteAnimated(
+              settings,
+              const ManageSalesScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/sales/list':
-            return _fadeRoute(settings, const SalesReportScreen());
+            return _platformRouteAnimated(
+              settings,
+              const SalesReportScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           case '/sales/list/detail':
             {
               final args = settings.arguments;
@@ -347,29 +485,119 @@ class MyApp extends StatelessWidget {
                 id = (args['id'] ?? args['idTransaction'])?.toString();
               }
               if (id == null || id.isEmpty) {
-                return _fadeRoute(
+                return _platformRouteAnimated(
                   settings,
                   const _RouteErrorScreen(
                     message:
                         'SalesReportDetailScreen membutuhkan argumen "id" (idTransaction).',
                   ),
+                  android: AndroidTransition.fade,
                 );
               }
-              return _fadeRoute(
+              return _platformRouteAnimated(
                 settings,
                 SalesReportDetailScreen(idTransaction: id),
+                android: AndroidTransition.slideUp,
               );
             }
+
           case '/sales/add':
-            return _fadeRoute(settings, const SalesStepperWrapper());
+            return _platformRouteAnimated(
+              settings,
+              const SalesStepperWrapper(),
+              android: AndroidTransition.slideUp,
+            );
+
           case '/sales/customer':
-            return _fadeRoute(settings, const CustomerListScreen());
+            return _platformRouteAnimated(
+              settings,
+              const CustomerListScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
           default:
-            return _fadeRoute(settings, const SplashScreen());
+            return _platformRouteAnimated(
+              settings,
+              const SplashScreen(),
+              android: AndroidTransition.fade,
+            );
         }
       },
     );
   }
+}
+
+enum AndroidTransition {
+  slideRight, // default: dari kanan ke kiri (mirip iOS)
+  slideUp, // dari bawah ke atas (cocok untuk detail/sheet)
+  fade,
+  scale,
+}
+
+Route<dynamic> _platformRouteAnimated(
+  RouteSettings settings,
+  Widget page, {
+  AndroidTransition android = AndroidTransition.slideRight,
+  Duration duration = const Duration(milliseconds: 280),
+}) {
+  // iOS/macOS: gunakan CupertinoPageRoute supaya swipe-back tetap aktif
+  if (defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS) {
+    return CupertinoPageRoute(settings: settings, builder: (_) => page);
+  }
+
+  // Android/desktop: PageRouteBuilder dengan animasi kustom
+  return PageRouteBuilder(
+    settings: settings,
+    transitionDuration: duration,
+    reverseTransitionDuration: duration,
+    pageBuilder: (_, __, ___) => page,
+    transitionsBuilder: (_, animation, secondary, child) {
+      switch (android) {
+        case AndroidTransition.fade:
+          return FadeTransition(opacity: animation, child: child);
+
+        case AndroidTransition.scale:
+          return ScaleTransition(
+            scale: Tween<double>(begin: 0.96, end: 1).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+            ),
+            child: FadeTransition(
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutQuad,
+              ),
+              child: child,
+            ),
+          );
+
+        case AndroidTransition.slideUp:
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.08),
+              end: Offset.zero,
+            ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
+            child: FadeTransition(
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOut,
+              ),
+              child: child,
+            ),
+          );
+
+        case AndroidTransition.slideRight:
+        default:
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(1, 0),
+              end: Offset.zero,
+            ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
+            child: child,
+          );
+      }
+    },
+  );
 }
 
 class _RouteErrorScreen extends StatelessWidget {

@@ -8,90 +8,141 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 
+import '../l10n/app_localizations.dart';
+
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Key untuk me-reload header setelah refresh
+    final headerKey = GlobalKey<_HeaderGradientState>();
+
     final green = AppColors.blue;
     final textPrimary = const Color(0xFF1E1E1E);
-    final subText = const Color(0xFF7A7A7A);
-    final cardBorder = const Color(0xFFE6E6E6);
-
     const double _cardWidth = 206;
+
+    final t = AppLocalizations.of(context)!;
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.zero,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // HEADER GRADIENT
-              _HeaderGradient(green: green, textPrimary: textPrimary),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: _GridMenu(),
-              ),
+        // Bungkus dengan RefreshIndicator
+        child: RefreshIndicator(
+          color: AppColors.blue,
+          onRefresh: () async {
+            final auth = context.read<AuthProvider>();
+            final ok = await auth.refreshCurrentUser(context);
 
-              const SizedBox(height: 50),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 30),
-                child: Text(
-                  'Preview Report',
-                  style: TextStyle(
-                    color: const Color(0xFF4B5563),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                    letterSpacing: 0.2,
+            // Reload header dari prefs agar label/logo ikut update
+            await headerKey.currentState?.reloadFromPrefs();
+
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      Icon(
+                        ok ? Icons.check_circle_outline : Icons.error_outline,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(ok ? t.refresh_success : t.refresh_failed),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: ok
+                      ? Colors.green.shade600
+                      : Colors.red.shade600,
+                  behavior: SnackBarBehavior.floating,
+                  margin: const EdgeInsets.only(top: 16, left: 12, right: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          },
+          child: SingleChildScrollView(
+            // Penting agar bisa swipe meski konten pendek
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            padding: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // HEADER GRADIENT
+                _HeaderGradient(
+                  key: headerKey, // pakai key agar bisa reload dari luar
+                  green: green,
+                  textPrimary: textPrimary,
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10),
+                  child: _GridMenu(),
+                ),
+
+                const SizedBox(height: 50),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 30),
+                  child: Text(
+                    t.previewReport_title,
+                    style: const TextStyle(
+                      color: Color(0xFF4B5563),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                      letterSpacing: 0.2,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
 
-              // seragam, tidak terlalu panjang/pendek
-              SizedBox(
-                height: 86,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 30),
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: 3,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (_, i) {
-                    switch (i) {
-                      case 0:
-                        return const SizedBox(
-                          width: _cardWidth,
-                          child: _StatCard(
-                            title: 'Income this day',
-                            amount: 'Rp. 200,000',
-                          ),
-                        );
-                      case 1:
-                        return const SizedBox(
-                          width: _cardWidth,
-                          child: _StatCard(
-                            title: 'Income this month',
-                            amount: 'Rp. 1,200,000,000',
-                          ),
-                        );
-                      default:
-                        return const SizedBox(
-                          width: _cardWidth,
-                          child: _StatCard(
-                            title: 'Income this year',
-                            amount: 'Rp. 14,500,000,000',
-                          ),
-                        );
-                    }
-                  },
+                // seragam, tidak terlalu panjang/pendek
+                SizedBox(
+                  height: 86,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 30),
+                    physics: const BouncingScrollPhysics(),
+                    itemCount: 3,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (_, i) {
+                      switch (i) {
+                        case 0:
+                          return SizedBox(
+                            width: _cardWidth,
+                            child: _StatCard(
+                              title: t.income_day,
+                              amount: 'Rp. 200,000',
+                            ),
+                          );
+                        case 1:
+                          return SizedBox(
+                            width: _cardWidth,
+                            child: _StatCard(
+                              title: t.income_month,
+                              amount: 'Rp. 1,200,000,000',
+                            ),
+                          );
+                        default:
+                          return SizedBox(
+                            width: _cardWidth,
+                            child: _StatCard(
+                              title: t.income_year,
+                              amount: 'Rp. 14,500,000,000',
+                            ),
+                          );
+                      }
+                    },
+                  ),
                 ),
-              ),
 
-              const SizedBox(height: 24),
-            ],
+                const SizedBox(height: 24),
+              ],
+            ),
           ),
         ),
       ),
@@ -103,7 +154,11 @@ class _HeaderGradient extends StatefulWidget {
   final Color green;
   final Color textPrimary;
 
-  const _HeaderGradient({required this.green, required this.textPrimary});
+  const _HeaderGradient({
+    super.key,
+    required this.green,
+    required this.textPrimary,
+  });
 
   @override
   State<_HeaderGradient> createState() => _HeaderGradientState();
@@ -123,7 +178,11 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     _loadPrefs();
   }
 
+  // Public wrapper supaya bisa dipanggil dari RefreshIndicator
+  Future<void> reloadFromPrefs() => _loadPrefs();
+
   Future<void> _openBusinessSwitcher() async {
+    final t = AppLocalizations.of(context)!;
     final changed = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -141,10 +200,10 @@ class _HeaderGradientState extends State<_HeaderGradient> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
-            children: const [
-              Icon(Icons.check_circle_outline, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(child: Text('Active business updated successfully')),
+            children: [
+              const Icon(Icons.check_circle_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(child: Text(t.snackbar_business_switch_success)),
             ],
           ),
           backgroundColor: Colors.green.shade600,
@@ -173,7 +232,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     String businessUsername = prefs.getString('activeBizUsername') ?? '';
     _photoPath = prefs.getString('photoPath') ?? '';
     _businessLogoPath =
-        prefs.getString('activeBizLogoPath') ?? ''; // ⬅️ ambil logo
+        prefs.getString('activeBizLogoPath') ?? ''; // ambil logo
 
     if (businessName.isEmpty || businessUsername.isEmpty) {
       final businessJson = prefs.getString('business');
@@ -195,12 +254,13 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                         '')
                     .toString();
             _businessLogoPath = (first['logoPath'] ?? first['logo'] ?? '')
-                .toString(); // ⬅️ fallback
+                .toString(); // fallback
           }
         } catch (_) {}
       }
     }
 
+    if (!mounted) return;
     setState(() {
       _accountName = name;
       _accountUsername = accountUsername.isNotEmpty ? accountUsername : '—';
@@ -211,6 +271,8 @@ class _HeaderGradientState extends State<_HeaderGradient> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context)!;
+
     // ukuran & posisi agar menimpa 3/4 dari gradient
     const double headerHeight = 150; // tinggi area gradient
     const double cardHeight = 96; // tinggi kartu
@@ -245,15 +307,13 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                     CrossAxisAlignment.start, // tetap start (nempel atas)
                 children: [
                   // LOGO
-                  SizedBox(
+                  const SizedBox(
                     width: 36,
                     height: 36, // tinggi slot sama
                     child: Padding(
-                      padding: const EdgeInsets.only(
-                        top: 2,
-                      ), // sedikit turun agar optik sejajar
-                      child: Image.asset(
-                        'assets/wave_logo_white.png',
+                      padding: EdgeInsets.only(top: 2), // optik
+                      child: Image(
+                        image: AssetImage('assets/wave_logo_white.png'),
                         fit: BoxFit.contain,
                       ),
                     ),
@@ -266,14 +326,11 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                     width: 36,
                     height: 36, // sama dengan logo
                     child: Padding(
-                      padding: const EdgeInsets.only(
-                        top: 2,
-                      ), // samakan dengan logo
+                      padding: const EdgeInsets.only(top: 2),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(18),
                         onTap: () {},
                         child: const Center(
-                          // pusatkan di slot 36x36, tapi slot-nya nempel atas
                           child: Icon(
                             LucideIcons.bell,
                             color: Colors.white,
@@ -287,7 +344,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
               ),
             ),
 
-            // KARTU MENGAMBANG: menimpa 3/4 tinggi di luar gradient
+            // KARTU MENGAMBANG
             Positioned(
               top: overlapTop,
               left: 20,
@@ -313,7 +370,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                   children: [
                     Expanded(
                       child: _InfoBlock(
-                        caption: 'Account User',
+                        caption: t.header_account_caption,
                         leading: CircleAvatar(
                           radius: 18,
                           backgroundColor: const Color(0xFFE9F6EE),
@@ -354,8 +411,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                                 ),
                         ),
                         title: _accountName,
-                        subtitle:
-                            '@$_accountUsername', // ⬅️ was: 'id: $_accountUsername'
+                        subtitle: '@$_accountUsername',
                       ),
                     ),
 
@@ -370,7 +426,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                     // Business
                     Expanded(
                       child: _InfoBlock(
-                        caption: 'Business',
+                        caption: t.header_business_caption,
                         leading: CircleAvatar(
                           radius: 18,
                           backgroundColor: const Color(0xFFE9F0FF),
@@ -424,7 +480,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
         ),
 
         // Spacer agar konten di bawah tidak ketimpa kartu
-        SizedBox(height: cardHeight * 0.70 + 3),
+        const SizedBox(height: cardHeight * 0.70 + 3),
       ],
     );
   }
@@ -432,7 +488,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
 
 String _shortId(String raw) {
   if (raw.isEmpty) return '';
-  // ambil 4 karakter pertama, lalu tambahkan "..."
+  // ambil 9 karakter pertama, lalu tambahkan "..."
   final short = raw.length > 9 ? raw.substring(0, 9) : raw;
   return '$short...';
 }
@@ -442,14 +498,14 @@ class _InfoBlock extends StatelessWidget {
   final Widget leading;
   final String title;
   final String subtitle;
-  final VoidCallback? onTap; // ⬅️ NEW
+  final VoidCallback? onTap; // optional
 
   const _InfoBlock({
     required this.caption,
     required this.leading,
     required this.title,
     required this.subtitle,
-    this.onTap, // ⬅️ NEW
+    this.onTap,
   });
 
   @override
@@ -540,48 +596,40 @@ class _GridMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context)!;
+
     final items = <_MenuItemData>[
       _MenuItemData(
-        'HR',
+        t.grid_hr,
         'assets/hr_icon.png',
-        onTap: () {
-          Navigator.pushNamed(context, '/hr');
-        },
+        onTap: () => Navigator.pushNamed(context, '/hr'),
       ),
       _MenuItemData(
-        'Product',
+        t.grid_product,
         'assets/product_icon.png',
-        onTap: () {
-          Navigator.pushReplacementNamed(context, '/manage-product');
-        },
+        onTap: () => Navigator.pushNamed(context, '/product'),
       ),
       _MenuItemData(
-        'Sales',
+        t.grid_sales,
         'assets/sales_icon.png',
-        onTap: () {
-          Navigator.of(context).pushNamed('/sales');
-        },
+        onTap: () => Navigator.pushNamed(context, '/sales'),
       ),
       _MenuItemData(
-        'Purchase',
+        t.grid_purchase,
         'assets/purchase_icon.png',
-        onTap: () {
-          Navigator.pushReplacementNamed(context, '/purchase');
-        },
+        // opsional, samakan biar konsisten gesture back:
+        onTap: () => Navigator.pushNamed(context, '/purchase'),
       ),
       _MenuItemData(
-        'Report',
+        t.grid_report,
         'assets/report_icon.png',
-        onTap: () {
-          Navigator.pushReplacementNamed(context, '/report');
-        },
+        // opsional, samakan juga:
+        onTap: () => Navigator.pushNamed(context, '/report'),
       ),
       _MenuItemData(
-        'Setting',
+        t.grid_setting,
         'assets/setting_icon.png',
-        onTap: () {
-          print("Setting tapped");
-        },
+        onTap: () => debugPrint("Setting tapped"),
       ),
     ];
 
@@ -740,13 +788,10 @@ class _StatCard extends StatelessWidget {
 
     return Container(
       constraints: const BoxConstraints(minHeight: 72), // lebih ramping
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 10,
-      ), // lebih kecil
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12), // sedikit lebih kecil radius
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE0E0E0)),
         boxShadow: [
           BoxShadow(
@@ -760,7 +805,7 @@ class _StatCard extends StatelessWidget {
         children: [
           Container(
             width: 28,
-            height: 28, // avatar lebih kecil
+            height: 28,
             decoration: const BoxDecoration(
               color: Color(0xFFEFF4FF),
               shape: BoxShape.circle,
@@ -783,7 +828,7 @@ class _StatCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Color(0xFF6B7280),
-                    fontSize: 12, // sedikit lebih kecil
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -795,7 +840,7 @@ class _StatCard extends StatelessWidget {
                   style: const TextStyle(
                     color: Color(0xFF16A34A),
                     fontWeight: FontWeight.w700,
-                    fontSize: 14, // lebih kecil
+                    fontSize: 14,
                   ),
                 ),
               ],
@@ -870,6 +915,7 @@ class _BusinessSwitcherSheetState extends State<_BusinessSwitcherSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context)!;
     final textColor = const Color(0xFF111827);
     final subColor = const Color(0xFF6B7280);
 
@@ -893,9 +939,9 @@ class _BusinessSwitcherSheetState extends State<_BusinessSwitcherSheet> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const Text(
-              'Switch Business',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            Text(
+              t.sheet_switch_business_title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
             FutureBuilder<List<_BusinessInfo>>(
@@ -909,9 +955,9 @@ class _BusinessSwitcherSheetState extends State<_BusinessSwitcherSheet> {
                 }
                 final items = snap.data!;
                 if (items.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text('No business found'),
+                  return Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(t.sheet_no_business),
                   );
                 }
 
@@ -965,7 +1011,7 @@ class _BusinessSwitcherSheetState extends State<_BusinessSwitcherSheet> {
                           ),
                         ),
                         subtitle: Text(
-                          'id: ${b.username}',
+                          t.sheet_business_id_label(b.username),
                           style: TextStyle(color: subColor),
                         ),
                         trailing: b.isActive
