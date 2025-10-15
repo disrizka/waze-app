@@ -10,7 +10,7 @@ class StepperHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final prov = context.read<SalesProvider>();
-    const labels = ['Select Product', 'Check Order', 'Payment'];
+    const labels = ['Create Order', 'Detail Order', 'Payment'];
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

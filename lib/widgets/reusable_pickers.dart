@@ -4,9 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/models/city_model.dart';
 import 'package:wa_blast/models/supplier_model.dart';
-import 'package:wa_blast/providers/purchase_provider.dart' hide Product;
+import 'package:wa_blast/providers/purchase_provider.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/providers/sales_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart' hide City;
 
 /// ------------------------------------------------------------------
@@ -657,6 +658,63 @@ Future<PickerResult<StoreLocation>?> showStorePickerSheet(
               label: s.name,
               subtitle: _subtitle(s),
               data: s,
+            ),
+          )
+          .toList(growable: false);
+    },
+  );
+}
+
+/// Customer
+Future<PickerResult<Customer>?> showCustomerPickerSheet(
+  BuildContext context, {
+  String? selectedId,
+}) async {
+  final sp = context.read<SalesProvider>();
+
+  // Pastikan list customer sudah ada
+  if (sp.customers.isEmpty && !sp.loadingCustomers) {
+    await sp.fetchCustomers(context);
+  }
+
+  String _subtitle(Customer c) {
+    final parts = <String>[];
+
+    // City (dengan province jika ada)
+    final city = c.city?.name ?? '';
+    final prov = c.city?.province?.name ?? '';
+    if (city.isNotEmpty && prov.isNotEmpty) {
+      parts.add('$city, $prov');
+    } else if (city.isNotEmpty) {
+      parts.add(city);
+    }
+
+    // Kontak
+    if (c.phone.isNotEmpty) parts.add(c.phone);
+    if (c.email.isNotEmpty) parts.add(c.email);
+
+    // Alamat singkat
+    if (c.address.isNotEmpty) parts.add(c.address);
+
+    // Rapikan bullet (hilangkan "•" berlebih di ujung)
+    return parts.join(' • ').replaceAll(RegExp(r'(^\s*•\s*|\s*•\s*$)'), '');
+  }
+
+  return showPickerSheet<Customer>(
+    context,
+    title: 'Select Customer',
+    searchHint: 'Search name, phone, email…',
+    emptyMessage: 'Customer list is empty',
+    selectedId: selectedId,
+    loadItems: () async {
+      final list = context.read<SalesProvider>().customers;
+      return list
+          .map(
+            (c) => PickerResult<Customer>(
+              id: c.idCustomer,
+              label: c.name.isNotEmpty ? c.name : '(No name)',
+              subtitle: _subtitle(c),
+              data: c,
             ),
           )
           .toList(growable: false);

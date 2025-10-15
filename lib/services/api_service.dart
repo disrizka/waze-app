@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
+import 'package:wa_blast/env.dart';
 import '../constants/api_constant.dart';
 import '../providers/auth_provider.dart';
 
@@ -20,16 +21,132 @@ class ApiService {
     };
   }
 
+  // ApiService (tambahkan import provider sudah ada)
+
+  // Di dalam class ApiService
+  static Future<http.Response> _withAutoRefresh(
+    BuildContext context, {
+    required bool withAccessToken,
+    required Future<http.Response> Function(Map<String, String> headers)
+    requestFn,
+  }) async {
+    // 1) Request awal pakai header saat ini
+    Map<String, String> headers = await _buildHeaders(
+      withAccessToken: withAccessToken,
+    );
+    http.Response res = await requestFn(headers);
+
+    // Jika bukan 401, langsung kembalikan
+    if (res.statusCode != 401) return res;
+
+    debugPrint('[ApiService] 401 detected → try /user/refresh-token');
+
+    // 2) Coba refresh token
+    try {
+      final refreshRes = await refreshAccessToken();
+      final raw = refreshRes.body;
+      debugPrint(
+        "[ApiService] REFRESH ◀︎ ${refreshRes.statusCode} ${raw.length > 400 ? raw.substring(0, 400) + '…' : raw}",
+      );
+
+      Map<String, dynamic>? j;
+      try {
+        j = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        j = null;
+      }
+
+      // === RULE KHUSUS: kalau backend balas { e: "e2", status: 401 } → langsung logout & /splash
+      final backendStatus = (j?['status'] as num?)?.toInt();
+      final backendError = (j?['e'] ?? '').toString();
+      final refreshDenied =
+          refreshRes.statusCode == 401 ||
+          backendStatus == 401 ||
+          backendError == 'e2';
+
+      if (refreshDenied) {
+        debugPrint('[ApiService] Refresh denied (e2/401) → logout');
+        try {
+          await Provider.of<AuthProvider>(
+            context,
+            listen: false,
+          ).logout(context);
+        } catch (_) {}
+        return res; // kembalikan response awal (401) agar caller aware
+      }
+
+      // === Jika refresh sukses (2xx) dan ada access_token baru → simpan & retry sekali
+      if (refreshRes.statusCode >= 200 && refreshRes.statusCode < 300) {
+        final newAccess = (j?['access_token'] ?? '').toString();
+
+        // 200 tapi token kosong → anggap gagal, logout
+        if (newAccess.isEmpty) {
+          debugPrint('[ApiService] Refresh returned empty token → logout');
+          try {
+            await Provider.of<AuthProvider>(
+              context,
+              listen: false,
+            ).logout(context);
+          } catch (_) {}
+          return res;
+        }
+
+        // Simpan & sinkron ke AuthProvider
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('accessToken', newAccess);
+        } catch (_) {}
+        try {
+          final auth = Provider.of<AuthProvider>(context, listen: false);
+          await auth.updateAccessToken(newAccess);
+        } catch (e) {
+          debugPrint('[ApiService] updateAccessToken via provider failed: $e');
+        }
+
+        // Retry sekali dengan header baru
+        headers = await _buildHeaders(withAccessToken: withAccessToken);
+        final retryRes = await requestFn(headers);
+
+        // Kalau retry berhasil (bukan 401), kembalikan hasil retry
+        if (retryRes.statusCode != 401) return retryRes;
+
+        // Retry tetap 401 → logout
+        debugPrint('[ApiService] Retry still 401 → logout');
+        try {
+          await Provider.of<AuthProvider>(
+            context,
+            listen: false,
+          ).logout(context);
+        } catch (_) {}
+        return res;
+      }
+    } catch (e, st) {
+      debugPrint('[ApiService] refresh-token failed: $e\n$st');
+      // fallthrough ke logout di bawah
+    }
+
+    // 3) Default: refresh gagal → logout
+    try {
+      await Provider.of<AuthProvider>(context, listen: false).logout(context);
+    } catch (_) {}
+    return res;
+  }
+
+  // === Modifikasi wrapper HTTP ===
+
   static Future<http.Response> get(
     BuildContext context,
     String endpoint, {
     bool withAccessToken = true,
   }) async {
-    final headers = await _buildHeaders(withAccessToken: withAccessToken);
-    final url = Uri.parse('${ApiConstant.baseUrl}$endpoint');
-    final response = await http.get(url, headers: headers);
-    await _handleUnauthorized(context, response);
-    return response;
+    final base = ApiConstant.baseUrl; // akan fail fast kalau Env belum set
+    final url = Uri.parse('$base$endpoint');
+    debugPrint('[API] GET $url (flavor=${Env.flavor.name})');
+    return _withAutoRefresh(
+      context,
+      withAccessToken: withAccessToken,
+      requestFn: (headers) => http.get(url, headers: headers),
+    );
   }
 
   static Future<http.Response> post(
@@ -38,15 +155,15 @@ class ApiService {
     Map<String, dynamic> body, {
     bool withAccessToken = true,
   }) async {
-    final headers = await _buildHeaders(withAccessToken: withAccessToken);
-    final url = Uri.parse('${ApiConstant.baseUrl}$endpoint');
-    final response = await http.post(
-      url,
-      headers: headers,
-      body: jsonEncode(body),
+    final base = ApiConstant.baseUrl; // akan fail fast kalau Env belum set
+    final url = Uri.parse('$base$endpoint');
+    debugPrint('[API] GET $url (flavor=${Env.flavor.name})');
+    return _withAutoRefresh(
+      context,
+      withAccessToken: withAccessToken,
+      requestFn: (headers) =>
+          http.post(url, headers: headers, body: jsonEncode(body)),
     );
-    await _handleUnauthorized(context, response);
-    return response;
   }
 
   static Future<http.Response> put(
@@ -55,15 +172,15 @@ class ApiService {
     Map<String, dynamic> body, {
     bool withAccessToken = true,
   }) async {
-    final headers = await _buildHeaders(withAccessToken: withAccessToken);
-    final url = Uri.parse('${ApiConstant.baseUrl}$endpoint');
-    final response = await http.put(
-      url,
-      headers: headers,
-      body: jsonEncode(body),
+    final base = ApiConstant.baseUrl; // akan fail fast kalau Env belum set
+    final url = Uri.parse('$base$endpoint');
+    debugPrint('[API] GET $url (flavor=${Env.flavor.name})');
+    return _withAutoRefresh(
+      context,
+      withAccessToken: withAccessToken,
+      requestFn: (headers) =>
+          http.put(url, headers: headers, body: jsonEncode(body)),
     );
-    await _handleUnauthorized(context, response);
-    return response;
   }
 
   static Future<http.Response> delete(
@@ -71,11 +188,14 @@ class ApiService {
     String endpoint, {
     bool withAccessToken = true,
   }) async {
-    final headers = await _buildHeaders(withAccessToken: withAccessToken);
-    final url = Uri.parse('${ApiConstant.baseUrl}$endpoint');
-    final response = await http.delete(url, headers: headers);
-    await _handleUnauthorized(context, response);
-    return response;
+    final base = ApiConstant.baseUrl; // akan fail fast kalau Env belum set
+    final url = Uri.parse('$base$endpoint');
+    debugPrint('[API] GET $url (flavor=${Env.flavor.name})');
+    return _withAutoRefresh(
+      context,
+      withAccessToken: withAccessToken,
+      requestFn: (headers) => http.delete(url, headers: headers),
+    );
   }
 
   static Future<void> _handleUnauthorized(
@@ -100,6 +220,7 @@ class ApiService {
     };
 
     final url = Uri.parse('${ApiConstant.baseUrl}$endpoint');
+    debugPrint("LOGIN ◀︎ URL: $url");
 
     final response = await http
         .post(url, headers: headers, body: jsonEncode(body))

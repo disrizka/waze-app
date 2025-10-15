@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:wa_blast/app_nav.dart';
 
 import '../constants/app_colors.dart';
 import '../providers/auth_provider.dart';
@@ -78,7 +79,10 @@ void showAddAccountModal(BuildContext context) {
     if (context.mounted) {
       if (success) {
         Navigator.pop(context); // close modal
-        Navigator.pushReplacementNamed(context, '/splash');
+        appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+          '/splash',
+          (r) => false,
+        );
       } else {
         final msg = auth.error ?? 'Login failed';
         ScaffoldMessenger.of(
