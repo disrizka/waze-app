@@ -339,6 +339,17 @@ class SalesDetail {
   }
 }
 
+enum _PayState { pending, success, cancel, deny, expire, failure, error }
+
+const Set<_PayState> _doneStates = {
+  _PayState.success,
+  _PayState.cancel,
+  _PayState.deny,
+  _PayState.expire,
+  _PayState.failure,
+  _PayState.error,
+};
+
 /// Representasi 1 SKU yang bisa dijual (ringan untuk cart)
 class PosSku {
   final String skuId; // idProductSku
@@ -561,7 +572,11 @@ class SalesProvider extends ChangeNotifier {
   String? _storeLocationId;
   String? _storeLocationName;
   int? _discount = 0;
+
+  // ——— shipping fee di-deprecate: pertahankan field agar kompat,
+  //     tapi tidak dipakai lagi (selalu 0 lewat getter).
   int? _shippingFee = 0;
+
   String? _note;
   String? _reference;
   int? _paymentMethod = 1;
@@ -573,7 +588,10 @@ class SalesProvider extends ChangeNotifier {
   String? get storeLocationId => _storeLocationId;
   String? get storeLocationName => _storeLocationName;
   int? get discount => _discount;
-  int? get shippingFee => _shippingFee;
+
+  // ⬇️ selalu kembalikan 0 agar tidak ada ongkir
+  int? get shippingFee => 0;
+
   String? get note => _note;
   String? get currentReference => _reference;
   int? get paymentMethod => _paymentMethod;
@@ -583,6 +601,59 @@ class SalesProvider extends ChangeNotifier {
   String? get customerName => _customerName;
 
   MidtransSDK? _midtrans;
+  // ====== Payment tracking (Midtrans + server) ======
+  String? _pendingPaymentTxId; // transaksi yang sedang dipantau
+
+  String _s(Object? v) => v?.toString() ?? '';
+
+  String? _extractIdTx(Map<String, dynamic> j) {
+    final m =
+        (j['data'] as Map?)?.cast<String, dynamic>() ??
+        j.cast<String, dynamic>();
+    final id = _s(m['idTransaction'] ?? m['id_transaction'] ?? m['id']);
+    return id.isEmpty ? null : id;
+  }
+
+  String? _extractTxNumber(Map<String, dynamic> j) {
+    final m =
+        (j['data'] as Map?)?.cast<String, dynamic>() ??
+        j.cast<String, dynamic>();
+    final n = _s(m['transaction_number'] ?? m['number'] ?? m['code']);
+    return n.isEmpty ? null : n;
+  }
+
+  String? _extractTxRef(Map<String, dynamic> j) {
+    final m =
+        (j['data'] as Map?)?.cast<String, dynamic>() ??
+        j.cast<String, dynamic>();
+    final r = _s(m['transaction_reference'] ?? m['reference']);
+    return r.isEmpty ? null : r;
+  }
+
+  _PayState _mapStatus(dynamic raw) {
+    final s = (raw ?? '').toString().toLowerCase();
+    switch (s) {
+      case 'settlement':
+      case 'capture':
+      case 'success':
+      case 'paid':
+        return _PayState.success;
+      case 'pending':
+        return _PayState.pending;
+      case 'cancel':
+      case 'canceled':
+        return _PayState.cancel;
+      case 'deny':
+        return _PayState.deny;
+      case 'expire':
+      case 'expired':
+        return _PayState.expire;
+      case 'failure':
+      case 'failed':
+      default:
+        return _PayState.failure;
+    }
+  }
 
   /// Subtotal base (tanpa diskon apa pun)
   int get subtotalBase =>
@@ -662,6 +733,65 @@ class SalesProvider extends ChangeNotifier {
     return sum;
   }
 
+  int _subtotalPerItemOnly(SalesProvider prov) {
+    var sum = 0;
+    for (final it in prov.cartItems) {
+      final sku = it.sku;
+      final perItemDisc = prov.perItemDiscountOf(sku.skuId);
+      final unitAfterItem = (sku.price - perItemDisc).clamp(0, 1 << 31) as int;
+      sum += unitAfterItem * it.qty;
+    }
+    return sum;
+  }
+
+  Map<String, int> _allocOrderDiscountPerUnit(SalesProvider prov) {
+    final od = prov.discount ?? 0;
+    if (od <= 0 || prov.cartItems.isEmpty) return const {};
+
+    final bases = <String, int>{};
+    var baseSum = 0;
+    for (final it in prov.cartItems) {
+      final skuId = it.sku.skuId;
+      final unitAfterItem = (it.sku.price - prov.perItemDiscountOf(skuId));
+      final base = (unitAfterItem > 0 ? unitAfterItem : 0) * it.qty;
+      if (base > 0) {
+        bases[skuId] = base;
+        baseSum += base;
+      }
+    }
+    if (baseSum == 0) return const {};
+
+    final perUnit = <String, int>{};
+    var allocated = 0;
+    for (final it in prov.cartItems) {
+      final skuId = it.sku.skuId;
+      final base = bases[skuId] ?? 0;
+      if (base == 0) {
+        perUnit[skuId] = 0;
+        continue;
+      }
+      final rowDisc = (od * base) ~/ baseSum;
+      allocated += rowDisc;
+      perUnit[skuId] = it.qty > 0 ? (rowDisc ~/ it.qty) : 0;
+    }
+
+    final remain = od - allocated;
+    if (remain > 0 && prov.cartItems.isNotEmpty) {
+      final first = prov.cartItems.first;
+      final d0 = perUnit[first.sku.skuId] ?? 0;
+      perUnit[first.sku.skuId] =
+          d0 + (remain ~/ (first.qty > 0 ? first.qty : 1));
+    }
+
+    perUnit.updateAll((skuId, d) {
+      final sku = prov.cartItems.firstWhere((x) => x.sku.skuId == skuId).sku;
+      final maxDisc = (sku.price - prov.perItemDiscountOf(skuId));
+      return d.clamp(0, maxDisc);
+    });
+
+    return perUnit;
+  }
+
   /// Total alokasi order-level discount (jumlah disc/unit * qty)
   int get orderDiscountAllocatedTotal {
     final map = allocOrderDiscountPerUnit();
@@ -676,11 +806,11 @@ class SalesProvider extends ChangeNotifier {
   int get subtotalEffective =>
       (subtotalAfterItemDisc - orderDiscountAllocatedTotal).clamp(0, 1 << 31);
 
-  /// Service fee terhadap subtotal efektif (kalau ini yang diinginkan)
-  int get serviceFeeOnEffective => (subtotalEffective * serviceFeeRate).round();
+  /// Service fee terhadap subtotal efektif → dihapus (0)
+  int get serviceFeeOnEffective => 0;
 
-  /// Grand total efektif + service fee (opsional untuk UI)
-  int get grandTotalEffective => subtotalEffective + serviceFeeOnEffective;
+  /// Grand total efektif → tanpa service fee
+  int get grandTotalEffective => subtotalEffective;
 
   void _setLoadingCustomers(bool v) {
     _loadingCustomers = v;
@@ -702,6 +832,150 @@ class SalesProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<PaymentResult?> _paymentCheckOnce(
+    BuildContext context,
+    String idTx,
+  ) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return null;
+
+    final path = '/waveup/$bizId/transaction/sales/$idTx/payment-check';
+    if (kDebugMode) debugPrint('[SalesProvider] GET $path (payment-check)');
+
+    try {
+      final j = await ApiJson.getMap(context, path, withAccessToken: true);
+      if (kDebugMode) _debugBig('[payment-check] resp', j);
+
+      if (j == null) return null;
+
+      // Sesuaikan key berikut sesuai respons backend kamu
+      final data =
+          (j['data'] as Map?)?.cast<String, dynamic>() ??
+          j.cast<String, dynamic>();
+      final statusRaw =
+          data['payment_status'] ?? data['status'] ?? j['payment_status'];
+      final txId = (data['transaction_id'] ?? data['transactionId'] ?? '')
+          .toString();
+      final orderId = (data['order_id'] ?? data['orderId'] ?? '').toString();
+      final ptype = (data['payment_type'] ?? data['paymentType'] ?? '')
+          .toString();
+      final msg = (data['message'] ?? j['message'] ?? '').toString();
+
+      final st = _mapStatus(statusRaw);
+      return PaymentResult(
+        st.toString().split('.').last,
+        transactionId: txId.isEmpty ? null : txId,
+        orderId: orderId.isEmpty ? null : orderId,
+        paymentType: ptype.isEmpty ? null : ptype,
+        message: msg.isEmpty ? null : msg,
+        raw: j.toString(),
+      );
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[payment-check] error: $e');
+        debugPrint('$st');
+      }
+      return PaymentResult('error', message: '$e');
+    }
+  }
+
+  Future<PaymentResult?> _waitPaymentUntilDone(
+    BuildContext context, {
+    required String idTransaction,
+    Duration totalTimeout = const Duration(minutes: 7),
+    List<Duration>? schedule,
+  }) async {
+    final plan =
+        schedule ??
+        <Duration>[
+          const Duration(milliseconds: 800),
+          const Duration(seconds: 1),
+          const Duration(seconds: 2),
+          const Duration(seconds: 3),
+          const Duration(seconds: 5),
+          const Duration(seconds: 7),
+          const Duration(seconds: 10),
+          const Duration(seconds: 12),
+          const Duration(seconds: 15),
+          const Duration(seconds: 20),
+          const Duration(seconds: 25),
+          const Duration(seconds: 30),
+        ];
+
+    final start = DateTime.now();
+    PaymentResult? last;
+
+    for (final d in plan) {
+      if (DateTime.now().difference(start) > totalTimeout) {
+        return PaymentResult('timeout', message: 'Payment status timeout');
+      }
+
+      await Future.delayed(d);
+      final res = await _paymentCheckOnce(context, idTransaction);
+      last = res ?? last;
+
+      if (res != null) {
+        final ps = _mapStatus(res.status);
+        if (_doneStates.contains(ps)) {
+          if (kDebugMode) {
+            debugPrint(
+              '[poll] DONE: ${res.status} (${DateTime.now().difference(start)})',
+            );
+          }
+          return res;
+        }
+      }
+    }
+    return last ?? PaymentResult('pending', message: 'No final status yet');
+  }
+
+  Future<PaymentResult?> checkPaymentNow(
+    BuildContext context,
+    String idTx,
+  ) async {
+    return _paymentCheckOnce(context, idTx);
+  }
+
+  Future<PaymentResult?> _openMidtransIfAny(
+    Map<String, dynamic> resp,
+    BuildContext context,
+  ) async {
+    final Object? dataObj = resp['data'];
+    String _s(Object? v) => v?.toString() ?? '';
+    String pick(Object? o, String k) {
+      if (o is Map) return _s(o[k]);
+      return '';
+    }
+
+    final link = _s(resp['payment_link'] ?? pick(dataObj, 'payment_link'));
+    final token = _s(resp['payment_token'] ?? pick(dataObj, 'payment_token'));
+
+    if (link.isEmpty && token.isEmpty) {
+      if (kDebugMode)
+        debugPrint('[SalesProvider] no payment link/token, skip Midtrans.');
+      return null;
+    }
+
+    if (token.isNotEmpty) {
+      try {
+        if (kDebugMode) debugPrint('Start Snap');
+        final res = await _startSnap(token, context);
+        return res;
+      } catch (e) {
+        debugPrint('[SalesProvider] Snap UI error: $e');
+      }
+    }
+
+    // Kalau tidak ada token (misal VA/QR tertentu), UI Snap tidak dibuka di sini.
+    return null;
+  }
+
+  Future<PaymentResult?> _paymentCheckOnceSafe(BuildContext context) async {
+    final idTx = _pendingPaymentTxId;
+    if (idTx == null || idTx.isEmpty) return null;
+    return _paymentCheckOnce(context, idTx);
+  }
+
   void _attachMidtransCallback() {
     _midtrans?.setTransactionFinishedCallback((result) {
       debugPrint(
@@ -721,34 +995,28 @@ class SalesProvider extends ChangeNotifier {
         raw: result.toString(),
       );
 
-      // ⬇️ WAJIB: selesaikan future supaya pemanggil dapat hasil
       _snapCompleter?..complete(pr);
       _snapCompleter = null;
       notifyListeners();
     });
   }
 
-  // Di class SalesProvider:
-
-  // PENTING: pastikan kamu punya ini juga
   Future<void> _initMidtransIfNeeded(BuildContext context) async {
     if (_midtrans != null) return;
     _midtrans = await MidtransSDK.init(
       config: MidtransConfig(
-        clientKey: '',
-        merchantBaseUrl: 'https://wave-api.eon.id/',
+        clientKey: 'SB-Mid-client-OlAvtRicKKPMklc4',
+        merchantBaseUrl: '',
         colorTheme: ColorTheme(
           colorPrimary: Theme.of(context).colorScheme.primary,
           colorPrimaryDark: Theme.of(context).colorScheme.primary,
           colorSecondary: Theme.of(context).colorScheme.secondary,
         ),
-        enableLog: kDebugMode,
+        enableLog: true,
       ),
     );
   }
 
-  /// Start Snap dan tunggu hasilnya.
-  /// Selalu mengembalikan PaymentResult (kecuali terjadi error fatal di init).
   Future<PaymentResult?> _startSnap(String token, BuildContext context) async {
     debugPrint('🚀 [Midtrans] _startSnap() BEGIN dengan token: $token');
 
@@ -760,10 +1028,9 @@ class SalesProvider extends ChangeNotifier {
       return PaymentResult('error', message: 'Init Midtrans gagal: $e');
     }
 
-    // Cancel flow lama kalau masih aktif
     if (_snapCompleter != null && !(_snapCompleter!.isCompleted)) {
       debugPrint(
-        '⚠️ [Midtrans] Completer lama belum complete, diselesaikan paksa.',
+        '[Midtrans] Completer lama belum complete, diselesaikan paksa.',
       );
       _snapCompleter!.complete(
         PaymentResult('aborted', message: 'Flow sebelumnya digantikan'),
@@ -771,26 +1038,23 @@ class SalesProvider extends ChangeNotifier {
     }
     _snapCompleter = Completer<PaymentResult>();
 
-    // Hapus callback lama
     try {
       _midtrans?.removeTransactionFinishedCallback();
-      debugPrint('🧹 [Midtrans] Callback lama dihapus');
+      debugPrint('[Midtrans] Callback lama dihapus');
     } catch (_) {}
 
-    // Pasang callback baru
     _midtrans?.setTransactionFinishedCallback((result) {
-      debugPrint('🔔 [Midtrans] CALLBACK TERPANGGIL!');
+      debugPrint(' [Midtrans] CALLBACK TERPANGGIL!');
       try {
-        debugPrint('🧾 result = ${result.toString()}');
+        debugPrint(' result = ${result.toString()}');
         debugPrint('   transactionId=${result.transactionId}');
         debugPrint('   status=${result.status}');
         debugPrint('   message=${result.message}');
         debugPrint('   paymentType=${result.paymentType}');
       } catch (e) {
-        debugPrint('⚠️ [Midtrans] gagal print result: $e');
+        debugPrint('[Midtrans] gagal print result: $e');
       }
 
-      // Proteksi: semua field diubah ke string aman
       String? _s(Object? v) => v?.toString();
       final status = (_s(result.status) ?? '').toLowerCase();
       final pr = PaymentResult(
@@ -807,7 +1071,6 @@ class SalesProvider extends ChangeNotifier {
       }
     });
 
-    // Jalankan UI Flow
     try {
       debugPrint('▶️ [Midtrans] Memulai startPaymentUiFlow...');
       await _midtrans?.startPaymentUiFlow(token: token);
@@ -823,7 +1086,6 @@ class SalesProvider extends ChangeNotifier {
       }
     }
 
-    // Tunggu hasil
     PaymentResult result;
     try {
       result = await _snapCompleter!.future.timeout(
@@ -848,83 +1110,6 @@ class SalesProvider extends ChangeNotifier {
       '🏁 [Midtrans] _startSnap() SELESAI dengan status: ${result.status}',
     );
     return result;
-  }
-
-  // Future<PaymentResult?> openSnapInWebView(
-  //   BuildContext context,
-  //   Uri url,
-  // ) async {
-  //   return Navigator.of(context).push<PaymentResult>(
-  //     MaterialPageRoute(
-  //       builder: (_) => Scaffold(
-  //         appBar: AppBar(title: const Text('Payment')),
-  //         body: WebView(
-  //           initialUrl: url.toString(),
-  //           javascriptMode: JavascriptMode.unrestricted,
-  //           navigationDelegate: (nav) {
-  //             final u = Uri.parse(nav.url);
-  //             if (u.host == 'yourapp.example.com' &&
-  //                 u.path.startsWith('/payment/')) {
-  //               // Ambil feedback dari query params:
-  //               final status = (u.queryParameters['transaction_status'] ?? '')
-  //                   .toLowerCase();
-  //               final orderId = u.queryParameters['order_id'];
-  //               final trxId = u.queryParameters['transaction_id'];
-  //               final pr = PaymentResult(
-  //                 status.isEmpty ? 'unknown' : status,
-  //                 transactionId: trxId,
-  //                 orderId: orderId,
-  //                 raw: nav.url,
-  //               );
-  //               Navigator.of(context).pop(pr);
-  //               return NavigationDecision.prevent;
-  //             }
-  //             return NavigationDecision.navigate;
-  //           },
-  //         ),
-  //       ),
-  //     ),
-  //   );
-  // }
-
-  // Ubah signature:
-  String _s(Object? v) => v?.toString() ?? '';
-
-  Future<PaymentResult?> _openMidtransIfAny(
-    Map<String, dynamic> resp,
-    BuildContext context,
-  ) async {
-    final Object? dataObj = resp['data']; // biarkan dynamic
-    String pick(Object? o, String k) {
-      if (o is Map) return _s(o[k]); // aman untuk Map dynamic
-      return '';
-    }
-
-    final link = _s(resp['payment_link'] ?? pick(dataObj, 'payment_link'));
-    final token = _s(resp['payment_token'] ?? pick(dataObj, 'payment_token'));
-
-    if (link.isEmpty) {
-      if (kDebugMode)
-        debugPrint(
-          '[SalesProvider] payment_link null/empty — skip open Midtrans.',
-        );
-      return null;
-    }
-
-    if (token.isNotEmpty) {
-      try {
-        debugPrint('Start Snap');
-        final res = await _startSnap(token, context);
-        return res;
-      } catch (e) {
-        debugPrint('[SalesProvider] Snap UI error, fallback ke URL. $e');
-      }
-    }
-
-    // TODO: kalau mau fallback WebView, panggil helper kamu di sini
-    // final pr = await openSnapInWebView(context, Uri.parse(link));
-    // return pr;
-    return null;
   }
 
   SalesReportItem _salesItemFromApi(Map<String, dynamic> j) {
@@ -1034,7 +1219,6 @@ class SalesProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Opsional: konsumsi error terakhir (sekali pakai buat snackbar)
   String? consumeLastError() {
     final e = _lastError;
     _lastError = null;
@@ -1055,17 +1239,14 @@ class SalesProvider extends ChangeNotifier {
   Future<void> loadCatalog(BuildContext context) async {
     _setLoading(true);
     try {
-      // fetch & ambil cache dari ProductProvider
       await context.read<catalog.ProductProvider>().fetchProducts(context);
       final prov = context.read<catalog.ProductProvider>();
-      final prods = prov.products; // List<model.Product>
+      final prods = prov.products;
 
-      // simpan cache products untuk UI grid
       _products
         ..clear()
         ..addAll(prods);
 
-      // Map ke PosSku ringan untuk cart/pipeline lama
       final List<PosSku> mapped = [];
       for (final p in prods) {
         final productId = p.idProduct;
@@ -1073,9 +1254,8 @@ class SalesProvider extends ChangeNotifier {
         final img = p.primaryImageUrl ?? '';
         final bool inStock = !p.isHide;
 
-        final skus = p.productSkus; // non-nullable List<ProductSku>
+        final skus = p.productSkus;
         if (skus.isEmpty) {
-          // fallback: kalau produk tanpa SKU, pakai basePrice (jika ada) sebagai entri tunggal
           final base = p.basePrice ?? 0;
           if (base > 0) {
             mapped.add(
@@ -1233,7 +1413,6 @@ class SalesProvider extends ChangeNotifier {
   String _keyFor(PosSku s) =>
       s.skuId.isNotEmpty ? s.skuId : '${s.productId}_${s.skuCode}';
 
-  /// Tambah SKU (pipeline lama – menerima PosSku)
   void add(PosSku s) {
     final key = _keyFor(s);
     if (kDebugMode) debugPrint('[Cart] add $key (${s.productName})');
@@ -1245,7 +1424,6 @@ class SalesProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Tambah SKU berbasis referensi Product/SKU (dipakai UI varian baru)
   void addByRef({
     required String productId,
     required String productName,
@@ -1275,7 +1453,7 @@ class SalesProvider extends ChangeNotifier {
       item.qty -= 1;
     } else {
       _cart.remove(key);
-      _itemDiscount.remove(s.skuId); // <-- bersihkan
+      _itemDiscount.remove(s.skuId);
     }
     notifyListeners();
   }
@@ -1283,15 +1461,17 @@ class SalesProvider extends ChangeNotifier {
   void removeAll(PosSku s) {
     final key = _keyFor(s);
     _cart.remove(key);
-    _itemDiscount.remove(s.skuId); // <-- bersihkan
+    _itemDiscount.remove(s.skuId);
     notifyListeners();
   }
 
   // ===== TOTALS & FEES =====
   int get subtotal => cartItems.fold(0, (s, it) => s + it.subtotal);
-  double get serviceFeeRate => 0.02;
-  int get serviceFee => (subtotal * serviceFeeRate).round();
-  int get total => subtotal + serviceFee;
+
+  // ⬇️ Hapus service fee: rate 0, nilai 0, total=subtotal
+  double get serviceFeeRate => 0.0;
+  int get serviceFee => 0;
+  int get total => subtotal;
 
   // ===== ORDER NUMBER (display only) =====
   String get orderNumber =>
@@ -1315,7 +1495,7 @@ class SalesProvider extends ChangeNotifier {
     String? storeLocationId,
     String? storeLocationName,
     int? discount,
-    int? shippingFee,
+    int? shippingFee, // ← tetap diterima tapi diabaikan
     String? note,
     String? reference,
     int? paymentMethod,
@@ -1327,7 +1507,10 @@ class SalesProvider extends ChangeNotifier {
     _storeLocationId = storeLocationId ?? _storeLocationId;
     _storeLocationName = storeLocationName ?? _storeLocationName;
     _discount = discount ?? _discount ?? 0;
-    _shippingFee = shippingFee ?? _shippingFee ?? 0;
+
+    // ⬇️ abaikan shippingFee; pastikan state tetap 0
+    _shippingFee = 0;
+
     _note = note ?? _note;
 
     if (reference != null && reference.isNotEmpty) {
@@ -1336,7 +1519,6 @@ class SalesProvider extends ChangeNotifier {
 
     _paymentMethod = paymentMethod ?? _paymentMethod ?? 1;
 
-    // ✅ SIMPAN CUSTOMER
     if (customerId != null && customerId.isNotEmpty) {
       _customerId = customerId;
     }
@@ -1359,10 +1541,10 @@ class SalesProvider extends ChangeNotifier {
     ensureReferenceInitialized(notify: false);
     return {
       "store_location_id": _storeLocationId,
-      // ✅ PAKAI ID CUSTOMER TERPILIH (BUKAN 0)
       "customer_id": _customerIdForPayload,
       "discount": _discount ?? 0,
-      "shipping_fee": _shippingFee ?? 0,
+      // ⬇️ selalu kirim 0 ke server
+      "shipping_fee": 0,
       "note": _note ?? "",
       "reference": "",
       "payment_method": _paymentMethod ?? 1,
@@ -1372,9 +1554,9 @@ class SalesProvider extends ChangeNotifier {
         return {
           "product_id": sku.productId,
           "product_sku_id": sku.skuId,
-          "discount": discPerItem, // <-- per-item discount per unit
+          "discount": discPerItem,
           "qty": it.qty,
-          "price": sku.price, // <-- base price (biar tidak double-discount)
+          "price": sku.price,
         };
       }).toList(),
     };
@@ -1383,7 +1565,6 @@ class SalesProvider extends ChangeNotifier {
   void _debugBig(String prefix, Object? data, {int chunk = 900}) {
     if (!kDebugMode) return;
 
-    // konversi ke teks rapi
     final text = () {
       if (data == null) return 'null';
       if (data is String) return data;
@@ -1397,7 +1578,6 @@ class SalesProvider extends ChangeNotifier {
     for (var i = 0; i < text.length; i += chunk) {
       final end = math.min(i + chunk, text.length);
       final seg = text.substring(i, end);
-      // tambah "(cont.)" agar mudah dibaca di log
       debugPrint('$prefix${i == 0 ? '' : ' (cont.)'}: $seg');
     }
   }
@@ -1407,7 +1587,6 @@ class SalesProvider extends ChangeNotifier {
     final bizId = await _requireBizId();
     if (bizId == null) return false;
 
-    // Validasi ringan
     if (cartItems.isEmpty) {
       _lastError = "Cart is empty.";
       return false;
@@ -1462,10 +1641,65 @@ class SalesProvider extends ChangeNotifier {
         debugPrint("[SalesProvider] ✅ Submit success");
       }
       try {
-        await _openMidtransIfAny(j, context);
+        // Tetap buka Snap (jika ada token) — non-blocking terhadap polling
+        unawaited(_openMidtransIfAny(j, context));
       } catch (e, st) {
         debugPrint('[SalesProvider] openMidtrans error: $e\n$st');
       }
+
+      // Ambil idTransaction / number / reference langsung dari respons POST
+      final idTx = _extractIdTx(j);
+      final tNum = _extractTxNumber(j); // opsional, kalau mau ditampilkan di UI
+      final tRef = _extractTxRef(j); // opsional, kalau mau disimpan
+
+      if (kDebugMode) {
+        debugPrint(
+          '[SalesProvider] ➕ Created Tx: id=$idTx, number=$tNum, ref=$tRef',
+        );
+      }
+
+      if (idTx != null) {
+        _pendingPaymentTxId = idTx;
+
+        // Siapkan future callback Snap (jika setTransactionFinishedCallback aktif di _startSnap)
+        PaymentResult? cbRes;
+        final cbFuture = _snapCompleter?.future.then((v) => cbRes = v);
+
+        // Mulai polling payment-check pakai idTransaction dari POST
+        final pollFuture = _waitPaymentUntilDone(context, idTransaction: idTx);
+
+        // Tunggu salah satu lebih dulu selesai
+        PaymentResult? first;
+        try {
+          first = await Future.any([
+            if (cbFuture != null) cbFuture.then((_) => cbRes),
+            pollFuture,
+          ]);
+        } catch (_) {
+          // ignore
+        }
+
+        // Jika masih pending / belum yakin → konfirmasi sekali lagi ke server
+        if (first == null || first.status.toLowerCase() == 'pending') {
+          final serverFinal = await _paymentCheckOnce(context, idTx);
+          first = serverFinal ?? first;
+        }
+
+        // Cleanup
+        _pendingPaymentTxId = null;
+        try {
+          _midtrans?.removeTransactionFinishedCallback();
+        } catch (_) {}
+        _snapCompleter = null;
+
+        if (kDebugMode) {
+          debugPrint('🎯 Final payment status = ${first?.status}');
+        }
+
+        // (Opsional) taruh ke state & notify untuk UI kamu
+        // _lastPaymentResult = first; notifyListeners();
+      }
+
       return true;
     } catch (e, st) {
       _lastError = '$e';
@@ -1574,15 +1808,12 @@ class SalesProvider extends ChangeNotifier {
     }
   }
 
-  // Sebelumnya:
-  // Future<Customer?> createCustomer(BuildContext context, { ..., required int cityId, ... })
-
   Future<Customer?> createCustomer(
     BuildContext context, {
     required String name,
     required String phone,
     required String email,
-    required Object cityId, // <= fleksibel
+    required Object cityId,
     required String address,
   }) async {
     final bizId = await _requireBizId();
@@ -1593,7 +1824,7 @@ class SalesProvider extends ChangeNotifier {
       "name": name,
       "phone": phone,
       "email": email,
-      "city_id": cityId, // <= TIDAK dipaksa ke int
+      "city_id": cityId,
       "address": address,
     };
 
@@ -1638,7 +1869,7 @@ class SalesProvider extends ChangeNotifier {
     required String name,
     required String phone,
     required String email,
-    required Object cityId, // <= fleksibel
+    required Object cityId,
     required String address,
   }) async {
     final bizId = await _requireBizId();
@@ -1649,7 +1880,7 @@ class SalesProvider extends ChangeNotifier {
       "name": name,
       "phone": phone,
       "email": email,
-      "city_id": cityId, // <= TIDAK dipaksa ke int
+      "city_id": cityId,
       "address": address,
     };
 
@@ -1692,7 +1923,6 @@ class SalesProvider extends ChangeNotifier {
     }
   }
 
-  /// GET /waveup/{bizId}/customer/remove/{idCustomer} -> delete
   Future<bool> deleteCustomer(BuildContext context, String idCustomer) async {
     final bizId = await _requireBizId();
     if (bizId == null) return false;
@@ -1759,7 +1989,6 @@ class SalesProvider extends ChangeNotifier {
       perUnit[skuId] = it.qty > 0 ? (rowDisc ~/ it.qty) : 0;
     }
 
-    // sisa pembulatan -> baris pertama (sederhana)
     final remain = od - allocated;
     if (remain > 0 && _cart.isNotEmpty) {
       final first = _cart.values.first;
@@ -1768,7 +1997,6 @@ class SalesProvider extends ChangeNotifier {
           d0 + (remain ~/ (first.qty > 0 ? first.qty : 1));
     }
 
-    // clamp supaya tidak melebihi unitAfterItem
     perUnit.updateAll((skuId, d) {
       final sku = _cart.values.firstWhere((x) => x.sku.skuId == skuId).sku;
       final maxDisc = (sku.price - perItemDiscountOf(skuId));
@@ -1785,9 +2013,12 @@ class SalesProvider extends ChangeNotifier {
     _storeLocationId = null;
     _storeLocationName = null;
     _discount = 0;
+
+    // pastikan nol terus
     _shippingFee = 0;
+
     _note = null;
-    _reference = null; // supaya transaksi baru dapat REF baru
+    _reference = null;
     _paymentMethod = 1;
     _customerId = null;
     _customerName = null;

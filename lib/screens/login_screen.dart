@@ -1,12 +1,15 @@
+// lib/screens/login_screen.dart
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/app_nav.dart';
+import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/splash_provider.dart';
-import 'package:wa_blast/utils/core_permission.dart';
+// HAPUS: import 'package:wa_blast/utils/core_permission.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -22,26 +25,95 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isPasswordVisible = false;
   bool _isRequestingPermissions = false;
 
-  static const _kPermFlag = 'permissionsPromptShown';
+  // Status permission (opsional, bisa dipakai untuk logging/telemetri)
+  PermissionStatus? _notifStatus;
+  PermissionStatus? _cameraStatus;
+  PermissionStatus? _photosStatus;
+  PermissionStatus? _storageStatus;
 
   @override
   void initState() {
     super.initState();
-    scheduleAskCorePermissions(context);
+    _requestInitialPermissions();
+  }
+
+  /// Minta izin: Notification, Camera, Photos/Media, Storage
+  Future<void> _requestInitialPermissions() async {
+    if (!mounted || _isRequestingPermissions) return;
+    setState(() => _isRequestingPermissions = true);
+
+    try {
+      // === Notifications ===
+      try {
+        if (Platform.isIOS) {
+          final fcm = await FirebaseMessaging.instance.requestPermission(
+            alert: true,
+            announcement: false,
+            badge: true,
+            carPlay: false,
+            criticalAlert: false,
+            provisional: false,
+            sound: true,
+          );
+          final authorized =
+              fcm.authorizationStatus == AuthorizationStatus.authorized ||
+              fcm.authorizationStatus == AuthorizationStatus.provisional;
+          _notifStatus = authorized
+              ? PermissionStatus.granted
+              : PermissionStatus.denied;
+        }
+        // Android 13+ dan juga fallback umum
+        final notif = await Permission.notification.request();
+        _notifStatus = notif;
+      } catch (_) {}
+
+      // === Camera ===
+      try {
+        _cameraStatus = await Permission.camera.request();
+      } catch (_) {
+        _cameraStatus = PermissionStatus.denied;
+      }
+
+      // === Photos / Media Library ===
+      // iOS: Photos; Android 13+: READ_MEDIA_IMAGES dipetakan ke Permission.photos oleh plugin
+      try {
+        _photosStatus = await Permission.photos.request();
+      } catch (_) {
+        _photosStatus = PermissionStatus.denied;
+      }
+
+      // === Storage (Android <= 12) ===
+      if (Platform.isAndroid) {
+        try {
+          _storageStatus = await Permission.storage.request();
+        } catch (_) {
+          _storageStatus = PermissionStatus.denied;
+        }
+        // Jika butuh akses luas (opsional), bisa minta ini:
+        // if (_storageStatus?.isDenied ?? true) {
+        //   final mng = await Permission.manageExternalStorage.request();
+        //   _storageStatus = mng;
+        // }
+      } else {
+        _storageStatus = PermissionStatus.granted; // tidak relevan di iOS
+      }
+    } finally {
+      if (mounted) setState(() => _isRequestingPermissions = false);
+    }
   }
 
   // ====== END PERMISSIONS ======
 
   Future<void> _handleLogin() async {
+    final t = AppLocalizations.of(context)!;
+
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Username dan password tidak boleh kosong'),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(t.login_empty_fields)));
       return;
     }
 
@@ -88,7 +160,7 @@ class _LoginScreenState extends State<LoginScreen> {
         (r) => false,
       );
     } else {
-      final errorMsg = authProvider.error ?? 'Login gagal';
+      final errorMsg = authProvider.error ?? t.login_failed;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(errorMsg)));
@@ -104,6 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context)!;
     final isLoading = context.watch<AuthProvider>().isLoading;
 
     return Scaffold(
@@ -145,9 +218,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text(
-                      "Username",
-                      style: TextStyle(
+                    Text(
+                      t.login_username, // "Username"
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
@@ -156,16 +229,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextField(
                       controller: _emailController,
                       decoration: InputDecoration(
-                        hintText: "E.g user0001@gmail.com",
+                        hintText:
+                            t.login_username_hint, // "E.g user0001@gmail.com"
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(6),
                         ),
                       ),
                     ),
                     const SizedBox(height: 20),
-                    const Text(
-                      "Password",
-                      style: TextStyle(
+                    Text(
+                      t.login_password, // "Password"
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
@@ -175,7 +249,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       controller: _passwordController,
                       obscureText: !_isPasswordVisible,
                       decoration: InputDecoration(
-                        hintText: "Fill your password here",
+                        hintText:
+                            t.login_password_hint, // "Fill your password here"
                         suffixIcon: IconButton(
                           icon: Icon(
                             _isPasswordVisible
@@ -198,9 +273,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         onTap: () {
                           /* TODO: Forgot password */
                         },
-                        child: const Text(
-                          "Forgot password?",
-                          style: TextStyle(
+                        child: Text(
+                          t.login_forgot_password, // "Forgot password?"
+                          style: const TextStyle(
                             color: Colors.blue,
                             fontWeight: FontWeight.w500,
                           ),
@@ -222,9 +297,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
-                              child: const Text(
-                                "Login",
-                                style: TextStyle(
+                              child: Text(
+                                t.login_button, // "Login"
+                                style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white,
@@ -237,13 +312,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text("Don’t have account? "),
+                        Text(t.login_no_account), // "Don’t have account? "
                         GestureDetector(
                           onTap: () =>
                               Navigator.pushNamed(context, '/register'),
-                          child: const Text(
-                            "Register Now",
-                            style: TextStyle(
+                          child: Text(
+                            t.login_register_now, // "Register Now"
+                            style: const TextStyle(
                               color: Colors.blue,
                               fontWeight: FontWeight.w600,
                             ),
@@ -267,6 +342,8 @@ class _LoginShimmerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context)!;
+
     return AbsorbPointer(
       absorbing: true,
       child: SizedBox(
@@ -281,9 +358,9 @@ class _LoginShimmerButton extends StatelessWidget {
             child: Container(
               color: Colors.grey.shade300,
               alignment: Alignment.center,
-              child: const Text(
-                "Logging in…",
-                style: TextStyle(
+              child: Text(
+                t.login_button_loading, // "Logging in…"
+                style: const TextStyle(
                   color: Colors.black54,
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
