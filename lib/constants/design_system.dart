@@ -121,6 +121,9 @@ class UI {
   static const sub = Color(0xFF6B7280);
   static const line = Color(0xFFE5E7EB);
 
+  static const card = Colors.white;
+  static const ok = Color(0xFF16A34A); // green-600
+
   static InputDecoration input([String? hint]) => InputDecoration(
     hintText: hint,
     isDense: true,
@@ -135,6 +138,30 @@ class UI {
       borderSide: const BorderSide(color: line),
     ),
     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+  );
+
+  static const r12 = Radius.circular(12);
+  static const r16 = Radius.circular(16);
+
+  static OutlineInputBorder thinBorder([Color? c]) => OutlineInputBorder(
+    borderRadius: BorderRadius.circular(10),
+    borderSide: BorderSide(color: c ?? line),
+  );
+
+  static const tsH6 = TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w800,
+    color: text,
+  );
+  static const tsBody = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    color: text,
+  );
+  static const tsSub = TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w600,
+    color: sub,
   );
 }
 

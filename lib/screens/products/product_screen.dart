@@ -206,8 +206,7 @@ class _ProductScreenState extends State<ProductScreen> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () =>
-              Navigator.pushReplacementNamed(context, '/manage-product'),
+          onPressed: () => Navigator.pushReplacementNamed(context, '/product'),
         ),
       ),
       body: SafeArea(
@@ -325,7 +324,7 @@ class _ProductScreenState extends State<ProductScreen> {
                     onTap: () {
                       Navigator.pushNamed(
                         context,
-                        '/product/detail-product',
+                        '/product/list/detail',
                         arguments: p.idProduct,
                       );
                     },

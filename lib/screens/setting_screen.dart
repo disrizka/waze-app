@@ -4,9 +4,11 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/app_nav.dart';
+import 'package:wa_blast/providers/locale_provider.dart';
 import 'package:wa_blast/widgets/modal_login.dart';
 
 import '../constants/app_colors.dart';
+import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
 
 /// ===== Helpers akun (ringkas) =====
@@ -52,10 +54,128 @@ Future<String?> _getAccountNameByEmail(String email) async {
   return email.split('@').first;
 }
 
-Future<int> _getStoredAccountCount() async =>
-    (await _getStoredAccountEmails()).length;
+Future<void> _showLanguageSheet(BuildContext context) async {
+  final t = AppLocalizations.of(context)!;
+
+  final lp = context.read<LocaleProvider>();
+
+  // null = system, "en"/"id" = pilihan spesifik
+  final currentCode = lp.localeRaw?.languageCode;
+
+  await showModalBottomSheet(
+    context: context,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    backgroundColor: Colors.white,
+    builder: (_) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            title: Text(
+              t.language_sheet_title,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            trailing: IconButton(
+              icon: const Icon(LucideIcons.x),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+          const Divider(height: 1),
+
+          // English
+          RadioListTile<String?>(
+            value: "en",
+            groupValue: currentCode,
+            onChanged: (_) async {
+              await lp.setLocale(const Locale('en'));
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    behavior: SnackBarBehavior.floating,
+                    backgroundColor: const Color(
+                      0xFF4C6EF5,
+                    ), // warna biru utama (AppColors.primary kalau mau)
+                    margin: const EdgeInsets.all(16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    content: Row(
+                      children: [
+                        const Icon(Icons.language, color: Colors.white),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            t.language_switched,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            title: Text(t.language_english),
+          ),
+
+          // Indonesian
+          RadioListTile<String?>(
+            value: "id",
+            groupValue: currentCode,
+            onChanged: (_) async {
+              await lp.setLocale(const Locale('id'));
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    behavior: SnackBarBehavior.floating,
+                    backgroundColor: const Color(
+                      0xFF4C6EF5,
+                    ), // warna biru utama (AppColors.primary kalau mau)
+                    margin: const EdgeInsets.all(16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    content: Row(
+                      children: [
+                        const Icon(Icons.language, color: Colors.white),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            t.language_switched,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            title: Text(t.language_indonesian),
+          ),
+
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+  );
+}
 
 Future<bool> _confirmAddAccount(BuildContext context) async {
+  final t = AppLocalizations.of(context)!;
+
   final r = await showDialog<bool>(
     context: context,
     builder: (_) => AlertDialog(
@@ -64,27 +184,31 @@ Future<bool> _confirmAddAccount(BuildContext context) async {
       contentPadding: const EdgeInsets.symmetric(horizontal: 24),
       actionsPadding: const EdgeInsets.only(right: 16, bottom: 12),
       title: Row(
-        children: const [
-          Icon(LucideIcons.userPlus, color: AppColors.primary),
-          SizedBox(width: 12),
+        children: [
+          const Icon(LucideIcons.userPlus, color: AppColors.primary),
+          const SizedBox(width: 12),
           Text(
-            'Tambah Akun Lainnya?',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            t.dialog_add_account_title,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
           ),
         ],
       ),
-      content: const Text(
-        'Apakah kamu ingin menambahkan akun lainnya? Kamu bisa login dan berpindah akun kapan saja.',
-      ),
+      content: Text(t.dialog_add_account_message),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          child: Text('Batal', style: TextStyle(color: Colors.black)),
+          child: Text(
+            t.dialog_add_account_cancel,
+            style: const TextStyle(color: Colors.black),
+          ),
         ),
         ElevatedButton.icon(
           onPressed: () => Navigator.pop(context, true),
           icon: const Icon(LucideIcons.plus, color: Colors.white),
-          label: Text('Ya, Tambahkan', style: TextStyle(color: Colors.white)),
+          label: Text(
+            t.dialog_add_account_confirm,
+            style: const TextStyle(color: Colors.white),
+          ),
           style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
         ),
       ],
@@ -160,7 +284,7 @@ class _MenuTile extends StatelessWidget {
   }
 }
 
-/// ====== ProfileScreen (layout seperti screenshot) ======
+/// ====== ProfileScreen (pakai ARB) ======
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
   @override
@@ -171,6 +295,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context);
+    final t = AppLocalizations.of(context)!;
+
+    final lp = context.watch<LocaleProvider>();
+    final code = lp.localeRaw?.languageCode;
+
+    String currentLangLabel;
+    switch (code) {
+      case 'en':
+        currentLangLabel = t.language_english;
+        break;
+      case 'id':
+        currentLangLabel = t.language_indonesian;
+        break;
+      default:
+        currentLangLabel = t.language_use_system;
+        break;
+    }
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -179,9 +320,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         backgroundColor: AppColors.white,
         elevation: 0,
         centerTitle: false,
-        title: const Text(
-          'Other Menu',
-          style: TextStyle(color: AppColors.black),
+        title: Text(
+          t.profile_appbar_title,
+          style: const TextStyle(color: AppColors.black),
         ),
         actions: [
           Padding(
@@ -210,13 +351,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 );
               },
               icon: const Icon(
-                Icons.account_circle_outlined, // boleh ganti ke ikon lain
+                Icons.account_circle_outlined,
                 size: 20,
-                color: Color(0xFF4C6EF5), // biru seperti contoh
+                color: Color(0xFF4C6EF5),
               ),
-              label: const Text(
-                'Switch Account',
-                style: TextStyle(
+              label: Text(
+                t.profile_action_switch_account,
+                style: const TextStyle(
                   color: Color(0xFF4C6EF5),
                   fontWeight: FontWeight.w600,
                 ),
@@ -233,9 +374,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: SafeArea(
         child: ListView(
           children: [
-            const _SectionTitle('Setting'),
+            _SectionTitle(t.profile_section_setting),
             _MenuTile(
-              title: 'Account',
+              title: t.profile_menu_account,
               icon: LucideIcons.user,
               subtitle: null,
               onTap: () async {
@@ -243,24 +384,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
               },
             ),
             _MenuTile(
-              title: 'Help',
+              title: t.profile_menu_help,
               icon: LucideIcons.helpCircle,
               onTap: () {
                 Navigator.pushNamed(context, '/help'); // ganti rute bila perlu
               },
             ),
+            _MenuTile(
+              title: t.profile_menu_language,
+              subtitle: currentLangLabel,
+              icon: LucideIcons.languages,
+              onTap: () => _showLanguageSheet(context),
+            ),
+            _MenuTile(
+              title: 'Thermal Printer',
+              icon: LucideIcons.printer,
+              onTap: () {
+                Navigator.pushNamed(
+                  context,
+                  '/printer',
+                ); // ganti rute bila perlu
+              },
+            ),
 
             const SizedBox(height: 8),
-            const _SectionTitle('Others'),
+            _SectionTitle(t.profile_section_others),
             _MenuTile(
-              title: 'Terms & Conditions',
+              title: t.profile_menu_terms,
               icon: LucideIcons.fileText,
               onTap: () {
                 Navigator.pushNamed(context, '/terms'); // ganti rute bila perlu
               },
             ),
             _MenuTile(
-              title: 'Privacy Policy',
+              title: t.profile_menu_privacy,
               icon: LucideIcons.shield,
               onTap: () {
                 Navigator.pushNamed(
@@ -278,15 +435,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: ElevatedButton(
                   onPressed: () => auth.logout(context),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(
-                      0xFFC24340,
-                    ), // merah seperti contoh
+                    backgroundColor: const Color(0xFFC24340),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text('Logout Account'),
+                  child: Text(t.profile_button_logout),
                 ),
               ),
             ),
@@ -311,6 +466,7 @@ class _AccountSwitcher extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final currentEmail = auth.currentUserEmail; // pastikan sudah ada getter ini
+    final t = AppLocalizations.of(context)!;
 
     return FutureBuilder<List<String>>(
       future: accountsFuture,
@@ -324,10 +480,10 @@ class _AccountSwitcher extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Switch Account',
-                      style: TextStyle(
+                      t.sheet_switch_account_title,
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
@@ -362,9 +518,9 @@ class _AccountSwitcher extends StatelessWidget {
                           LucideIcons.userPlus,
                           color: AppColors.primary,
                         ),
-                        title: const Text(
-                          'Tambahkan Akun Lainnya',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                        title: Text(
+                          t.sheet_add_another_account,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         trailing: const Icon(
                           LucideIcons.chevronRight,
@@ -380,13 +536,15 @@ class _AccountSwitcher extends StatelessWidget {
                     );
                   }
 
-                  final email = accounts[index]; // <- email terdefinisi di sini
+                  final email = accounts[index];
                   final isActive = email == currentEmail;
 
                   return FutureBuilder<String?>(
                     future: getAccountName(email),
                     builder: (context, snapshot) {
-                      final name = snapshot.data ?? 'Nama tidak ditemukan';
+                      final name =
+                          snapshot.data ??
+                          AppLocalizations.of(context)!.sheet_name_not_found;
 
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 6.0),
@@ -429,9 +587,9 @@ class _AccountSwitcher extends StatelessWidget {
                                     color: Colors.green.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
-                                  child: const Text(
-                                    'Aktif',
-                                    style: TextStyle(
+                                  child: Text(
+                                    t.sheet_active_badge,
+                                    style: const TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                       color: Colors.green,
@@ -474,7 +632,8 @@ class _AccountSwitcher extends StatelessWidget {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(
-                                          error ?? 'Gagal switch akun',
+                                          error ??
+                                              t.sheet_switch_account_failed,
                                         ),
                                       ),
                                     );

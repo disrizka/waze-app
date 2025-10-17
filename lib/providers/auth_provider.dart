@@ -1,15 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/services/api_service.dart';
 
-// Optional: kecilkan model agar enak dipakai di UI
+/// =========================
+/// Model ringan untuk UI
+/// =========================
 @immutable
 class BusinessInfo {
   final String idBusiness;
@@ -45,7 +47,7 @@ class BusinessInfo {
 }
 
 class AuthProvider with ChangeNotifier {
-  // Internal fields
+  // ========= State internal
   String? _accessToken;
   String? _refreshToken;
   String? _name;
@@ -54,7 +56,7 @@ class AuthProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
-  // Getters
+  // ========= Getters publik
   String? get accessToken => _accessToken;
   String? get refreshToken => _refreshToken;
   String? get name => _name;
@@ -63,20 +65,41 @@ class AuthProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
   String? get currentUserEmail => _email;
+
+  // ========= Keys & konstanta
   static const String kAccountsKey = 'accounts';
   static const String kActiveAccountKey = 'activeAccountEmail';
-  String? get activeAccountEmail => _email;
+  static const String kBusinessRolesKey =
+      'businessRoles'; // Map: idBusiness -> {idAdminRole,name,isPrimary}
+  static const String kActiveBizRoleIdKey = 'activeBizRoleId';
+  static const String kActiveBizRoleNameKey = 'activeBizRoleName';
+  static const String kActiveBizRoleIsPrimaryKey = 'activeBizRoleIsPrimary';
 
+  String? get activeAccountEmail => _email;
   final nav = appNavigatorKey.currentState;
+
+  // ========= Optional getters role aktif (buat UI)
+  Future<String?> getActiveBusinessRoleId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(kActiveBizRoleIdKey);
+  }
+
+  Future<String?> getActiveBusinessRoleName() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(kActiveBizRoleNameKey);
+  }
+
+  Future<bool> getActiveBusinessRoleIsPrimary() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(kActiveBizRoleIsPrimaryKey) ?? false;
+  }
 
   Future<String?> getCurrentUserEmailFromPrefs() async {
     if (_email != null && _email!.isNotEmpty) return _email;
     final prefs = await SharedPreferences.getInstance();
-    // Prefer key aktif, fallback ke 'email' lama
     return prefs.getString(kActiveAccountKey) ?? prefs.getString('email');
   }
 
-  // Tambahkan helper ini di dalam class AuthProvider
   String _pickMsg(
     dynamic j, {
     int? httpStatus,
@@ -91,7 +114,7 @@ class AuthProvider with ChangeNotifier {
     return httpStatus != null ? '$fallback ($httpStatus)' : fallback;
   }
 
-  // Ganti seluruh method login() dengan versi ini
+  // ========= LOGIN (UPDATED: simpan role per business + active role)
   Future<bool> login({
     required BuildContext context,
     required String email,
@@ -126,16 +149,14 @@ class AuthProvider with ChangeNotifier {
         "LOGIN ◀︎ body: ${rawBody.length > 500 ? rawBody.substring(0, 500) + '…' : rawBody}",
       );
 
-      // Selalu coba decode body agar bisa baca msg dari server
       Map<String, dynamic>? decoded;
       try {
         decoded = jsonDecode(rawBody) as Map<String, dynamic>?;
       } catch (_) {}
 
-      // CASE A: HTTP 200 tetapi status di body bukan 200 (mis. 401)
       if (response.statusCode == 200) {
         final apiStatus = (decoded?['status'] as num?)?.toInt();
-        if (apiStatus != null && apiStatus != 200) {
+        if (apiStatus != 200) {
           final msg = _pickMsg(
             decoded,
             httpStatus: apiStatus,
@@ -152,7 +173,7 @@ class AuthProvider with ChangeNotifier {
           return false;
         }
 
-        // === SUCCESS FLOW (status benar-benar 200) ===
+        // === SUCCESS FLOW ===
         final tokenObj = (decoded?['token'] ?? {}) as Map<String, dynamic>;
         final userObj = (decoded?['data'] ?? {}) as Map<String, dynamic>;
         final bizList =
@@ -167,7 +188,7 @@ class AuthProvider with ChangeNotifier {
           return false;
         }
 
-        // derive fields
+        // derive user
         final firstname = (userObj['firstname'] ?? '') as String;
         final lastname = (userObj['lastname'] ?? '') as String;
         final fullName = '$firstname $lastname'.trim();
@@ -175,24 +196,44 @@ class AuthProvider with ChangeNotifier {
         final username = (userObj['username'] ?? '') as String;
         final photoPath = (userObj['photoPath'] ?? '') as String;
 
+        // pilih active business = item pertama (fallback kosong)
         final Map<String, dynamic>? firstBiz = bizList.isNotEmpty
             ? bizList.first
             : null;
-        final String activeBizName = (firstBiz?['name'] ?? '') as String;
-        final String activeBizUsername =
-            (firstBiz?['username'] ?? '') as String;
-        final String activeBizId = (firstBiz?['idBusiness'] ?? '') as String;
+        final String activeBizId = (firstBiz?['idBusiness'] ?? '').toString();
+        final String activeBizName = (firstBiz?['name'] ?? '').toString();
+        final String activeBizUsername = (firstBiz?['username'] ?? '')
+            .toString();
         final String activeBizLogoPath =
-            (firstBiz?['logoPath'] ?? firstBiz?['logo'] ?? '') as String;
+            (firstBiz?['logoPath'] ?? firstBiz?['logo'] ?? '').toString();
 
-        // set state
+        // === Build role map dari LOGIN response
+        // { "<idBusiness>": { "idAdminRole": roleId, "name": userRoleName, "isPrimary": false } }
+        final Map<String, dynamic> roleMap = {};
+        for (final b in bizList) {
+          final idBiz = (b['idBusiness'] ?? '').toString();
+          if (idBiz.isEmpty) continue;
+          final roleId = (b['roleId'] ?? '').toString();
+          final roleName = (b['userRoleName'] ?? '').toString();
+          roleMap[idBiz] = {
+            'idAdminRole': roleId,
+            'name': roleName,
+            'isPrimary':
+                false, // tidak tersedia di response login → default false
+          };
+        }
+
+        // active role mengikuti active business
+        final activeRole = roleMap[activeBizId] as Map<String, dynamic>?;
+
+        // === set state
         _accessToken = accessToken;
         _refreshToken = refreshToken;
         _name = fullName.isNotEmpty ? fullName : null;
         _email = serverEmail;
         _isActivated = true;
 
-        // persist
+        // === persist
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('login_raw', rawBody);
         await prefs.setString('token', jsonEncode(tokenObj));
@@ -216,11 +257,29 @@ class AuthProvider with ChangeNotifier {
           'userRoleName',
           (userObj['userRoleName'] ?? '').toString(),
         );
+
+        // active business
         await prefs.setString('activeBizId', activeBizId);
         await prefs.setString('activeBizName', activeBizName);
         await prefs.setString('activeBizUsername', activeBizUsername);
         await prefs.setString('activeBizLogoPath', activeBizLogoPath);
 
+        // simpan role map & active role
+        await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
+        await prefs.setString(
+          kActiveBizRoleIdKey,
+          (activeRole?['idAdminRole'] ?? '').toString(),
+        );
+        await prefs.setString(
+          kActiveBizRoleNameKey,
+          (activeRole?['name'] ?? '').toString(),
+        );
+        await prefs.setBool(
+          kActiveBizRoleIsPrimaryKey,
+          (activeRole?['isPrimary'] ?? false) == true,
+        );
+
+        // snapshot akun
         final accountSnapshot = {
           'token': tokenObj,
           'user': userObj,
@@ -238,11 +297,18 @@ class AuthProvider with ChangeNotifier {
             'username': activeBizUsername,
             'logoPath': activeBizLogoPath,
           },
+          'businessRoles': roleMap,
+          'activeBusinessRole': {
+            'idAdminRole': (activeRole?['idAdminRole'] ?? '').toString(),
+            'name': (activeRole?['name'] ?? '').toString(),
+            'isPrimary': (activeRole?['isPrimary'] ?? false) == true,
+          },
         };
         await prefs.setString(
           'account_${_email!}',
           jsonEncode(accountSnapshot),
         );
+
         final accounts = prefs.getStringList(kAccountsKey) ?? [];
         if (!accounts.contains(_email)) {
           accounts.add(_email!);
@@ -256,7 +322,7 @@ class AuthProvider with ChangeNotifier {
         return true;
       }
 
-      // CASE B: HTTP non-200 → tampilkan pesan dari body bila ada
+      // HTTP non-200
       final msg = _pickMsg(
         decoded ?? {},
         httpStatus: response.statusCode,
@@ -302,13 +368,55 @@ class AuthProvider with ChangeNotifier {
       _email = accountData['email'];
       _isActivated = accountData['isActivated'] ?? false;
 
-      // Set data aktif
-      await prefs.setString('accessToken', _accessToken!);
-      await prefs.setString('refreshToken', _refreshToken!);
-      await prefs.setString('name', _name!);
-      await prefs.setString('email', _email!);
+      await prefs.setString('accessToken', _accessToken ?? '');
+      await prefs.setString('refreshToken', _refreshToken ?? '');
+      await prefs.setString('name', _name ?? '');
+      await prefs.setString('email', _email ?? '');
       await prefs.setBool('isActivated', _isActivated);
-      await prefs.setString(kActiveAccountKey, _email!);
+      await prefs.setString(kActiveAccountKey, _email ?? '');
+
+      // Sinkronkan juga active business & role dari snapshot jika ada
+      final activeBiz =
+          (accountData['activeBusiness'] as Map?)?.cast<String, dynamic>() ??
+          {};
+      await prefs.setString(
+        'activeBizId',
+        (activeBiz['idBusiness'] ?? '').toString(),
+      );
+      await prefs.setString(
+        'activeBizName',
+        (activeBiz['name'] ?? '').toString(),
+      );
+      await prefs.setString(
+        'activeBizUsername',
+        (activeBiz['username'] ?? '').toString(),
+      );
+      await prefs.setString(
+        'activeBizLogoPath',
+        (activeBiz['logoPath'] ?? '').toString(),
+      );
+
+      final roleMap = (accountData['businessRoles'] as Map?)
+          ?.cast<String, dynamic>();
+      if (roleMap != null) {
+        await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
+      }
+      final activeRole = (accountData['activeBusinessRole'] as Map?)
+          ?.cast<String, dynamic>();
+      if (activeRole != null) {
+        await prefs.setString(
+          kActiveBizRoleIdKey,
+          (activeRole['idAdminRole'] ?? '').toString(),
+        );
+        await prefs.setString(
+          kActiveBizRoleNameKey,
+          (activeRole['name'] ?? '').toString(),
+        );
+        await prefs.setBool(
+          kActiveBizRoleIsPrimaryKey,
+          (activeRole['isPrimary'] ?? false) == true,
+        );
+      }
 
       _error = null;
       notifyListeners();
@@ -320,13 +428,11 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  // Ambil daftar akun
   Future<List<String>> getStoredAccounts() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getStringList(kAccountsKey) ?? [];
   }
 
-  // Hapus akun tertentu dari daftar
   Future<void> removeAccount(String email) async {
     final prefs = await SharedPreferences.getInstance();
     final accounts = prefs.getStringList(kAccountsKey) ?? [];
@@ -345,7 +451,7 @@ class AuthProvider with ChangeNotifier {
   bool _isJwtExpired(String token, {int leewaySeconds = 60}) {
     try {
       final parts = token.split('.');
-      if (parts.length != 3) return false; // bukan JWT → abaikan
+      if (parts.length != 3) return false;
       String _norm(String s) {
         var out = s.replaceAll('-', '+').replaceAll('_', '/');
         switch (out.length % 4) {
@@ -366,12 +472,10 @@ class AuthProvider with ChangeNotifier {
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       return nowSec >= (exp - leewaySeconds);
     } catch (_) {
-      return false; // kalau gagal decode, anggap tidak expired
+      return false;
     }
   }
 
-  // Autologin saat app dibuka
-  // ganti isi tryAutoLogin agar TANPA cek exp / refresh proaktif
   Future<void> tryAutoLogin(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
     final activeEmail = prefs.getString(kActiveAccountKey);
@@ -385,19 +489,15 @@ class AuthProvider with ChangeNotifier {
       _accessToken =
           prefs.getString('accessToken') ??
           (accountData != null ? accountData['accessToken'] as String? : null);
-
       _refreshToken =
           prefs.getString('refreshToken') ??
           (accountData != null ? accountData['refreshToken'] as String? : null);
-
       _name =
           prefs.getString('name') ??
           (accountData != null ? accountData['name'] as String? : null);
-
       _email =
           prefs.getString('email') ??
           (accountData != null ? accountData['email'] as String? : null);
-
       _isActivated =
           prefs.getBool('isActivated') ??
           (accountData != null
@@ -405,14 +505,12 @@ class AuthProvider with ChangeNotifier {
               : null) ??
           false;
 
-      // Tidak ada cek exp / refresh di sini.
       notifyListeners();
     } catch (e) {
       debugPrint("AutoLogin parsing error: $e");
     }
   }
 
-  // Logout (tanpa pindah halaman)
   Future<void> logoutWithoutNavigation() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -428,6 +526,16 @@ class AuthProvider with ChangeNotifier {
     await prefs.remove('name');
     await prefs.remove('email');
     await prefs.remove('isActivated');
+
+    // Bersihkan pointer active biz & role
+    await prefs.remove('activeBizId');
+    await prefs.remove('activeBizName');
+    await prefs.remove('activeBizUsername');
+    await prefs.remove('activeBizLogoPath');
+    await prefs.remove(kActiveBizRoleIdKey);
+    await prefs.remove(kActiveBizRoleNameKey);
+    await prefs.remove(kActiveBizRoleIsPrimaryKey);
+
     notifyListeners();
   }
 
@@ -438,14 +546,12 @@ class AuthProvider with ChangeNotifier {
       final currentEmail = _email;
       final accounts = prefs.getStringList(kAccountsKey) ?? [];
 
-      // bersihkan daftar & snapshot akun
       accounts.remove(currentEmail);
       await prefs.setStringList(kAccountsKey, accounts);
       if (currentEmail != null) {
         await prefs.remove('account_$currentEmail');
       }
 
-      // clear session
       _accessToken = null;
       _refreshToken = null;
       _name = null;
@@ -460,19 +566,24 @@ class AuthProvider with ChangeNotifier {
       await prefs.remove('isActivated');
       await prefs.remove(kActiveAccountKey);
 
+      // Bersihkan active biz & role
+      await prefs.remove('activeBizId');
+      await prefs.remove('activeBizName');
+      await prefs.remove('activeBizUsername');
+      await prefs.remove('activeBizLogoPath');
+      await prefs.remove(kActiveBizRoleIdKey);
+      await prefs.remove(kActiveBizRoleNameKey);
+      await prefs.remove(kActiveBizRoleIsPrimaryKey);
+
       notifyListeners();
 
-      // ⬅️ RESET Splash guard sebelum navigasi
       final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
       sp?.resetNavigationGuards();
       sp?.abortDeepLink();
 
-      // ⬅️ Gunakan navigator global supaya tidak nyasar ke nested navigator
-
       if (accounts.isNotEmpty) {
         final nextEmail = accounts.first;
         final success = await switchAccount(nextEmail);
-
         if (success) {
           nav?.pushNamedAndRemoveUntil('/splash', (r) => false);
           return;
@@ -507,7 +618,6 @@ class AuthProvider with ChangeNotifier {
         "fcm_token": fcmToken,
       };
 
-      // endpoint: waveup/user/register — public, jadi without token
       final res = await ApiService.postJson('/waveup/user/register', body);
       final raw = res.body;
       debugPrint(
@@ -566,7 +676,6 @@ class AuthProvider with ChangeNotifier {
         return false;
       }
 
-      // 1) Upload logo jika ada → dapat filename
       String? uploadedFilename;
       if (organisationLogo != null) {
         uploadedFilename = await _uploadLogoAndGetFilename(organisationLogo);
@@ -576,7 +685,6 @@ class AuthProvider with ChangeNotifier {
         }
       }
 
-      // 2) Hit register/finish (organisation_logo kirim filename string)
       final fields = <String, String>{
         'firstname': firstName,
         'lastname': lastName,
@@ -604,20 +712,16 @@ class AuthProvider with ChangeNotifier {
           return false;
         }
 
-        // 3) Persist idBusiness & mark logged-in
         await _saveActiveBusinessId(idBusiness);
         _isActivated = true;
         await prefs.setBool('isActivated', true);
 
-        // 4) Fetch user profile terbaru dan persist
         await refreshCurrentUser(context);
 
-        // 5) Redirect
         if (context.mounted) {
           final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
           sp?.resetNavigationGuards();
           sp?.abortDeepLink();
-
           final navNow = appNavigatorKey.currentState;
           navNow?.pushNamedAndRemoveUntil('/splash', (r) => false);
         }
@@ -661,7 +765,6 @@ class AuthProvider with ChangeNotifier {
         final userObj = (j['data'] ?? {}) as Map<String, dynamic>;
         final prefs = await SharedPreferences.getInstance();
 
-        // derive fields
         final firstname = (userObj['firstname'] ?? '') as String;
         final lastname = (userObj['lastname'] ?? '') as String;
         final fullName = '$firstname $lastname'.trim();
@@ -673,11 +776,9 @@ class AuthProvider with ChangeNotifier {
         final roleName = (userObj['userRoleName'] ?? '').toString();
         final idUser = (userObj['idUser'] ?? '').toString();
 
-        // update in-memory
         _name = fullName.isNotEmpty ? fullName : _name;
         _email = email.isNotEmpty ? email : _email;
 
-        // persist single keys
         await prefs.setString('user', jsonEncode(userObj));
         if (_name != null) await prefs.setString('name', _name!);
         if (_email != null) await prefs.setString('email', _email!);
@@ -688,7 +789,6 @@ class AuthProvider with ChangeNotifier {
         await prefs.setString('userRoleName', roleName);
         await prefs.setString('idUser', idUser);
 
-        // update snapshot akun aktif
         final activeEmail = _email ?? prefs.getString(kActiveAccountKey);
         if (activeEmail != null) {
           final key = 'account_$activeEmail';
@@ -720,7 +820,6 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  // di dalam class AuthProvider
   Future<void> updateAccessToken(String newAccess) async {
     if (newAccess.isEmpty) return;
     _accessToken = newAccess;
@@ -728,7 +827,6 @@ class AuthProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('accessToken', newAccess);
 
-    // Sinkronkan snapshot akun aktif (account_<email>)
     final emailKey = _email ?? prefs.getString(kActiveAccountKey);
     if (emailKey != null && emailKey.isNotEmpty) {
       final key = 'account_$emailKey';
@@ -747,7 +845,7 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  /// Persist state & SharedPreferences dari payload AUTH (struktur mirip /login)
+  /// Persist dari payload AUTH (login/register) + role map
   Future<bool> _persistFromAuthResponse(
     Map<String, dynamic> decoded,
     String rawBody,
@@ -768,26 +866,38 @@ class AuthProvider with ChangeNotifier {
       final firstname = (userObj['firstname'] ?? '') as String;
       final lastname = (userObj['lastname'] ?? '') as String;
       final fullName = '$firstname $lastname'.trim();
-      final serverEmail =
-          (userObj['email'] ?? '') as String?; // bisa kosong tergantung API
+      final serverEmail = (userObj['email'] ?? '') as String?;
       final username = (userObj['username'] ?? '') as String;
       final photoPath = (userObj['photoPath'] ?? '') as String;
 
       final Map<String, dynamic>? firstBiz = bizList.isNotEmpty
           ? bizList.first
           : null;
-      final String activeBizName = (firstBiz?['name'] ?? '') as String;
-      final String activeBizUsername = (firstBiz?['username'] ?? '') as String;
-      final String activeBizId = (firstBiz?['idBusiness'] ?? '') as String;
+      final String activeBizId = (firstBiz?['idBusiness'] ?? '').toString();
+      final String activeBizName = (firstBiz?['name'] ?? '').toString();
+      final String activeBizUsername = (firstBiz?['username'] ?? '').toString();
       final String activeBizLogoPath =
-          (firstBiz?['logoPath'] ?? firstBiz?['logo'] ?? '') as String;
+          (firstBiz?['logoPath'] ?? firstBiz?['logo'] ?? '').toString();
 
-      // set ke state
+      // Build role map dari register (struktur sama dengan login)
+      final Map<String, dynamic> roleMap = {};
+      for (final b in bizList) {
+        final idBiz = (b['idBusiness'] ?? '').toString();
+        if (idBiz.isEmpty) continue;
+        final roleId = (b['roleId'] ?? '').toString();
+        final roleName = (b['userRoleName'] ?? '').toString();
+        roleMap[idBiz] = {
+          'idAdminRole': roleId,
+          'name': roleName,
+          'isPrimary': false,
+        };
+      }
+      final activeRole = roleMap[activeBizId] as Map<String, dynamic>?;
+
       _accessToken = accessToken;
       _refreshToken = refreshToken;
       _name = fullName.isNotEmpty ? fullName : null;
-      _email =
-          serverEmail ?? _email; // fallback jika server tidak mengembalikan
+      _email = serverEmail ?? _email;
       _isActivated = true;
 
       final prefs = await SharedPreferences.getInstance();
@@ -819,30 +929,51 @@ class AuthProvider with ChangeNotifier {
       await prefs.setString('activeBizUsername', activeBizUsername);
       await prefs.setString('activeBizLogoPath', activeBizLogoPath);
 
-      final accountSnapshot = {
-        'token': tokenObj,
-        'user': userObj,
-        'business': bizList,
-        'accessToken': _accessToken,
-        'refreshToken': _refreshToken,
-        'name': _name,
-        'email': _email,
-        'username': username,
-        'photoPath': photoPath,
-        'isActivated': _isActivated,
-        'activeBusiness': {
-          'idBusiness': activeBizId,
-          'name': activeBizName,
-          'username': activeBizUsername,
-          'logoPath': activeBizLogoPath,
-        },
-      };
+      // persist roles
+      await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
+      await prefs.setString(
+        kActiveBizRoleIdKey,
+        (activeRole?['idAdminRole'] ?? '').toString(),
+      );
+      await prefs.setString(
+        kActiveBizRoleNameKey,
+        (activeRole?['name'] ?? '').toString(),
+      );
+      await prefs.setBool(
+        kActiveBizRoleIsPrimaryKey,
+        (activeRole?['isPrimary'] ?? false) == true,
+      );
 
       if (_email != null) {
+        final accountSnapshot = {
+          'token': tokenObj,
+          'user': userObj,
+          'business': bizList,
+          'accessToken': _accessToken,
+          'refreshToken': _refreshToken,
+          'name': _name,
+          'email': _email,
+          'username': username,
+          'photoPath': photoPath,
+          'isActivated': _isActivated,
+          'activeBusiness': {
+            'idBusiness': activeBizId,
+            'name': activeBizName,
+            'username': activeBizUsername,
+            'logoPath': activeBizLogoPath,
+          },
+          'businessRoles': roleMap,
+          'activeBusinessRole': {
+            'idAdminRole': (activeRole?['idAdminRole'] ?? '').toString(),
+            'name': (activeRole?['name'] ?? '').toString(),
+            'isPrimary': (activeRole?['isPrimary'] ?? false) == true,
+          },
+        };
         await prefs.setString(
           'account_${_email!}',
           jsonEncode(accountSnapshot),
         );
+
         final accounts = prefs.getStringList(kAccountsKey) ?? [];
         if (!accounts.contains(_email)) {
           accounts.add(_email!);
@@ -851,7 +982,7 @@ class AuthProvider with ChangeNotifier {
         await prefs.setString(kActiveAccountKey, _email!);
       }
 
-      debugPrint('REGISTER FINISH ✅ persisted');
+      debugPrint('REGISTER FINISH ✅ persisted (+roles)');
       return true;
     } catch (e, st) {
       _error = 'Gagal menyimpan data register: $e';
@@ -860,14 +991,13 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  // === Helper: upload file -> ambil data.filename ===
   Future<String?> _uploadLogoAndGetFilename(File file) async {
     try {
       final res = await ApiService.postMultipart(
         '/file/upload',
-        fields: const {}, // jika backend perlu field lain, tambahkan di sini
-        files: {'file': file.path}, // asumsi key = 'file'
-        withAccessToken: true, // pakai token dari prefs
+        fields: const {},
+        files: {'file': file.path},
+        withAccessToken: true,
       );
       final raw = res.body;
       debugPrint(
@@ -891,6 +1021,28 @@ class AuthProvider with ChangeNotifier {
 
     await prefs.setString('activeBizId', idBusiness);
 
+    // Saat mengganti active business manual di register flow,
+    // ikutkan active role jika ada di businessRoles map.
+    try {
+      final roleMapStr = prefs.getString(kBusinessRolesKey);
+      if (roleMapStr != null && roleMapStr.isNotEmpty) {
+        final Map<String, dynamic> roleMap = jsonDecode(roleMapStr);
+        final rb = (roleMap[idBusiness] as Map?)?.cast<String, dynamic>();
+        await prefs.setString(
+          kActiveBizRoleIdKey,
+          (rb?['idAdminRole'] ?? '').toString(),
+        );
+        await prefs.setString(
+          kActiveBizRoleNameKey,
+          (rb?['name'] ?? '').toString(),
+        );
+        await prefs.setBool(
+          kActiveBizRoleIsPrimaryKey,
+          (rb?['isPrimary'] ?? false) == true,
+        );
+      }
+    } catch (_) {}
+
     final activeEmail = _email ?? prefs.getString(kActiveAccountKey);
     if (activeEmail != null) {
       final key = 'account_$activeEmail';
@@ -902,6 +1054,21 @@ class AuthProvider with ChangeNotifier {
               (snap['activeBusiness'] as Map?)?.cast<String, dynamic>() ?? {};
           activeBiz['idBusiness'] = idBusiness;
           snap['activeBusiness'] = activeBiz;
+
+          // sinkronkan active role di snapshot juga
+          final rb = (() {
+            final roleMapStr = prefs.getString(kBusinessRolesKey);
+            if (roleMapStr == null) return null;
+            final Map<String, dynamic> rmap = jsonDecode(roleMapStr);
+            return (rmap[idBusiness] as Map?)?.cast<String, dynamic>();
+          })();
+
+          snap['activeBusinessRole'] = {
+            'idAdminRole': (rb?['idAdminRole'] ?? '').toString(),
+            'name': (rb?['name'] ?? '').toString(),
+            'isPrimary': (rb?['isPrimary'] ?? false) == true,
+          };
+
           await prefs.setString(key, jsonEncode(snap));
         } catch (e) {
           debugPrint('Gagal update snapshot idBusiness: $e');
@@ -910,7 +1077,6 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Ambil daftar bisnis yang tersimpan dari SharedPreferences
   Future<List<BusinessInfo>> getBusinesses() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('business');
@@ -928,23 +1094,20 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Getter singkat untuk bisnis aktif saat ini (atau null)
   Future<BusinessInfo?> getActiveBusiness() async {
     final prefs = await SharedPreferences.getInstance();
     final activeId = prefs.getString('activeBizId') ?? '';
     final all = await getBusinesses();
-
-    if (all.isEmpty) return null; // boleh null di level fungsi
-    if (activeId.isEmpty) return all.first; // pilih default ke item pertama
-
-    // orElse WAJIB mengembalikan BusinessInfo (bukan null)
+    if (all.isEmpty) return null;
+    if (activeId.isEmpty) return all.first;
     return all.firstWhere(
       (b) => b.idBusiness == activeId,
       orElse: () => all.first,
     );
   }
 
-  // === NEW: Simpan daftar bisnis user + role dari /user/business ===
+  /// Ambil daftar bisnis + role dari /user/business (jika ada endpointnya)
+  /// Sudah include penyimpanan role & active role.
   Future<bool> fetchAndPersistUserBusiness(BuildContext context) async {
     try {
       final res = await ApiService.get(
@@ -965,11 +1128,9 @@ class AuthProvider with ChangeNotifier {
       final j = jsonDecode(raw) as Map<String, dynamic>;
       final List data = (j['data'] as List?) ?? const [];
 
-      // Simpan raw response untuk auditing
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('userBusinessRaw', raw);
 
-      // Turunkan ke array "business" (dipakai oleh getBusinesses())
       final List<Map<String, dynamic>> simplifiedBusiness = data
           .map<Map<String, dynamic>>((e) {
             final b =
@@ -983,10 +1144,8 @@ class AuthProvider with ChangeNotifier {
           })
           .toList();
 
-      // Simpan daftar bisnis “standar” (agar kompatibel dgn getBusinesses())
       await prefs.setString('business', jsonEncode(simplifiedBusiness));
 
-      // Simpan role per bisnis dalam map: { idBusiness: {idAdminRole, name, isPrimary} }
       final Map<String, dynamic> roleMap = {};
       for (final item in data) {
         final m = (item as Map).cast<String, dynamic>();
@@ -1001,9 +1160,8 @@ class AuthProvider with ChangeNotifier {
           };
         }
       }
-      await prefs.setString('businessRoles', jsonEncode(roleMap));
+      await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
 
-      // Set active business = item pertama
       if (simplifiedBusiness.isNotEmpty) {
         final first = simplifiedBusiness.first;
         await prefs.setString('activeBizId', first['idBusiness'] ?? '');
@@ -1011,22 +1169,20 @@ class AuthProvider with ChangeNotifier {
         await prefs.setString('activeBizUsername', first['username'] ?? '');
         await prefs.setString('activeBizLogoPath', first['logoPath'] ?? '');
 
-        // Sekalian simpan active role (kalau ada)
         final rb = roleMap[first['idBusiness']];
         await prefs.setString(
-          'activeBizRoleId',
+          kActiveBizRoleIdKey,
           (rb?['idAdminRole'] ?? '').toString(),
         );
         await prefs.setString(
-          'activeBizRoleName',
+          kActiveBizRoleNameKey,
           (rb?['name'] ?? '').toString(),
         );
         await prefs.setBool(
-          'activeBizRoleIsPrimary',
+          kActiveBizRoleIsPrimaryKey,
           (rb?['isPrimary'] ?? false) == true,
         );
 
-        // Sinkronkan snapshot account_<email>
         final emailKey = _email ?? prefs.getString(kActiveAccountKey);
         if (emailKey != null && emailKey.isNotEmpty) {
           final key = 'account_$emailKey';
@@ -1063,12 +1219,8 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  // Make the private fetcher callable from outside
-  // di dalam class AuthProvider
   Future<bool> refreshCurrentUser(BuildContext context) async {
     debugPrint('refreshCurrentUser ▶︎ start');
-
-    // 1) Ambil daftar bisnis + role dulu
     try {
       final okBiz = await fetchAndPersistUserBusiness(context);
       debugPrint('refreshCurrentUser ▶︎ fetchAndPersistUserBusiness = $okBiz');
@@ -1076,22 +1228,16 @@ class AuthProvider with ChangeNotifier {
       debugPrint('refreshCurrentUser ❌ userBusiness error: $e\n$st');
     }
 
-    // 2) Lalu fetch user (ini yang jadi nilai return)
     final okUser = await fetchAndPersistCurrentUser(context);
     debugPrint('refreshCurrentUser ▶︎ fetchAndPersistCurrentUser = $okUser');
-
     debugPrint('refreshCurrentUser ◀︎ done');
     return okUser;
   }
 
-  /// Ganti active business by idBusiness, *tanpa* perlu login ulang.
-  /// - Update keys: activeBizId, activeBizName, activeBizUsername, activeBizLogoPath
-  /// - Update snapshot "account_<email>" agar konsisten saat cold start
-  /// - Optional: jika API butuh header bisnis, panggil hook di ApiService
+  /// Ganti active business + set active role dari map roles
   Future<bool> switchActiveBusiness(String idBusiness) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1) Cari bisnis yang dimaksud dari list yg tersimpan
     final businesses = await getBusinesses();
     final target = businesses.firstWhere(
       (b) => b.idBusiness == idBusiness,
@@ -1108,13 +1254,37 @@ class AuthProvider with ChangeNotifier {
       return false;
     }
 
-    // 2) Persist ke prefs (single keys)
     await prefs.setString('activeBizId', target.idBusiness);
     await prefs.setString('activeBizName', target.name);
     await prefs.setString('activeBizUsername', target.username);
     await prefs.setString('activeBizLogoPath', target.logoPath);
 
-    // 3) Update snapshot akun aktif (account_<email>)
+    // update active role berdasarkan role map
+    try {
+      final roleMapStr = prefs.getString(kBusinessRolesKey);
+      Map<String, dynamic>? roleMap;
+      if (roleMapStr != null && roleMapStr.isNotEmpty) {
+        roleMap = jsonDecode(roleMapStr) as Map<String, dynamic>;
+      }
+
+      final rb = (roleMap?[target.idBusiness] as Map?)?.cast<String, dynamic>();
+      await prefs.setString(
+        kActiveBizRoleIdKey,
+        (rb?['idAdminRole'] ?? '').toString(),
+      );
+      await prefs.setString(
+        kActiveBizRoleNameKey,
+        (rb?['name'] ?? '').toString(),
+      );
+      await prefs.setBool(
+        kActiveBizRoleIsPrimaryKey,
+        (rb?['isPrimary'] ?? false) == true,
+      );
+    } catch (e) {
+      debugPrint('switchActiveBusiness: update active role error: $e');
+    }
+
+    // snapshot
     final emailKey = _email ?? prefs.getString(kActiveAccountKey);
     if (emailKey != null && emailKey.isNotEmpty) {
       final key = 'account_$emailKey';
@@ -1129,25 +1299,31 @@ class AuthProvider with ChangeNotifier {
           activeBiz['username'] = target.username;
           activeBiz['logoPath'] = target.logoPath;
           snap['activeBusiness'] = activeBiz;
+
+          final rb = (() {
+            final roleMapStr = prefs.getString(kBusinessRolesKey);
+            if (roleMapStr == null) return null;
+            final Map<String, dynamic> rmap = jsonDecode(roleMapStr);
+            return (rmap[target.idBusiness] as Map?)?.cast<String, dynamic>();
+          })();
+
+          snap['activeBusinessRole'] = {
+            'idAdminRole': (rb?['idAdminRole'] ?? '').toString(),
+            'name': (rb?['name'] ?? '').toString(),
+            'isPrimary': (rb?['isPrimary'] ?? false) == true,
+          };
+
           await prefs.setString(key, jsonEncode(snap));
         } catch (e) {
           debugPrint('switchActiveBusiness: update snapshot error: $e');
         }
       }
-      // Pastikan pointer akun aktif juga ke email ini
       await prefs.setString(kActiveAccountKey, emailKey);
     }
 
-    // 4) Optional: inform ApiService kalau butuh header khusus per bisnis
-    try {
-      // Jika kamu punya hook seperti ini, aktifkan:
-      // ApiService.setActiveBusinessId(target.idBusiness);
-      // atau, jika perlu custom header:
-      // ApiService.updateDefaultHeaders({'X-Business-Id': target.idBusiness});
-    } catch (_) {}
+    // Jika perlu header khusus per bisnis:
+    // try { ApiService.setActiveBusinessId(target.idBusiness); } catch (_) {}
 
-    // 5) Update state in-memory (jika kamu ingin expose ke UI lewat provider)
-    // (Tidak ada field khusus di state, tapi kita bisa notify agar UI refresh)
     _error = null;
     notifyListeners();
     return true;

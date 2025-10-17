@@ -1,7 +1,21 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:dotted_border/dotted_border.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+// Thermal printing
+import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart' as esc;
+import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
+
 import 'package:wa_blast/providers/sales_provider.dart';
 
 class SalesReportDetailScreen extends StatefulWidget {
@@ -14,10 +28,11 @@ class SalesReportDetailScreen extends StatefulWidget {
 }
 
 class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
+  bool _working = false;
+
   @override
   void initState() {
     super.initState();
-    // Ambil detail transaksi langsung dari endpoint detail
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<SalesProvider>().fetchSalesDetail(
         context,
@@ -44,6 +59,81 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
           'Sales Detail',
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
+        actions: [
+          // Save PDF
+          IconButton(
+            tooltip: 'Save PDF',
+            onPressed: _working
+                ? null
+                : () async {
+                    final prov = context.read<SalesProvider>();
+                    final d = prov.salesDetail;
+                    if (d == null) return;
+                    setState(() => _working = true);
+                    try {
+                      final bytes = await _buildPdfBytes(d);
+                      final filePath = await _savePdfToDevice(
+                        bytes: bytes,
+                        filename: _safeFileName(
+                          '${d.number.isEmpty ? d.reference : d.number}.pdf',
+                        ),
+                      );
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('PDF saved: $filePath'),
+                          behavior: SnackBarBehavior.floating,
+                          action: SnackBarAction(
+                            label: 'Open',
+                            onPressed: () => Printing.sharePdf(
+                              bytes: bytes,
+                              filename: filePath.split('/').last,
+                            ),
+                          ),
+                        ),
+                      );
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Failed to save PDF: $e')),
+                      );
+                    } finally {
+                      if (mounted) setState(() => _working = false);
+                    }
+                  },
+            icon: const Icon(Icons.picture_as_pdf_rounded),
+          ),
+          // Print Thermal
+          IconButton(
+            tooltip: 'Print Thermal',
+            onPressed: _working
+                ? null
+                : () async {
+                    final prov = context.read<SalesProvider>();
+                    final d = prov.salesDetail;
+                    if (d == null) return;
+                    setState(() => _working = true);
+                    try {
+                      await _printThermal(d);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Thermal print sent'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Print failed: $e')),
+                      );
+                    } finally {
+                      if (mounted) setState(() => _working = false);
+                    }
+                  },
+            icon: const Icon(Icons.print_rounded),
+          ),
+        ],
       ),
       body: Consumer<SalesProvider>(
         builder: (context, prov, _) {
@@ -74,7 +164,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
-              // Ringkasan dengan DottedBorder
               DottedBorder(
                 options: const RoundedRectDottedBorderOptions(
                   color: Color(0xFFD1D5DB),
@@ -114,7 +203,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // nomor transaksi atau reference fallback
                                 Text(
                                   (d.number.isEmpty ? d.reference : d.number),
                                   style: const TextStyle(
@@ -164,8 +252,7 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                         _KV(
                           label: 'Customer',
                           value:
-                              '${d.customer!.name} '
-                              '${d.customer!.phone.isNotEmpty ? '• ${d.customer!.phone}' : ''}',
+                              '${d.customer!.name} ${d.customer!.phone.isNotEmpty ? '• ${d.customer!.phone}' : ''}',
                         ),
                       ],
                       if (d.storeLocation != null) ...[
@@ -200,7 +287,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
               ),
               const SizedBox(height: 8),
 
-              // daftar item detail
               ...d.items.map((it) {
                 final lineSubtotal = it.qtyOut * it.price;
                 final img = it.product?.imagePath;
@@ -289,7 +375,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
               const SizedBox(height: 4),
               const Divider(height: 24),
 
-              // totals
               if (calc != null) ...[
                 _rowTotal('Subtotal', calc.subtotal, fMoney),
                 _rowTotal('Discount', -calc.discount, fMoney, discount: true),
@@ -305,6 +390,579 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
     );
   }
 
+  // =======================
+  // === PDF GENERATOR =====
+  // =======================
+  Future<Uint8List> _buildPdfBytes(dynamic d) async {
+    final fMoney = NumberFormat.decimalPattern('id_ID');
+    final fDate = DateFormat('EEE, dd MMM yyyy • HH:mm');
+
+    final doc = pw.Document();
+    final grey = PdfColor.fromHex('#6B7280');
+    final dark = PdfColor.fromHex('#111827');
+
+    doc.addPage(
+      pw.MultiPage(
+        pageTheme: pw.PageTheme(
+          margin: const pw.EdgeInsets.fromLTRB(24, 24, 24, 24),
+        ),
+        build: (context) => [
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Container(
+                width: 34,
+                height: 34,
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromInt(0xFFEFF4FF),
+                  shape: pw.BoxShape.circle,
+                ),
+              ),
+              pw.SizedBox(width: 10),
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      (d.number?.isEmpty ?? true) ? d.reference : d.number,
+                      style: pw.TextStyle(
+                        fontSize: 18,
+                        fontWeight: pw.FontWeight.bold,
+                        color: dark,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      fDate.format(d.time),
+                      style: pw.TextStyle(color: grey, fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: pw.BoxDecoration(
+                  color: _statusBgPdf(d.status),
+                  borderRadius: pw.BorderRadius.circular(999),
+                ),
+                child: pw.Text(
+                  d.status,
+                  style: pw.TextStyle(
+                    fontSize: 10,
+                    fontWeight: pw.FontWeight.bold,
+                    color: _statusFgPdf(d.status),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 14),
+          pw.Divider(),
+
+          // Items
+          pw.SizedBox(height: 8),
+          pw.Text(
+            'Items',
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: grey),
+          ),
+          pw.SizedBox(height: 6),
+          ...d.items.map<pw.Widget>((it) {
+            final lineSubtotal = it.qtyOut * it.price;
+            final title = it.product?.name ?? it.productSkuId;
+            final skuCode = it.productSku?.code ?? '';
+            final attrs = (it.productSku?.attributes ?? [])
+                .map<String>((a) => '${a['name']}: ${a['value']}')
+                .join(', ');
+            final meta = [
+              skuCode,
+              attrs,
+            ].where((e) => e.isNotEmpty).join(' • ');
+
+            return pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 8),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          title,
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                        ),
+                        if (meta.isNotEmpty)
+                          pw.Text(
+                            meta,
+                            style: pw.TextStyle(fontSize: 9, color: grey),
+                          ),
+                        pw.Text(
+                          'Qty ${it.qtyOut} × Rp ${fMoney.format(it.price)}'
+                          '${it.discount > 0 ? ' (disc Rp ${fMoney.format(it.discount)}/item)' : ''}',
+                          style: pw.TextStyle(fontSize: 9, color: grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 8),
+                  pw.Text(
+                    'Rp ${fMoney.format(lineSubtotal)}',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+
+          pw.Divider(),
+          pw.SizedBox(height: 6),
+
+          if (d.calculation != null) ...[
+            _rowTotalPdf('Subtotal', d.calculation.subtotal, fMoney),
+            _rowTotalPdf(
+              'Discount',
+              -d.calculation.discount,
+              fMoney,
+              discount: true,
+            ),
+            pw.SizedBox(height: 4),
+            _rowTotalPdf(
+              'Grand Total',
+              d.calculation.grandtotal,
+              fMoney,
+              bold: true,
+            ),
+          ] else ...[
+            _rowTotalPdf('Amount', d.amount, fMoney, bold: true),
+          ],
+
+          pw.SizedBox(height: 12),
+          pw.Text(
+            'Payment: ${_paymentLabel(d.paymentMethod)}',
+            style: pw.TextStyle(fontSize: 10, color: grey),
+          ),
+
+          if (d.customer != null) ...[
+            pw.SizedBox(height: 6),
+            pw.Text(
+              'Customer: ${d.customer!.name}${d.customer!.phone.isNotEmpty ? ' • ${d.customer!.phone}' : ''}',
+              style: pw.TextStyle(fontSize: 10, color: grey),
+            ),
+          ],
+          if (d.storeLocation != null) ...[
+            pw.SizedBox(height: 2),
+            pw.Text(
+              'Store: ${d.storeLocation!.name}'
+              '${d.storeLocation!.city != null ? ' • ${d.storeLocation!.city!.name}' : ''}',
+              style: pw.TextStyle(fontSize: 10, color: grey),
+            ),
+          ],
+          if (d.reference.isNotEmpty) ...[
+            pw.SizedBox(height: 2),
+            pw.Text(
+              'Reference: ${d.reference}',
+              style: pw.TextStyle(fontSize: 10, color: grey),
+            ),
+          ],
+          if (d.note.isNotEmpty) ...[
+            pw.SizedBox(height: 2),
+            pw.Text(
+              'Note: ${d.note}',
+              style: pw.TextStyle(fontSize: 10, color: grey),
+            ),
+          ],
+        ],
+      ),
+    );
+    return doc.save();
+  }
+
+  pw.Widget _rowTotalPdf(
+    String label,
+    int amount,
+    NumberFormat fmt, {
+    bool bold = false,
+    bool discount = false,
+  }) {
+    final dark = PdfColor.fromHex('#111827');
+    final valueColor = discount
+        ? PdfColor.fromHex('#166534')
+        : PdfColor.fromHex('#374151');
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(
+        children: [
+          pw.Expanded(
+            child: pw.Text(
+              label,
+              style: pw.TextStyle(
+                fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+                color: dark,
+              ),
+            ),
+          ),
+          pw.Text(
+            'Rp ${fmt.format(amount)}',
+            style: pw.TextStyle(
+              fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+              color: valueColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  PdfColor _statusBgPdf(String status) {
+    switch (status.toLowerCase()) {
+      case 'completed':
+      case 'paid':
+        return PdfColor.fromHex('#E6F4EA');
+      case 'canceled':
+      case 'void':
+        return PdfColor.fromHex('#FEE2E2');
+      default:
+        return PdfColor.fromHex('#FEF3C7');
+    }
+  }
+
+  PdfColor _statusFgPdf(String status) {
+    switch (status.toLowerCase()) {
+      case 'completed':
+      case 'paid':
+        return PdfColor.fromHex('#166534');
+      case 'canceled':
+      case 'void':
+        return PdfColor.fromHex('#991B1B');
+      default:
+        return PdfColor.fromHex('#92400E');
+    }
+  }
+
+  Future<String> _savePdfToDevice({
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    Directory dir;
+    if (Platform.isAndroid) {
+      dir =
+          (await getDownloadsDirectory()) ??
+          await getApplicationDocumentsDirectory();
+    } else {
+      dir = await getApplicationDocumentsDirectory();
+    }
+    final path = '${dir.path}/$filename';
+    final file = File(path);
+    await file.create(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
+    return path;
+  }
+
+  String _safeFileName(String s) {
+    return s.replaceAll(RegExp(r'[^\w\.-]+'), '_');
+    // contoh: "INV/123 A.pdf" -> "INV_123_A.pdf"
+  }
+
+  // =========================
+  // === THERMAL PRINTING ====
+  // =========================
+  Future<void> _printThermal(dynamic d) async {
+    final sp = await SharedPreferences.getInstance();
+    final type =
+        sp.getString('printer.type') ?? 'bluetooth'; // 'bluetooth' | 'network'
+    final mac = sp.getString('printer.mac') ?? '';
+    final ip = sp.getString('printer.ip') ?? '';
+    final port = sp.getInt('printer.port') ?? 9100;
+    final paper = sp.getInt('printer.paper') ?? 58;
+
+    // ⛔️ Hard-guard: iOS + bluetooth = not supported by this plugin
+    final bool isDev = kDebugMode;
+    if (Platform.isIOS && type == 'bluetooth' && isDev) {
+      throw 'Bluetooth printing isn’t supported for this printer/plugin in iOS Debug. ';
+    }
+
+    final bytes = await _buildEscPosBytes(d, paper: paper);
+
+    if (type == 'network') {
+      if (ip.isEmpty) throw 'IP Address is empty';
+      await _sendTcpRaw(host: ip, port: port, bytes: bytes);
+    } else {
+      if (mac.isEmpty) throw 'MAC Address is empty';
+
+      // ✅ Tambahkan pengecekan & error handling lebih aman di Android
+      final btOn = await PrintBluetoothThermal.bluetoothEnabled;
+      if (btOn != true) throw 'Bluetooth is off';
+
+      try {
+        await PrintBluetoothThermal.disconnect;
+      } catch (_) {}
+      final ok = await PrintBluetoothThermal.connect(macPrinterAddress: mac);
+      if (ok != true) throw 'Unable to connect to $mac';
+
+      final connected = await PrintBluetoothThermal.connectionStatus;
+      if (connected != true) throw 'Bluetooth not connected';
+
+      final okWrite = await PrintBluetoothThermal.writeBytes(bytes);
+      if (okWrite != true) throw 'Failed to send to Bluetooth printer';
+    }
+  }
+
+  Future<Uint8List> _buildEscPosBytes(dynamic d, {required int paper}) async {
+    final fMoney = NumberFormat.decimalPattern('id_ID');
+
+    String money(int v) => 'Rp ${fMoney.format(v)}';
+
+    final profile = await esc.CapabilityProfile.load();
+    final gen = esc.Generator(
+      paper == 80 ? esc.PaperSize.mm80 : esc.PaperSize.mm58,
+      profile,
+    );
+    final out = <int>[];
+
+    // ==============
+    // HEADER (kasir)
+    // ==============
+    final storeName = d.storeLocation?.name ?? '';
+    if (storeName.isNotEmpty) {
+      out.addAll(
+        gen.text(
+          storeName,
+          styles: const esc.PosStyles(
+            align: esc.PosAlign.center,
+            bold: true,
+            height: esc.PosTextSize.size2,
+            width: esc.PosTextSize.size2,
+          ),
+        ),
+      );
+    }
+
+    final noFaktur = (d.number?.isEmpty ?? true) ? d.reference : d.number;
+    out.addAll(
+      gen.text(
+        noFaktur,
+        styles: const esc.PosStyles(align: esc.PosAlign.center, bold: true),
+      ),
+    );
+    out.addAll(
+      gen.text(
+        DateFormat('dd MMM yyyy HH:mm').format(d.time),
+        styles: const esc.PosStyles(align: esc.PosAlign.center),
+      ),
+    );
+    if (d.customer != null && d.customer!.name.isNotEmpty) {
+      out.addAll(
+        gen.text(
+          'Pelanggan: ${d.customer!.name}',
+          styles: const esc.PosStyles(align: esc.PosAlign.center),
+        ),
+      );
+    }
+    out.addAll(_hrThin(gen));
+
+    // =========
+    // DAFTAR ITEM
+    // =========
+    for (final it in d.items) {
+      final title = it.product?.name ?? it.productSkuId;
+      final lineSubtotal = it.qtyOut * it.price;
+
+      // Baris 1: Nama produk (bold) | Subtotal (kanan)
+      out.addAll(
+        gen.row([
+          esc.PosColumn(
+            width: 8,
+            text: title,
+            styles: const esc.PosStyles(bold: true),
+          ),
+          esc.PosColumn(
+            width: 4,
+            text: money(lineSubtotal),
+            styles: const esc.PosStyles(align: esc.PosAlign.right, bold: true),
+          ),
+        ]),
+      );
+
+      // Meta (SKU/atribut) – kecil & abu2
+      final skuCode = it.productSku?.code ?? '';
+      final attrs = (it.productSku?.attributes ?? [])
+          .map<String>((a) => '${a['name']}:${a['value']}')
+          .join(', ');
+      final metaParts = <String>[];
+      if (skuCode.isNotEmpty) metaParts.add(skuCode);
+      if (attrs.isNotEmpty) metaParts.add(attrs);
+      if (metaParts.isNotEmpty) {
+        out.addAll(
+          gen.text(
+            metaParts.join(' • '),
+            styles: const esc.PosStyles(
+              height: esc.PosTextSize.size1,
+              width: esc.PosTextSize.size1,
+            ),
+          ),
+        );
+      }
+
+      // Baris 2: qty × harga (+disc per item)
+      final discNote = it.discount > 0
+          ? ' (disc ${fMoney.format(it.discount)}/item)'
+          : '';
+      out.addAll(
+        gen.text(
+          '  ${it.qtyOut} × ${money(it.price)}$discNote',
+          styles: const esc.PosStyles(),
+        ),
+      );
+
+      // Garis tipis antar item
+      out.addAll(_hrDots(gen));
+    }
+
+    // =========
+    // TOTALS
+    // =========
+    final calc = d.calculation;
+    if (calc != null) {
+      out.addAll(_kv(gen, 'Subtotal', money(calc.subtotal)));
+      if (calc.discount != 0) {
+        out.addAll(_kv(gen, 'Diskon', '- ${money(calc.discount)}'));
+      }
+
+      // Garis tebal sebelum GRAND TOTAL
+      out.addAll(_hrThick(gen));
+
+      out.addAll(
+        gen.row([
+          esc.PosColumn(
+            width: 8,
+            text: 'GRAND TOTAL',
+            styles: const esc.PosStyles(
+              bold: true,
+              height: esc.PosTextSize.size2,
+              width: esc.PosTextSize.size1,
+            ),
+          ),
+          esc.PosColumn(
+            width: 4,
+            text: money(calc.grandtotal),
+            styles: const esc.PosStyles(
+              align: esc.PosAlign.right,
+              bold: true,
+              height: esc.PosTextSize.size2,
+              width: esc.PosTextSize.size1,
+            ),
+          ),
+        ]),
+      );
+    } else {
+      out.addAll(_hrThick(gen));
+      out.addAll(
+        gen.row([
+          esc.PosColumn(
+            width: 8,
+            text: 'TOTAL',
+            styles: const esc.PosStyles(
+              bold: true,
+              height: esc.PosTextSize.size2,
+            ),
+          ),
+          esc.PosColumn(
+            width: 4,
+            text: money(d.amount),
+            styles: const esc.PosStyles(
+              align: esc.PosAlign.right,
+              bold: true,
+              height: esc.PosTextSize.size2,
+            ),
+          ),
+        ]),
+      );
+    }
+
+    out.addAll(_hrThin(gen));
+
+    // Metode pembayaran + info tambahan singkat
+    out.addAll(gen.text('Pembayaran: ${_paymentLabel(d.paymentMethod)}'));
+    if (d.reference.isNotEmpty) {
+      out.addAll(gen.text('Ref: ${d.reference}'));
+    }
+    if (d.note.isNotEmpty) {
+      out.addAll(gen.text('Catatan: ${d.note}'));
+    }
+
+    // Footer ramah
+    out.addAll(gen.feed(1));
+    out.addAll(
+      gen.text(
+        'Thank you',
+        styles: const esc.PosStyles(align: esc.PosAlign.center, bold: true),
+      ),
+    );
+    if (storeName.isNotEmpty) {
+      out.addAll(
+        gen.text(
+          storeName,
+          styles: const esc.PosStyles(align: esc.PosAlign.center),
+        ),
+      );
+    }
+
+    out.addAll(gen.feed(2));
+    out.addAll(gen.cut());
+    return Uint8List.fromList(out);
+  }
+
+  // =======================
+  // Helpers untuk tampilan struk
+  // =======================
+  List<int> _kv(esc.Generator gen, String k, String v) {
+    return gen.row([
+      esc.PosColumn(width: 8, text: k),
+      esc.PosColumn(
+        width: 4,
+        text: v,
+        styles: const esc.PosStyles(align: esc.PosAlign.right),
+      ),
+    ]);
+  }
+
+  List<int> _hrThin(esc.Generator gen) => gen.hr(ch: '-');
+  List<int> _hrThick(esc.Generator gen) => gen.hr(); // default lebih tebal
+  List<int> _hrDots(esc.Generator gen) => gen.hr(ch: '.');
+
+  Future<void> _sendTcpRaw({
+    required String host,
+    required int port,
+    required Uint8List bytes,
+  }) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        host,
+        port,
+        timeout: const Duration(seconds: 4),
+      );
+      socket.add(bytes);
+      await socket.flush();
+      await Future.delayed(const Duration(milliseconds: 200));
+    } finally {
+      await socket?.close();
+    }
+  }
+
+  Future<void> _sendBluetoothRaw(Uint8List bytes) async {
+    final btOn = await PrintBluetoothThermal.bluetoothEnabled;
+    if (!btOn) throw 'Bluetooth is off';
+    final ok = await PrintBluetoothThermal.writeBytes(bytes);
+    if (!ok) throw 'Failed to send to Bluetooth printer';
+  }
+
+  // =======================
+  // === UI HELPERS EXIST ===
+  // =======================
   Widget _rowTotal(
     String label,
     int amount,
@@ -344,6 +1002,8 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
     }
   }
 }
+
+// === Widgets existing ===
 
 class _Thumb extends StatelessWidget {
   final String? imageUrl;

@@ -36,20 +36,27 @@ class ManageProductScreen extends StatelessWidget {
             _MenuTile(
               icon: Icons.list_alt_rounded,
               title: 'Product List',
-              onTap: () => Navigator.pushNamed(context, '/product'),
+              onTap: () => Navigator.pushNamed(context, '/product/list'),
             ),
             const SizedBox(height: 8),
             _MenuTile(
               icon: Icons.sell,
               title: 'Brand List',
-              onTap: () => Navigator.pushNamed(context, '/brand'),
+              onTap: () => Navigator.pushNamed(context, '/product/brand'),
             ), //produk list dulu
             const SizedBox(height: 8),
             _MenuTile(
               icon: Icons.category,
               title: 'Category List',
-              onTap: () => Navigator.pushNamed(context, '/category'),
+              onTap: () => Navigator.pushNamed(context, '/product/category'),
             ),
+            const SizedBox(height: 8),
+            _MenuTile(
+              icon: Icons.history_rounded,
+              title: 'Inventory History',
+              onTap: () => Navigator.pushNamed(context, '/product/inventory'),
+            ),
+
             // const SizedBox(height: 8),
             // _MenuTile(
             //   icon: Icons.inventory_2_rounded,

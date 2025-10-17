@@ -36,13 +36,13 @@ class ManageReportScreen extends StatelessWidget {
             _MenuTile(
               icon: Icons.query_stats_rounded,
               title: 'Sales Report',
-              onTap: () => Navigator.pushNamed(context, '/report/sales'),
+              onTap: () => Navigator.pushNamed(context, '/sales/list'),
             ),
             const SizedBox(height: 8),
             _MenuTile(
               icon: Icons.receipt_long_rounded,
               title: 'Purchase Report',
-              onTap: () => Navigator.pushNamed(context, '/report/purchase'),
+              onTap: () => Navigator.pushNamed(context, '/purchase/list'),
             ),
           ],
         ),

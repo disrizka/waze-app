@@ -26,6 +26,7 @@ import 'package:wa_blast/screens/sales/manage_sales_screen.dart';
 import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
 import 'package:wa_blast/screens/sales_report_detail_screen.dart';
 import 'package:wa_blast/screens/sales_report_screen.dart';
+import 'package:wa_blast/screens/settings/thermal_printer_setting.dart';
 import 'package:wa_blast/screens/store_list_screen.dart';
 import 'package:wa_blast/services/deep_link_service.dart';
 import 'firebase_options.dart';
@@ -513,6 +514,13 @@ class MyApp extends StatelessWidget {
               settings,
               const CustomerListScreen(),
               android: AndroidTransition.slideRight,
+            );
+
+          case '/printer':
+            return _platformRouteAnimated(
+              settings,
+              const ThermalPrinterSettingsScreen(),
+              android: AndroidTransition.slideUp,
             );
 
           default:

@@ -7,8 +7,30 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
+import 'package:wa_blast/providers/role_provider.dart';
 
 import '../l10n/app_localizations.dart';
+
+class _MenuItemData {
+  final String label;
+  final String assetPath;
+  final VoidCallback? onTap;
+
+  /// Daftar "page" API yang mewakili tile ini (boleh kosong).
+  /// Contoh: tile HR bisa diwakili oleh page 'employee' ATAU 'role'.
+  final List<String> pageKeys;
+
+  /// Route utama tile ini (dipakai untuk cek via RoleProvider.can()).
+  final String? routeName;
+
+  const _MenuItemData(
+    this.label,
+    this.assetPath, {
+    this.onTap,
+    this.pageKeys = const [],
+    this.routeName,
+  });
+}
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -66,82 +88,160 @@ class HomeScreen extends StatelessWidget {
             }
           },
           child: SingleChildScrollView(
-            // Penting agar bisa swipe meski konten pendek
             physics: const AlwaysScrollableScrollPhysics(
               parent: BouncingScrollPhysics(),
             ),
             padding: EdgeInsets.zero,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // HEADER GRADIENT
-                _HeaderGradient(
-                  key: headerKey, // pakai key agar bisa reload dari luar
-                  green: green,
-                  textPrimary: textPrimary,
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: _GridMenu(),
-                ),
+            child: Builder(
+              builder: (context) {
+                // iPad/tablet jika shortestSide >= 600
+                final bool isTablet =
+                    MediaQuery.of(context).size.shortestSide >= 600;
 
-                const SizedBox(height: 50),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 30),
-                  child: Text(
-                    t.previewReport_title,
-                    style: const TextStyle(
-                      color: Color(0xFF4B5563),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                      letterSpacing: 0.2,
+                // ======= iPhone (TETAP seperti semula) =======
+                final Widget phoneBody = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _HeaderGradient(
+                      key: headerKey,
+                      green: green,
+                      textPrimary: textPrimary,
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: _GridMenu(), // versi grid default (3 kolom)
+                    ),
+                    const SizedBox(height: 50),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 30),
+                      child: Text(
+                        t.previewReport_title,
+                        style: const TextStyle(
+                          color: Color(0xFF4B5563),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Kartu statistik horizontal (seperti semula)
+                    SizedBox(
+                      height: 86,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 30),
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: 3,
+                        separatorBuilder: (_, __) => const SizedBox(width: 12),
+                        itemBuilder: (_, i) {
+                          switch (i) {
+                            case 0:
+                              return const SizedBox(
+                                width: 206,
+                                child: _StatCard(
+                                  title: 'Income this day',
+                                  amount: 'Rp. 200,000',
+                                ),
+                              );
+                            case 1:
+                              return const SizedBox(
+                                width: 206,
+                                child: _StatCard(
+                                  title: 'Income this month',
+                                  amount: 'Rp. 1,200,000,000',
+                                ),
+                              );
+                            default:
+                              return const SizedBox(
+                                width: 206,
+                                child: _StatCard(
+                                  title: 'Income this year',
+                                  amount: 'Rp. 14,500,000,000',
+                                ),
+                              );
+                          }
+                        },
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+                  ],
+                );
+
+                if (!isTablet) return phoneBody;
+
+                // ======= iPad (RESPONSIF) =======
+                // - Konten dipusatkan & dibatasi lebarnya agar proporsional
+                // - Grid otomatis 4–5 kolom (lihat _GridMenu di bawah)
+                // - Stat cards ditampilkan dalam 1 baris (3 kolom) tanpa scroll
+                return Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1024),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _HeaderGradient(
+                          key: headerKey,
+                          green: green,
+                          textPrimary: textPrimary,
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 24),
+                          child: _GridMenu(), // grid akan adaptif (4–5 kolom)
+                        ),
+                        const SizedBox(height: 64),
+
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            t.previewReport_title,
+                            style: const TextStyle(
+                              color: Color(0xFF4B5563),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 18,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Stat cards versi iPad: 3 kolom dalam satu baris (tanpa scroll)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Row(
+                            children: const [
+                              Expanded(
+                                child: _StatCard(
+                                  title: 'Income this day',
+                                  amount: 'Rp. 200,000',
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: _StatCard(
+                                  title: 'Income this month',
+                                  amount: 'Rp. 1,200,000,000',
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: _StatCard(
+                                  title: 'Income this year',
+                                  amount: 'Rp. 14,500,000,000',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 32),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-
-                // seragam, tidak terlalu panjang/pendek
-                SizedBox(
-                  height: 86,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 30),
-                    physics: const BouncingScrollPhysics(),
-                    itemCount: 3,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (_, i) {
-                      switch (i) {
-                        case 0:
-                          return SizedBox(
-                            width: _cardWidth,
-                            child: _StatCard(
-                              title: t.income_day,
-                              amount: 'Rp. 200,000',
-                            ),
-                          );
-                        case 1:
-                          return SizedBox(
-                            width: _cardWidth,
-                            child: _StatCard(
-                              title: t.income_month,
-                              amount: 'Rp. 1,200,000,000',
-                            ),
-                          );
-                        default:
-                          return SizedBox(
-                            width: _cardWidth,
-                            child: _StatCard(
-                              title: t.income_year,
-                              amount: 'Rp. 14,500,000,000',
-                            ),
-                          );
-                      }
-                    },
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-              ],
+                );
+              },
             ),
           ),
         ),
@@ -583,65 +683,89 @@ class _InfoBlock extends StatelessWidget {
   }
 }
 
-class _MenuItemData {
-  final String label;
-  final String assetPath;
-  final VoidCallback? onTap;
-
-  const _MenuItemData(this.label, this.assetPath, {this.onTap});
-}
-
 class _GridMenu extends StatelessWidget {
   const _GridMenu();
 
   @override
   Widget build(BuildContext context) {
     final t = AppLocalizations.of(context)!;
+    final role = context.watch<RoleProvider>();
 
-    final items = <_MenuItemData>[
+    // (items) tetap sama persis seperti punyamu...
+    final allItems = <_MenuItemData>[
       _MenuItemData(
         t.grid_hr,
         'assets/hr_icon.png',
         onTap: () => Navigator.pushNamed(context, '/hr'),
+        pageKeys: const ['employee', 'role'],
+        routeName: '/hr',
       ),
       _MenuItemData(
         t.grid_product,
         'assets/product_icon.png',
         onTap: () => Navigator.pushNamed(context, '/product'),
+        pageKeys: const ['product'],
+        routeName: '/product',
       ),
       _MenuItemData(
         t.grid_sales,
         'assets/sales_icon.png',
         onTap: () => Navigator.pushNamed(context, '/sales'),
+        pageKeys: const ['sale'],
+        routeName: '/sales',
       ),
       _MenuItemData(
         t.grid_purchase,
         'assets/purchase_icon.png',
-        // opsional, samakan biar konsisten gesture back:
         onTap: () => Navigator.pushNamed(context, '/purchase'),
+        pageKeys: const ['purchase'],
+        routeName: '/purchase',
       ),
       _MenuItemData(
         t.grid_report,
         'assets/report_icon.png',
-        // opsional, samakan juga:
         onTap: () => Navigator.pushNamed(context, '/report'),
+        pageKeys: const ['report'],
+        routeName: '/report',
       ),
       _MenuItemData(
         t.grid_setting,
         'assets/setting_icon.png',
         onTap: () => debugPrint("Setting tapped"),
+        pageKeys: const [],
+        routeName: null,
       ),
     ];
+
+    final items = role.isReady
+        ? allItems.where((it) {
+            final allowByPage = it.pageKeys.any(role.canPage);
+            final allowByRoute = (it.routeName != null)
+                ? role.can(it.routeName!)
+                : false;
+            final isPublic = it.pageKeys.isEmpty && (it.routeName == null);
+            return isPublic || allowByPage || allowByRoute;
+          }).toList()
+        : allItems;
+
+    // RESPONSIF: iPhone tetap 3 kolom; iPad 4–5 kolom tergantung lebar
+    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+    final width = MediaQuery.of(context).size.width;
+    final int crossAxisCount = !isTablet
+        ? 3
+        : (width >= 1200 ? 5 : 4); // iPad besar = 5 kolom, iPad reguler = 4
+
+    final double spacing = isTablet ? 28 : 30; // rasa iPad sedikit lebih rapat
 
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 19,
-        crossAxisSpacing: 30,
-        childAspectRatio: 0.90,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        mainAxisSpacing: isTablet ? 24 : 19,
+        crossAxisSpacing: spacing,
+        childAspectRatio: isTablet ? 1.0 : 0.90, // iPad tile lebih kotak
       ),
       itemBuilder: (_, i) => _MenuTile(data: items[i]),
     );
