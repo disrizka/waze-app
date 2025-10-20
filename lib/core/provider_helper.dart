@@ -147,4 +147,26 @@ class FetchHelper {
 
     return PagedResult<T>(items: items, page: page);
   }
+
+  static Future<T?> fetchOne<T>({
+    required BuildContext context,
+    required String path,
+    required FromJson<T> parser,
+    String dataKey = 'data',
+  }) async {
+    final j = await ApiJson.getMap(context, path);
+    if (j == null) return null;
+    final status = _asInt(j['status'], -1);
+    if (status != 200) return null;
+
+    final raw = j[dataKey];
+    if (raw is Map<String, dynamic>) {
+      return parser(raw);
+    }
+    // fallback: kalau backend mengirim array berisi 1 item
+    if (raw is List && raw.isNotEmpty && raw.first is Map<String, dynamic>) {
+      return parser(raw.first as Map<String, dynamic>);
+    }
+    return null;
+  }
 }

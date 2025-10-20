@@ -1582,6 +1582,9 @@ class SalesProvider extends ChangeNotifier {
     }
   }
 
+  PaymentResult? _lastPaymentResult;
+  PaymentResult? get lastPaymentResult => _lastPaymentResult;
+
   /// POST ke /waveup/{idBusiness}/transaction/sales
   Future<bool> submitSales(BuildContext context) async {
     final bizId = await _requireBizId();
@@ -1696,6 +1699,9 @@ class SalesProvider extends ChangeNotifier {
           debugPrint('🎯 Final payment status = ${first?.status}');
         }
 
+        _lastPaymentResult = first;
+        notifyListeners();
+
         // (Opsional) taruh ke state & notify untuk UI kamu
         // _lastPaymentResult = first; notifyListeners();
       }
@@ -1710,6 +1716,106 @@ class SalesProvider extends ChangeNotifier {
       return false;
     } finally {
       _setSubmitting(false);
+    }
+  }
+
+  /// Membatalkan transaksi yang sedang dipantau (_pendingPaymentTxId)
+  /// Menggunakan cancelTransaction() di balik layar.
+  /// - Mengembalikan false bila tidak ada transaksi pending.
+  Future<bool> cancelPendingPayment(
+    BuildContext context, {
+    Map<String, dynamic>? payload,
+  }) async {
+    final id = _pendingPaymentTxId;
+    if (id == null || id.isEmpty) {
+      _lastError = 'No pending payment to cancel.';
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] ⚠️ cancelPendingPayment: no pending id');
+      }
+      return false;
+    }
+
+    if (kDebugMode) {
+      debugPrint('[SalesProvider] 🔴 cancelPendingPayment for id=$id');
+    }
+
+    final ok = await cancelTransaction(
+      context,
+      idTransaction: id,
+      payload: payload,
+    );
+
+    if (ok && kDebugMode) {
+      debugPrint('[SalesProvider] ✅ Pending payment cancelled (id=$id)');
+    }
+    return ok;
+  }
+
+  Future<bool> cancelTransaction(
+    BuildContext context, {
+    required String idTransaction,
+    Map<String, dynamic>? payload,
+  }) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return false;
+
+    final path =
+        '/waveup/$bizId/transaction/sales/$idTransaction/payment/cancel';
+
+    // === DEBUG: tunjukkan endpoint yang dikirim user ===
+    if (kDebugMode) {
+      debugPrint('[SalesProvider] 🚫 Cancel Transaction requested');
+      debugPrint('[SalesProvider] PATH (relative): $path');
+      debugPrint('[SalesProvider] Payload: ${payload ?? const {}}');
+    }
+
+    try {
+      // kirim POST kosong bila payload tidak diperlukan
+      final j = await ApiJson.postMap(
+        context,
+        path,
+        payload ?? const <String, dynamic>{},
+        withAccessToken: true,
+      );
+
+      // === DEBUG: tampilkan feedback dari server secara utuh ===
+      if (kDebugMode) {
+        _debugBig('[SalesProvider] 📨 Cancel response', j);
+      }
+
+      final ok = j != null && (j['status'] as num?)?.toInt() == 200;
+
+      if (!ok) {
+        _lastError =
+            j?['message']?.toString() ??
+            j?['msg']?.toString() ??
+            'Failed to cancel transaction';
+        if (kDebugMode) {
+          debugPrint('[SalesProvider] ❌ Cancel failed: $_lastError');
+        }
+        return false;
+      }
+
+      // Jika yang dicancel adalah transaksi yang sedang dipantau, bersihkan flag
+      if (_pendingPaymentTxId == idTransaction) {
+        _pendingPaymentTxId = null;
+        try {
+          _midtrans?.removeTransactionFinishedCallback();
+        } catch (_) {}
+        _snapCompleter = null;
+      }
+
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] ✅ Cancel success for id=$idTransaction');
+      }
+      return true;
+    } catch (e, st) {
+      _lastError = '$e';
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] cancelTransaction exception: $e');
+        debugPrint('$st');
+      }
+      return false;
     }
   }
 

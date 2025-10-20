@@ -269,7 +269,7 @@ class ProductProvider with ChangeNotifier {
     try {
       final result = await FetchHelper.fetchList<Product>(
         context: context,
-        path: '/waveup/$bizId/product',
+        path: '/waveup/$bizId/product/search',
         parser: Product.fromJson,
       );
 

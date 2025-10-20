@@ -1,9 +1,14 @@
 // lib/providers/role_provider.dart
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wa_blast/config/role_route_mapping.dart';
+import 'package:wa_blast/core/provider_helper.dart';
 import 'package:wa_blast/models/role_models.dart';
+import 'package:wa_blast/providers/auth_provider.dart';
 
 /// Provider untuk mengelola izin berbasis role:
 /// - allowedRoutes: nama route Flutter yang boleh diakses (untuk guard onGenerateRoute)
@@ -12,9 +17,12 @@ class RoleProvider with ChangeNotifier {
   // ===== STATE =====
   AdminRole? _role; // untuk bentuk "detail role" (opsional)
   Set<String> _allowedRoutes = {...kPublicRoutes};
-  Set<String> _allowedPages = {
-    // 'waba',
-  }; // kumpulan 'page' dari API (mis. 'product', 'waba', dst)
+
+  bool _forceWaba = false;
+
+  /// Kumpulan 'page' dari API (mis. 'product', 'waba', dst)
+  Set<String> _allowedPages = {}; // akan disuntik 'waba' jika _forceWaba = true
+
   bool _isReady = false;
   DateTime? _updatedAt;
 
@@ -24,6 +32,31 @@ class RoleProvider with ChangeNotifier {
   Set<String> get allowedPages => _allowedPages;
   bool get isReady => _isReady;
   DateTime? get updatedAt => _updatedAt;
+
+  bool get forceWaba => _forceWaba;
+
+  // ===== PUBLIC API =====
+
+  /// Aktif/nonaktifkan pemaksaan WABA.
+  /// Jika persist=true, preferensi disimpan di SharedPreferences ('forceWabaEnabled').
+  Future<void> setForceWaba(bool value, {bool persist = true}) async {
+    _forceWaba = value;
+    if (persist) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('forceWabaEnabled', value);
+    }
+    // re-apply pages supaya efek langsung terlihat
+    _applyPages(_allowedPages);
+    notifyListeners();
+  }
+
+  /// (Opsional) panggil saat startup (mis. di Splash) untuk memuat preferensi.
+  Future<void> loadForceWabaPrefOnce() async {
+    final prefs = await SharedPreferences.getInstance();
+    _forceWaba = prefs.getBool('forceWabaEnabled') ?? true; // default: true
+    // setelah load, re-apply agar konsisten
+    _applyPages(_allowedPages);
+  }
 
   bool can(String? routeName) {
     if (routeName == null || routeName.isEmpty) return false;
@@ -44,23 +77,153 @@ class RoleProvider with ChangeNotifier {
   // ===== MUTATORS =====
   void clear() {
     _role = null;
-    _allowedPages = {};
-    _allowedRoutes = {...kPublicRoutes};
+
+    // Jika force WABA aktif, tetap suntik 'waba' meskipun clear()
+    _allowedPages = _forceWaba ? {'waba'} : {};
+
+    _allowedRoutes = buildAllowedRoutesFromPages(_allowedPages);
     _isReady = false;
     _updatedAt = DateTime.now();
     notifyListeners();
   }
 
-  /// Versi 1: response "detail role" (seperti contoh awalmu)
-  /// {
-  ///   "status": 200,
-  ///   "data": {
-  ///     "idAdminRole": "...",
-  ///     "name": "...",
-  ///     "isPrimary": false,
-  ///     "menus": [ { "page": "", "submenu": [ {"page": "product"}, ... ] } ]
-  ///   }
-  /// }
+  // ===== PATH HELPER =====
+  String _roleDetailPath(String bizId, String idAdminRole) =>
+      '/waveup/$bizId/role/$idAdminRole';
+
+  // ====== FETCH DETAIL ROLE (pakai FetchHelper.fetchOne) ======
+  Future<AdminRole?> fetchDetailRoleUserUsingFetchHelper({
+    required BuildContext context,
+    required String idBusiness,
+    required String idAdminRole,
+    bool updateProviderState = true,
+  }) async {
+    if (kDebugMode) {
+      debugPrint('==============================================');
+      debugPrint('[RoleProvider] fetchDetailRoleUserUsingFetchHelper BEGIN');
+      debugPrint('  bizId       : $idBusiness');
+      debugPrint('  idAdminRole : $idAdminRole');
+      debugPrint('  path        : ${_roleDetailPath(idBusiness, idAdminRole)}');
+    }
+    try {
+      final role = await FetchHelper.fetchOne<AdminRole>(
+        context: context,
+        path: _roleDetailPath(idBusiness, idAdminRole),
+        parser: (json) => AdminRole.fromJson(json),
+      );
+
+      if (role == null) {
+        if (kDebugMode) {
+          debugPrint(
+            '[RoleProvider] fetchDetailRoleUserUsingFetchHelper -> null',
+          );
+        }
+        return null;
+      }
+
+      if (updateProviderState) {
+        final map = {
+          'status': 200,
+          'data': role.toJson(), // toJson() sudah mengarah ke toMap()
+        };
+        setFromDetailRoleApi(map);
+      }
+
+      return role;
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint(
+          '[RoleProvider] fetchDetailRoleUserUsingFetchHelper error: $e\n$st',
+        );
+      }
+      return null;
+    }
+  }
+
+  /// Convenience: langsung apply role yang di-fetch
+  Future<bool> refreshDetailRoleAndApplyFH({
+    required BuildContext context,
+    required String idBusiness,
+    required String idAdminRole,
+  }) async {
+    final role = await fetchDetailRoleUserUsingFetchHelper(
+      context: context,
+      idBusiness: idBusiness,
+      idAdminRole: idAdminRole,
+      updateProviderState: true,
+    );
+    return role != null;
+  }
+
+  // ====== BACA ID LANGSUNG DARI PREFS (tanpa AuthProvider) ======
+  /// Ambil (bizId, roleId) aktif dari SharedPreferences.
+  /// Keys: 'activeBizId' & 'activeBizRoleId' (sesuai AuthProvider).
+  Future<({String bizId, String roleId})?> _readActiveBizAndRoleIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    final bizId = (prefs.getString('activeBizId') ?? '').trim();
+    var roleId = (prefs.getString('activeBizRoleId') ?? '').trim();
+    final roleName = (prefs.getString('activeBizRoleName') ?? '').trim();
+
+    if (bizId.isNotEmpty && roleId.isEmpty) {
+      // 🔁 Recovery dari businessRoles map
+      try {
+        final mapStr = prefs.getString(AuthProvider.kBusinessRolesKey);
+        if (mapStr != null && mapStr.isNotEmpty) {
+          final map = (jsonDecode(mapStr) as Map).cast<String, dynamic>();
+          final rb = (map[bizId] as Map?)?.cast<String, dynamic>();
+          final recovered = (rb?['idAdminRole'] ?? '').toString().trim();
+          if (recovered.isNotEmpty) {
+            roleId = recovered;
+            // tulis balik agar stabil di refresh berikutnya
+            await prefs.setString(AuthProvider.kActiveBizRoleIdKey, recovered);
+            await prefs.setString(
+              AuthProvider.kActiveBizRoleNameKey,
+              (rb?['name'] ?? '').toString(),
+            );
+            await prefs.setBool(
+              AuthProvider.kActiveBizRoleIsPrimaryKey,
+              (rb?['isPrimary'] ?? false) == true,
+            );
+            if (kDebugMode) {
+              debugPrint(
+                '[RoleProvider] recovered roleId="$recovered" from businessRoles map',
+              );
+            }
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('[RoleProvider] recovery error: $e');
+      }
+    }
+
+    if (bizId.isEmpty || roleId.isEmpty) {
+      if (kDebugMode) {
+        debugPrint(
+          '[RoleProvider] _readActiveBizAndRoleIds -> bizId="$bizId", roleId="$roleId" (INVALID)',
+        );
+      }
+      return null;
+    }
+
+    if (kDebugMode) {
+      debugPrint(
+        '[RoleProvider] _readActiveBizAndRoleIds -> bizId="$bizId", roleId="$roleId", roleName="$roleName"',
+      );
+    }
+    return (bizId: bizId, roleId: roleId);
+  }
+
+  /// Publik: baca id dari prefs → fetch detail role → apply ke provider.
+  Future<bool> refreshActiveRoleFromPrefs(BuildContext context) async {
+    final pair = await _readActiveBizAndRoleIds();
+    if (pair == null) return false;
+    return refreshDetailRoleAndApplyFH(
+      context: context,
+      idBusiness: pair.bizId,
+      idAdminRole: pair.roleId,
+    );
+  }
+
   void setFromDetailRoleApi(Map<String, dynamic> json) {
     final data = (json['data'] as Map<String, dynamic>?);
     if (data == null) {
@@ -135,6 +298,11 @@ class RoleProvider with ChangeNotifier {
         .map((e) => e.trim())
         .toSet();
 
+    // ⛳️ Suntik 'waba' bila force aktif
+    if (_forceWaba) {
+      setPages.add('waba');
+    }
+
     _allowedPages = setPages;
 
     // hitung allowedRoutes dari pages via mapping + ekspansi
@@ -158,6 +326,7 @@ class RoleProvider with ChangeNotifier {
     } else {
       debugPrint('role: (null / built from submenu)');
     }
+    debugPrint('forceWaba: $_forceWaba');
     debugPrint('----------------------------');
   }
 }
