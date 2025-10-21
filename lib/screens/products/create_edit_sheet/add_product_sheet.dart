@@ -22,12 +22,43 @@ Future<void> showAddProductSheet(BuildContext context) {
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (_) => const _AddProductSheet(),
+    backgroundColor: Colors.transparent, // ⬅️ penting
+    builder: (_) => _ResponsiveSheet(child: const _AddProductSheet()),
   );
+}
+
+class _ResponsiveSheet extends StatelessWidget {
+  const _ResponsiveSheet({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final w = mq.size.width;
+
+    // % lebar layar untuk tablet/desktop (lebih lebar dari sebelumnya)
+    final double widthFactor = w < 600 ? 1.0 : 0.96;
+
+    // Tetap batasi agar tidak kepanjangan di layar yang sangat lebar
+    final double hardMax =
+        1100; // naikin dari 840 → 1100 (boleh ubah sesuai selera)
+
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: FractionallySizedBox(
+        widthFactor: widthFactor, // ⬅️ kunci utama: hampir full width
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: hardMax),
+          child: Material(
+            color: Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            clipBehavior: Clip.antiAlias,
+            child: child, // DraggableScrollableSheet dkk tetap sama
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Key for VariantsSectionDynamic (local to this file only)
@@ -1360,174 +1391,180 @@ Future<String?> showListPicker({
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     builder: (ctx) {
-      return SafeArea(
-        top: false,
-        child: DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.85,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          builder: (_, sheetCtrl) {
-            return StatefulBuilder(
-              builder: (context, setState) {
-                void _doFilter(String q) {
-                  final query = q.trim().toLowerCase();
-                  lastQuery = q.trim();
-                  setState(() {
-                    filtered = options
-                        .where(
-                          (o) =>
-                              o.label.toLowerCase().contains(query) ||
-                              (o.subtitle ?? '').toLowerCase().contains(query),
-                        )
-                        .toList();
-                  });
-                }
+      return _ResponsiveSheet(
+        child: SafeArea(
+          top: false,
+          child: DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.85,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            builder: (_, sheetCtrl) {
+              return StatefulBuilder(
+                builder: (context, setState) {
+                  void _doFilter(String q) {
+                    final query = q.trim().toLowerCase();
+                    lastQuery = q.trim();
+                    setState(() {
+                      filtered = options
+                          .where(
+                            (o) =>
+                                o.label.toLowerCase().contains(query) ||
+                                (o.subtitle ?? '').toLowerCase().contains(
+                                  query,
+                                ),
+                          )
+                          .toList();
+                    });
+                  }
 
-                final canShowCreate =
-                    enableCreate &&
-                    lastQuery.isNotEmpty &&
-                    !containsLabel(lastQuery) &&
-                    onCreate != null;
+                  final canShowCreate =
+                      enableCreate &&
+                      lastQuery.isNotEmpty &&
+                      !containsLabel(lastQuery) &&
+                      onCreate != null;
 
-                return Column(
-                  children: [
-                    const SizedBox(height: 8),
-                    Container(
-                      width: 44,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE5E7EB),
-                        borderRadius: BorderRadius.circular(999),
+                  return Column(
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 44,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE5E7EB),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF111827),
+                      const SizedBox(height: 10),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF111827),
+                                ),
                               ),
                             ),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('Close'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: TextField(
-                        controller: controller,
-                        onChanged: _doFilter,
-                        decoration: InputDecoration(
-                          hintText: 'Search…',
-                          isDense: true,
-                          filled: true,
-                          fillColor: const Color(0xFFF3F4F6),
-                          prefixIcon: const Icon(Icons.search, size: 20),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(
-                              color: Color(0xFFE5E7EB),
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text('Close'),
                             ),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(
-                              color: Color(0xFFCBD5E1),
-                            ),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                    if (canShowCreate)
-                      Material(
-                        color: Colors.transparent,
-                        child: ListTile(
-                          onTap: () async {
-                            final created = await onCreate!(lastQuery);
-                            if (created != null) {
-                              setState(() {
-                                options.add(created);
-                                filtered.insert(0, created);
-                                selectedId = created.id;
-                              });
-                              // ignore: use_build_context_synchronously
-                              Navigator.pop(ctx, created.id);
-                            }
-                          },
-                          leading: const Icon(
-                            Icons.add_circle_outline,
-                            color: Color(0xFF4C6EF5),
-                          ),
-                          title: Text(
-                            createRowLabel?.call(lastQuery) ??
-                                '"$lastQuery" not found — + Add New',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF111827),
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: TextField(
+                          controller: controller,
+                          onChanged: _doFilter,
+                          decoration: InputDecoration(
+                            hintText: 'Search…',
+                            isDense: true,
+                            filled: true,
+                            fillColor: const Color(0xFFF3F4F6),
+                            prefixIcon: const Icon(Icons.search, size: 20),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE5E7EB),
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: const BorderSide(
+                                color: Color(0xFFCBD5E1),
+                              ),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
                         ),
                       ),
-                    Expanded(
-                      child: ListView.separated(
-                        controller: sheetCtrl,
-                        padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) =>
-                            const Divider(height: 1, color: Color(0xFFF3F4F6)),
-                        itemBuilder: (_, i) {
-                          final o = filtered[i];
-                          final isSel = o.id == selectedId;
-                          return ListTile(
-                            onTap: () => Navigator.pop(ctx, o.id),
-                            leading: Radio<String>(
-                              value: o.id,
-                              groupValue: selectedId,
-                              onChanged: (_) => Navigator.pop(ctx, o.id),
+                      const SizedBox(height: 8),
+                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                      if (canShowCreate)
+                        Material(
+                          color: Colors.transparent,
+                          child: ListTile(
+                            onTap: () async {
+                              final created = await onCreate!(lastQuery);
+                              if (created != null) {
+                                setState(() {
+                                  options.add(created);
+                                  filtered.insert(0, created);
+                                  selectedId = created.id;
+                                });
+                                // ignore: use_build_context_synchronously
+                                Navigator.pop(ctx, created.id);
+                              }
+                            },
+                            leading: const Icon(
+                              Icons.add_circle_outline,
+                              color: Color(0xFF4C6EF5),
                             ),
                             title: Text(
-                              o.label,
+                              createRowLabel?.call(lastQuery) ??
+                                  '"$lastQuery" not found — + Add New',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF111827),
                               ),
                             ),
-                            subtitle: (o.subtitle?.isNotEmpty ?? false)
-                                ? Text(o.subtitle!)
-                                : null,
-                            trailing: isSel
-                                ? const Icon(
-                                    Icons.check_circle,
-                                    color: Color(0xFF4C6EF5),
-                                  )
-                                : null,
-                          );
-                        },
+                          ),
+                        ),
+                      Expanded(
+                        child: ListView.separated(
+                          controller: sheetCtrl,
+                          padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+                          itemCount: filtered.length,
+                          separatorBuilder: (_, __) => const Divider(
+                            height: 1,
+                            color: Color(0xFFF3F4F6),
+                          ),
+                          itemBuilder: (_, i) {
+                            final o = filtered[i];
+                            final isSel = o.id == selectedId;
+                            return ListTile(
+                              onTap: () => Navigator.pop(ctx, o.id),
+                              leading: Radio<String>(
+                                value: o.id,
+                                groupValue: selectedId,
+                                onChanged: (_) => Navigator.pop(ctx, o.id),
+                              ),
+                              title: Text(
+                                o.label,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF111827),
+                                ),
+                              ),
+                              subtitle: (o.subtitle?.isNotEmpty ?? false)
+                                  ? Text(o.subtitle!)
+                                  : null,
+                              trailing: isSel
+                                  ? const Icon(
+                                      Icons.check_circle,
+                                      color: Color(0xFF4C6EF5),
+                                    )
+                                  : null,
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
+                    ],
+                  );
+                },
+              );
+            },
+          ),
         ),
       );
     },

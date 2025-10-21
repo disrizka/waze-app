@@ -21,7 +21,7 @@ String _formatRp(int value) {
 
 class ProductDetailScreen extends StatefulWidget {
   const ProductDetailScreen({super.key, required this.idProduct});
-  static const routeName = '/product/detail-product';
+  static const routeName = '/product/list/detail';
   final String idProduct;
 
   @override

@@ -32,60 +32,104 @@ class _MenuItemData {
   });
 }
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _didKickRoleLoad = false;
+
+  /// 🔑 simpan key sebagai field agar tidak ganti instance tiap rebuild
+  final GlobalKey<_HeaderGradientState> _headerKey =
+      GlobalKey<_HeaderGradientState>();
+
+  @override
+  void initState() {
+    super.initState();
+    // load role aktif sekali saat mount
+    Future.microtask(() async {
+      if (!mounted || _didKickRoleLoad) return;
+      _didKickRoleLoad = true;
+      await context.read<RoleProvider>().refreshActiveRoleFromPrefs(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Key untuk me-reload header setelah refresh
-    final headerKey = GlobalKey<_HeaderGradientState>();
-
     final green = AppColors.blue;
     final textPrimary = const Color(0xFF1E1E1E);
-    const double _cardWidth = 206;
-
     final t = AppLocalizations.of(context)!;
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        // Bungkus dengan RefreshIndicator
         child: RefreshIndicator(
           color: AppColors.blue,
           onRefresh: () async {
             final auth = context.read<AuthProvider>();
+            final prefs = await SharedPreferences.getInstance();
+
+            // 1) Kunci active id saat ini
+            final lockedId = (prefs.getString('activeBizId') ?? '').trim();
+
+            // 2) Jalankan refresh
             final ok = await auth.refreshCurrentUser(context);
 
-            // Reload header dari prefs agar label/logo ikut update
-            await headerKey.currentState?.reloadFromPrefs();
+            // 3) Validasi apakah pilihan user berubah “diam-diam”
+            String? currentId = (prefs.getString('activeBizId') ?? '').trim();
 
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Row(
-                    children: [
-                      Icon(
-                        ok ? Icons.check_circle_outline : Icons.error_outline,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(ok ? t.refresh_success : t.refresh_failed),
-                      ),
-                    ],
-                  ),
-                  backgroundColor: ok
-                      ? Colors.green.shade600
-                      : Colors.red.shade600,
-                  behavior: SnackBarBehavior.floating,
-                  margin: const EdgeInsets.only(top: 16, left: 12, right: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
+            if (lockedId.isNotEmpty && lockedId != currentId) {
+              // cek apakah lockedId masih valid di daftar business terbaru
+              final raw = prefs.getString('business');
+              if (raw != null && raw.isNotEmpty) {
+                try {
+                  final list = (jsonDecode(raw) as List)
+                      .cast<Map<String, dynamic>>();
+                  final ids = list
+                      .map((e) => (e['idBusiness'] ?? '').toString())
+                      .where((s) => s.isNotEmpty)
+                      .toList();
+
+                  if (ids.contains(lockedId)) {
+                    // 4) Paksa balik ke pilihan user
+                    await auth.switchActiveBusiness(lockedId);
+                    currentId = lockedId; // sinkron
+                  }
+                } catch (_) {}
+              }
             }
+
+            // 5) Update header dari prefs (label/logo)
+            await _headerKey.currentState?.reloadFromPrefs();
+
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    Icon(
+                      ok ? Icons.check_circle_outline : Icons.error_outline,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(ok ? t.refresh_success : t.refresh_failed),
+                    ),
+                  ],
+                ),
+                backgroundColor: ok
+                    ? Colors.green.shade600
+                    : Colors.red.shade600,
+                behavior: SnackBarBehavior.floating,
+                margin: const EdgeInsets.only(top: 16, left: 12, right: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                duration: const Duration(seconds: 2),
+              ),
+            );
           },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(
@@ -94,88 +138,32 @@ class HomeScreen extends StatelessWidget {
             padding: EdgeInsets.zero,
             child: Builder(
               builder: (context) {
-                // iPad/tablet jika shortestSide >= 600
                 final bool isTablet =
                     MediaQuery.of(context).size.shortestSide >= 600;
 
-                // ======= iPhone (TETAP seperti semula) =======
                 final Widget phoneBody = Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _HeaderGradient(
-                      key: headerKey,
+                      key: _headerKey,
                       green: green,
                       textPrimary: textPrimary,
                     ),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 10),
-                      child: _GridMenu(), // versi grid default (3 kolom)
+                      child: _GridMenu(),
                     ),
-                    const SizedBox(height: 50),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 30),
-                      child: Text(
-                        t.previewReport_title,
-                        style: const TextStyle(
-                          color: Color(0xFF4B5563),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
+                    const SizedBox(height: 24),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      child: _TrackingReportPanel(),
                     ),
-                    const SizedBox(height: 12),
-
-                    // Kartu statistik horizontal (seperti semula)
-                    SizedBox(
-                      height: 86,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 30),
-                        physics: const BouncingScrollPhysics(),
-                        itemCount: 3,
-                        separatorBuilder: (_, __) => const SizedBox(width: 12),
-                        itemBuilder: (_, i) {
-                          switch (i) {
-                            case 0:
-                              return const SizedBox(
-                                width: 206,
-                                child: _StatCard(
-                                  title: 'Income this day',
-                                  amount: 'Rp. 200,000',
-                                ),
-                              );
-                            case 1:
-                              return const SizedBox(
-                                width: 206,
-                                child: _StatCard(
-                                  title: 'Income this month',
-                                  amount: 'Rp. 1,200,000,000',
-                                ),
-                              );
-                            default:
-                              return const SizedBox(
-                                width: 206,
-                                child: _StatCard(
-                                  title: 'Income this year',
-                                  amount: 'Rp. 14,500,000,000',
-                                ),
-                              );
-                          }
-                        },
-                      ),
-                    ),
-
                     const SizedBox(height: 24),
                   ],
                 );
 
                 if (!isTablet) return phoneBody;
 
-                // ======= iPad (RESPONSIF) =======
-                // - Konten dipusatkan & dibatasi lebarnya agar proporsional
-                // - Grid otomatis 4–5 kolom (lihat _GridMenu di bawah)
-                // - Stat cards ditampilkan dalam 1 baris (3 kolom) tanpa scroll
                 return Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 1024),
@@ -183,59 +171,19 @@ class HomeScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _HeaderGradient(
-                          key: headerKey,
+                          key: _headerKey,
                           green: green,
                           textPrimary: textPrimary,
                         ),
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 24),
-                          child: _GridMenu(), // grid akan adaptif (4–5 kolom)
+                          child: _GridMenu(),
                         ),
-                        const SizedBox(height: 64),
-
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Text(
-                            t.previewReport_title,
-                            style: const TextStyle(
-                              color: Color(0xFF4B5563),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 18,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
+                        const SizedBox(height: 24),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 20),
+                          child: _TrackingReportPanel(),
                         ),
-                        const SizedBox(height: 16),
-
-                        // Stat cards versi iPad: 3 kolom dalam satu baris (tanpa scroll)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Row(
-                            children: const [
-                              Expanded(
-                                child: _StatCard(
-                                  title: 'Income this day',
-                                  amount: 'Rp. 200,000',
-                                ),
-                              ),
-                              SizedBox(width: 12),
-                              Expanded(
-                                child: _StatCard(
-                                  title: 'Income this month',
-                                  amount: 'Rp. 1,200,000,000',
-                                ),
-                              ),
-                              SizedBox(width: 12),
-                              Expanded(
-                                child: _StatCard(
-                                  title: 'Income this year',
-                                  amount: 'Rp. 14,500,000,000',
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -328,37 +276,55 @@ class _HeaderGradientState extends State<_HeaderGradient> {
         ? userUsername
         : (email ?? '');
 
-    String businessName = prefs.getString('activeBizName') ?? '';
-    String businessUsername = prefs.getString('activeBizUsername') ?? '';
-    _photoPath = prefs.getString('photoPath') ?? '';
-    _businessLogoPath =
-        prefs.getString('activeBizLogoPath') ?? ''; // ambil logo
+    // ——— utamakan baca via activeBizId
+    final activeId = (prefs.getString('activeBizId') ?? '').trim();
 
-    if (businessName.isEmpty || businessUsername.isEmpty) {
-      final businessJson = prefs.getString('business');
-      if (businessJson != null && businessJson.isNotEmpty) {
-        try {
-          final decoded = jsonDecode(businessJson);
-          if (decoded is List && decoded.isNotEmpty) {
-            final first = Map<String, dynamic>.from(decoded.first as Map);
-            businessName =
-                (first['name'] ??
-                        first['business_name'] ??
-                        first['businessName'] ??
-                        '')
-                    .toString();
-            businessUsername =
-                (first['username'] ??
-                        first['business_username'] ??
-                        first['code'] ??
-                        '')
-                    .toString();
-            _businessLogoPath = (first['logoPath'] ?? first['logo'] ?? '')
-                .toString(); // fallback
-          }
-        } catch (_) {}
+    String businessName = '';
+    String businessUsername = '';
+    String businessLogoPath = '';
+
+    final businessJson = prefs.getString('business');
+    if (businessJson != null && businessJson.isNotEmpty) {
+      try {
+        final list = (jsonDecode(businessJson) as List)
+            .cast<Map<String, dynamic>>();
+
+        Map<String, dynamic>? match;
+        if (activeId.isNotEmpty) {
+          match = list.firstWhere(
+            (e) => (e['idBusiness'] ?? '').toString() == activeId,
+            orElse: () => <String, dynamic>{},
+          );
+        }
+
+        if (match != null && match.isNotEmpty) {
+          businessName = (match['name'] ?? '').toString();
+          businessUsername = (match['username'] ?? '').toString();
+          businessLogoPath = (match['logoPath'] ?? match['logo'] ?? '')
+              .toString();
+        } else {
+          // Tidak ada activeId atau tidak ketemu di list:
+          // → JANGAN fallback ke item pertama (biar tidak "terlihat" pindah).
+          // Tetap coba pakai cache 'activeBiz*' kalau ada, else tampilkan '—'.
+          businessName = prefs.getString('activeBizName') ?? '';
+          businessUsername = prefs.getString('activeBizUsername') ?? '';
+          businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
+        }
+      } catch (_) {
+        // JSON rusak → pakai cache 'activeBiz*' sebisanya
+        businessName = prefs.getString('activeBizName') ?? '';
+        businessUsername = prefs.getString('activeBizUsername') ?? '';
+        businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
       }
+    } else {
+      // Tidak ada daftar business tersimpan → pakai cache 'activeBiz*' sebisanya
+      businessName = prefs.getString('activeBizName') ?? '';
+      businessUsername = prefs.getString('activeBizUsername') ?? '';
+      businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
     }
+
+    _photoPath = prefs.getString('photoPath') ?? '';
+    _businessLogoPath = businessLogoPath;
 
     if (!mounted) return;
     setState(() {
@@ -686,91 +652,348 @@ class _InfoBlock extends StatelessWidget {
 class _GridMenu extends StatelessWidget {
   const _GridMenu();
 
+  // ===== Ikon & route mapping (tanpa Store & WA Business)
+  static const Map<String, String> _iconByMenuName = {
+    'Data User': 'assets/hr_icon.png',
+    'Product': 'assets/product_icon.png',
+    'Purchase': 'assets/purchase_icon.png',
+    'Sale': 'assets/sales_icon.png',
+    // (Store & WA Business DIHAPUS)
+  };
+
+  static const Map<String, String> _pageToRoute = {
+    'employee': '/hr',
+    'user': '/hr',
+    'role': '/hr',
+    'product': '/product',
+    'product/brand': '/product/brand',
+    'product/category': '/product/category',
+    'purchase': '/purchase',
+    'supplier': '/supplier',
+    'sale': '/sales',
+    'customer': '/customer',
+    'report': '/report',
+    // (store/* & waba DIHAPUS)
+  };
+
+  // 🚫 Banlist menu / page yang wajib disembunyikan
+  static const Set<String> _banNames = {'store', 'wa business', 'waba'};
+  static const Set<String> _banPages = {
+    'store/location',
+    'store/external',
+    'waba',
+  };
+
+  // ===== helper
+  List<String> _pagesFromMenu(dynamic menu) {
+    final pages = <String>[];
+    final p = (menu.page ?? '').toString().trim();
+    if (p.isNotEmpty) pages.add(p);
+    final subs = (menu.submenu as List?) ?? const [];
+    for (final s in subs) {
+      final sp = (s.page ?? '').toString().trim();
+      if (sp.isNotEmpty) pages.add(sp);
+    }
+    return pages;
+  }
+
+  String? _primaryRouteForPages(List<String> pages) {
+    for (final p in pages) {
+      final r = _pageToRoute[p];
+      if (r != null && r.isNotEmpty) return r;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = AppLocalizations.of(context)!;
     final role = context.watch<RoleProvider>();
 
-    // (items) tetap sama persis seperti punyamu...
-    final allItems = <_MenuItemData>[
-      _MenuItemData(
-        t.grid_hr,
-        'assets/hr_icon.png',
-        onTap: () => Navigator.pushNamed(context, '/hr'),
-        pageKeys: const ['employee', 'role'],
-        routeName: '/hr',
-      ),
-      _MenuItemData(
-        t.grid_product,
-        'assets/product_icon.png',
-        onTap: () => Navigator.pushNamed(context, '/product'),
-        pageKeys: const ['product'],
-        routeName: '/product',
-      ),
-      _MenuItemData(
-        t.grid_sales,
-        'assets/sales_icon.png',
-        onTap: () => Navigator.pushNamed(context, '/sales'),
-        pageKeys: const ['sale'],
-        routeName: '/sales',
-      ),
-      _MenuItemData(
-        t.grid_purchase,
-        'assets/purchase_icon.png',
-        onTap: () => Navigator.pushNamed(context, '/purchase'),
-        pageKeys: const ['purchase'],
-        routeName: '/purchase',
-      ),
-      _MenuItemData(
-        t.grid_report,
-        'assets/report_icon.png',
-        onTap: () => Navigator.pushNamed(context, '/report'),
-        pageKeys: const ['report'],
-        routeName: '/report',
-      ),
-      _MenuItemData(
-        t.grid_setting,
-        'assets/setting_icon.png',
-        onTap: () => debugPrint("Setting tapped"),
-        pageKeys: const [],
-        routeName: null,
-      ),
-    ];
-
-    final items = role.isReady
-        ? allItems.where((it) {
-            final allowByPage = it.pageKeys.any(role.canPage);
-            final allowByRoute = (it.routeName != null)
-                ? role.can(it.routeName!)
-                : false;
-            final isPublic = it.pageKeys.isEmpty && (it.routeName == null);
-            return isPublic || allowByPage || allowByRoute;
-          }).toList()
-        : allItems;
-
-    // RESPONSIF: iPhone tetap 3 kolom; iPad 4–5 kolom tergantung lebar
+    // Responsif
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     final width = MediaQuery.of(context).size.width;
-    final int crossAxisCount = !isTablet
-        ? 3
-        : (width >= 1200 ? 5 : 4); // iPad besar = 5 kolom, iPad reguler = 4
+    final int crossAxisCount = !isTablet ? 3 : (width >= 1200 ? 5 : 4);
 
-    final double spacing = isTablet ? 28 : 30; // rasa iPad sedikit lebih rapat
+    // Loading → shimmer
+    if (!role.isReady) {
+      return GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: crossAxisCount * 2,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          mainAxisSpacing: isTablet ? 24 : 19,
+          crossAxisSpacing: isTablet ? 28 : 30,
+          childAspectRatio: isTablet ? 1.0 : 0.90,
+        ),
+        itemBuilder: (_, __) => Column(
+          children: [
+            Container(
+              width: 78,
+              height: 78,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              height: 16,
+              width: 64,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        mainAxisSpacing: isTablet ? 24 : 19,
-        crossAxisSpacing: spacing,
-        childAspectRatio: isTablet ? 1.0 : 0.90, // iPad tile lebih kotak
+    return FutureBuilder<String?>(
+      future: SharedPreferences.getInstance().then(
+        (p) => p.getString('activeBizRoleName'),
       ),
-      itemBuilder: (_, i) => _MenuTile(data: items[i]),
+      builder: (ctx, snap) {
+        final prefsRoleName = (snap.data ?? '').trim().toLowerCase();
+        final providerRoleName = (role.role?.name ?? '').trim().toLowerCase();
+        final bool isOwner =
+            (prefsRoleName == 'owner') || (providerRoleName == 'owner');
+
+        // ===== OWNER MODE: 6 tile saja (tanpa Store & WA Business)
+        if (isOwner) {
+          final allItems = <_MenuItemData>[
+            _MenuItemData(
+              t.grid_hr,
+              'assets/hr_icon.png',
+              pageKeys: const ['employee', 'user', 'role'],
+              routeName: '/hr',
+              onTap: () => Navigator.pushNamed(context, '/hr'),
+            ),
+            _MenuItemData(
+              t.grid_product,
+              'assets/product_icon.png',
+              pageKeys: const ['product'],
+              routeName: '/product',
+              onTap: () => Navigator.pushNamed(context, '/product'),
+            ),
+            _MenuItemData(
+              t.grid_sales,
+              'assets/sales_icon.png',
+              pageKeys: const ['sale'],
+              routeName: '/sales',
+              onTap: () => Navigator.pushNamed(context, '/sales'),
+            ),
+            _MenuItemData(
+              t.grid_purchase,
+              'assets/purchase_icon.png',
+              pageKeys: const ['purchase'],
+              routeName: '/purchase',
+              onTap: () => Navigator.pushNamed(context, '/purchase'),
+            ),
+            _MenuItemData(
+              t.grid_report,
+              'assets/report_icon.png',
+              pageKeys: const ['report'],
+              routeName: '/report',
+              onTap: () => Navigator.pushNamed(context, '/report'),
+            ),
+            _MenuItemData(
+              t.grid_setting,
+              'assets/setting_icon.png',
+              onTap: () => Navigator.pushNamed(context, '/setting'),
+            ),
+          ];
+
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: allItems.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              mainAxisSpacing: isTablet ? 24 : 19,
+              crossAxisSpacing: isTablet ? 28 : 30,
+              childAspectRatio: isTablet ? 1.0 : 0.90,
+            ),
+            itemBuilder: (_, i) => _MenuTile(data: allItems[i]),
+          );
+        }
+
+        // ===== NON-OWNER MODE: dari backend + filter izin + banlist
+        final menus = role.role?.menus ?? const [];
+        final items = <_MenuItemData>[];
+
+        for (final m in menus) {
+          final name = (m.name ?? '').toString().trim();
+          if (name.isEmpty) continue;
+
+          // Ban by name
+          final nameL = name.toLowerCase();
+          if (_banNames.contains(nameL)) continue;
+
+          // Pages
+          final pages = _pagesFromMenu(m);
+          if (pages.any((p) => _banPages.contains(p.toLowerCase()))) continue;
+
+          // Konsolidasi HR
+          final isDataUser = nameL == 'data user';
+          final hasHrPages = pages.any((p) {
+            final lp = p.toLowerCase();
+            return lp == 'employee' || lp == 'user' || lp == 'role';
+          });
+          if (isDataUser || hasHrPages) {
+            final alreadyAdded = items.any((it) => it.routeName == '/hr');
+            if (!alreadyAdded) {
+              items.add(
+                _MenuItemData(
+                  t.grid_hr,
+                  'assets/hr_icon.png',
+                  pageKeys: const ['employee', 'user', 'role'],
+                  routeName: '/hr',
+                  onTap: () => Navigator.pushNamed(context, '/hr'),
+                ),
+              );
+            }
+            continue;
+          }
+
+          final routeName = _primaryRouteForPages(pages);
+          final asset = _iconByMenuName[name] ?? 'assets/product_icon.png';
+
+          final allowByPage = pages.any(role.canPage);
+          final allowByRoute = (routeName != null)
+              ? role.can(routeName)
+              : false;
+          if (!allowByPage && !allowByRoute) continue;
+
+          items.add(
+            _MenuItemData(
+              name,
+              asset,
+              pageKeys: pages,
+              routeName: routeName,
+              onTap: (routeName != null)
+                  ? () => Navigator.pushNamed(context, routeName)
+                  : null,
+            ),
+          );
+        }
+
+        // Setting publik
+        items.add(
+          _MenuItemData(
+            t.grid_setting,
+            'assets/setting_icon.png',
+            onTap: () => Navigator.pushNamed(context, '/setting'),
+          ),
+        );
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: items.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            mainAxisSpacing: isTablet ? 24 : 19,
+            crossAxisSpacing: isTablet ? 28 : 30,
+            childAspectRatio: isTablet ? 1.0 : 0.90,
+          ),
+          itemBuilder: (_, i) => _MenuTile(data: items[i]),
+        );
+      },
     );
   }
 }
+
+// class _GridMenu extends StatelessWidget {
+//   const _GridMenu();
+
+//   @override
+//   Widget build(BuildContext context) {
+//     final t = AppLocalizations.of(context)!;
+//     final role = context.watch<RoleProvider>();
+
+//     // (items) tetap sama persis seperti punyamu...
+//     final allItems = <_MenuItemData>[
+//       _MenuItemData(
+//         t.grid_hr,
+//         'assets/hr_icon.png',
+//         onTap: () => Navigator.pushNamed(context, '/hr'),
+//         pageKeys: const ['employee', 'role'],
+//         routeName: '/hr',
+//       ),
+//       _MenuItemData(
+//         t.grid_product,
+//         'assets/product_icon.png',
+//         onTap: () => Navigator.pushNamed(context, '/product'),
+//         pageKeys: const ['product'],
+//         routeName: '/product',
+//       ),
+//       _MenuItemData(
+//         t.grid_sales,
+//         'assets/sales_icon.png',
+//         onTap: () => Navigator.pushNamed(context, '/sales'),
+//         pageKeys: const ['sale'],
+//         routeName: '/sales',
+//       ),
+//       _MenuItemData(
+//         t.grid_purchase,
+//         'assets/purchase_icon.png',
+//         onTap: () => Navigator.pushNamed(context, '/purchase'),
+//         pageKeys: const ['purchase'],
+//         routeName: '/purchase',
+//       ),
+//       _MenuItemData(
+//         t.grid_report,
+//         'assets/report_icon.png',
+//         onTap: () => Navigator.pushNamed(context, '/report'),
+//         pageKeys: const ['report'],
+//         routeName: '/report',
+//       ),
+//       _MenuItemData(
+//         t.grid_setting,
+//         'assets/setting_icon.png',
+//         onTap: () => debugPrint("Setting tapped"),
+//         pageKeys: const [],
+//         routeName: null,
+//       ),
+//     ];
+
+//     final items = role.isReady
+//         ? allItems.where((it) {
+//             final allowByPage = it.pageKeys.any(role.canPage);
+//             final allowByRoute = (it.routeName != null)
+//                 ? role.can(it.routeName!)
+//                 : false;
+//             final isPublic = it.pageKeys.isEmpty && (it.routeName == null);
+//             return isPublic || allowByPage || allowByRoute;
+//           }).toList()
+//         : allItems;
+
+//     // RESPONSIF: iPhone tetap 3 kolom; iPad 4–5 kolom tergantung lebar
+//     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+//     final width = MediaQuery.of(context).size.width;
+//     final int crossAxisCount = !isTablet
+//         ? 3
+//         : (width >= 1200 ? 5 : 4); // iPad besar = 5 kolom, iPad reguler = 4
+
+//     final double spacing = isTablet ? 28 : 30; // rasa iPad sedikit lebih rapat
+
+//     return GridView.builder(
+//       shrinkWrap: true,
+//       physics: const NeverScrollableScrollPhysics(),
+//       itemCount: items.length,
+//       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+//         crossAxisCount: crossAxisCount,
+//         mainAxisSpacing: isTablet ? 24 : 19,
+//         crossAxisSpacing: spacing,
+//         childAspectRatio: isTablet ? 1.0 : 0.90, // iPad tile lebih kotak
+//       ),
+//       itemBuilder: (_, i) => _MenuTile(data: items[i]),
+//     );
+//   }
+// }
 
 class _MenuTile extends StatelessWidget {
   final _MenuItemData data;
@@ -1168,6 +1391,107 @@ class _BusinessSwitcherSheetState extends State<_BusinessSwitcherSheet> {
             const SizedBox(height: 8),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TrackingReportPanel extends StatelessWidget {
+  const _TrackingReportPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          // halus banget biar kayak contoh
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ===== kiri: judul + metrik
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                // Judul di dalam kartu
+                Text(
+                  'Tracking Report',
+                  style: TextStyle(
+                    color: Color(0xFF374151), // abu-abu tua
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                SizedBox(height: 18),
+
+                // Sales Today
+                Text(
+                  'Sales Today',
+                  style: TextStyle(
+                    color: Color(0xFF6B7280),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Rp. 200,000',
+                  style: TextStyle(
+                    color: Color(0xFF16A34A),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 24,
+                  ),
+                ),
+
+                SizedBox(height: 18),
+
+                // Transaction Today
+                Text(
+                  'Transaction Today',
+                  style: TextStyle(
+                    color: Color(0xFF6B7280),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  '16 product',
+                  style: TextStyle(
+                    color: Color(0xFF16A34A),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 24,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          // ===== kanan: gambar dummy
+          SizedBox(
+            width: isTablet ? 180 : 140, // rasio mirip contoh
+            height: isTablet ? 180 : 140,
+            child: Image.asset(
+              'assets/tracking_report_image.png',
+              fit: BoxFit.contain,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/providers/chat_provider.dart';
 import 'package:wa_blast/widgets/chat_tile.dart';
 import 'package:wa_blast/widgets/modal_login.dart';
@@ -532,10 +533,11 @@ class _AccountSwitcher extends StatelessWidget {
                               ).switchAccount(email);
 
                               if (success) {
-                                Navigator.pushReplacementNamed(
-                                  context,
-                                  '/splash',
-                                );
+                                appNavigatorKey.currentState
+                                    ?.pushNamedAndRemoveUntil(
+                                      '/splash',
+                                      (r) => false,
+                                    );
                               } else {
                                 final error = Provider.of<AuthProvider>(
                                   context,

@@ -1005,7 +1005,7 @@ class SalesProvider extends ChangeNotifier {
     if (_midtrans != null) return;
     _midtrans = await MidtransSDK.init(
       config: MidtransConfig(
-        clientKey: 'SB-Mid-client-OlAvtRicKKPMklc4',
+        clientKey: 'Mid-client-ej_BQW5VVp_G2hAy',
         merchantBaseUrl: '',
         colorTheme: ColorTheme(
           colorPrimary: Theme.of(context).colorScheme.primary,
