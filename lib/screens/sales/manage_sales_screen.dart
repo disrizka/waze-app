@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class ManagePurchaseScreen extends StatelessWidget {
-  const ManagePurchaseScreen({super.key});
+class ManageSalesScreen extends StatelessWidget {
+  const ManageSalesScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -15,7 +15,7 @@ class ManagePurchaseScreen extends StatelessWidget {
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           onPressed: () => Navigator.pushReplacementNamed(context, '/home'),
         ),
-        title: const Text('Manage Purchase'),
+        title: const Text('Manage Sales'),
         centerTitle: false,
         elevation: 0,
       ),
@@ -32,29 +32,23 @@ class ManagePurchaseScreen extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            // const SizedBox(height: 8),
+            const SizedBox(height: 8),
             // _MenuTile(
             //   icon: Icons.receipt_long_rounded,
-            //   title: 'Add Purchase',
-            //   onTap: () => Navigator.pushNamed(context, '/purchase/add'),
+            //   title: 'Add Sales',
+            //   onTap: () => Navigator.pushNamed(context, '/sales/add'),
             // ),
-            const SizedBox(height: 8),
+            // const SizedBox(height: 8),
             _MenuTile(
-              icon: Icons.receipt_long_rounded,
-              title: 'Purchase List',
-              onTap: () => Navigator.pushNamed(context, '/purchase/list'),
+              icon: Icons.query_stats_rounded,
+              title: 'Sales',
+              onTap: () => Navigator.pushNamed(context, '/sales/list'),
             ),
             const SizedBox(height: 8),
             _MenuTile(
-              icon: Icons.factory,
-              title: 'Supplier List',
-              onTap: () => Navigator.pushNamed(context, '/purchase/supplier'),
-            ),
-            const SizedBox(height: 8),
-            _MenuTile(
-              icon: Icons.store,
-              title: 'Store List',
-              onTap: () => Navigator.pushNamed(context, '/purchase/store'),
+              icon: Icons.people_alt_rounded,
+              title: 'Customer List',
+              onTap: () => Navigator.pushNamed(context, '/sales/customer'),
             ),
           ],
         ),
@@ -111,15 +105,11 @@ class _BlueIcon extends StatelessWidget {
       height: 36,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: const Color(0xFFE9F0FF), // soft blue bg
+        color: const Color(0xFFE9F0FF),
         border: Border.all(color: const Color(0xFFD6E3FF)),
       ),
       child: Center(
-        child: Icon(
-          icon,
-          size: 20,
-          color: const Color(0xFF4C6EF5), // primary blue
-        ),
+        child: Icon(icon, size: 20, color: const Color(0xFF4C6EF5)),
       ),
     );
   }

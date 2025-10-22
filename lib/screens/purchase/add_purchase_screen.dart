@@ -64,6 +64,17 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
   // items
   final Map<String, _PurchaseRow> _rows = {}; // key: skuId
 
+  // ===== Responsive helpers =====
+  bool get _isTablet {
+    final shortest = MediaQuery.of(context).size.shortestSide;
+    return shortest >= 600;
+  }
+
+  double get _maxContentWidth => _isTablet ? 960 : double.infinity;
+  EdgeInsets get _screenPadding => _isTablet
+      ? const EdgeInsets.fromLTRB(24, 12, 24, 0)
+      : const EdgeInsets.fromLTRB(16, 12, 16, 0);
+
   @override
   void initState() {
     super.initState();
@@ -149,13 +160,13 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      backgroundColor: Colors.transparent, // ← biar bisa center di iPad
       builder: (_) => ChangeNotifierProvider.value(
         value: context.read<ProductProvider>(),
-        child: _ProductGridPicker(initial: _rows),
+        child: _CenteredConstrainedSheet(
+          maxWidth: _isTablet ? 720 : double.infinity,
+          child: _ProductGridPicker(initial: _rows),
+        ),
       ),
     );
 
@@ -279,178 +290,124 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
       ),
 
       body: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        child: Column(
-          children: [
-            // --- Reference ---
-            _Section(
-              title: 'Reference',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'Reference Number',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _referenceC.text,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(width: 6),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.edit_rounded,
-                        size: 18,
-                        color: UI.sub,
-                      ),
-                      onPressed: () async {
-                        // bebas: tampilkan dialog input reference
-                        final ctrl = TextEditingController(
-                          text: _referenceC.text,
-                        );
-                        final ok = await showDialog<bool>(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Text('Edit Reference'),
-                            content: TextField(
-                              controller: ctrl,
-                              decoration: const InputDecoration(
-                                hintText: 'REF-123456',
+        minimum: _screenPadding,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: _maxContentWidth),
+            child: Column(
+              children: [
+                // --- Items ---
+                Expanded(
+                  child: ListView(
+                    children: [
+                      _Section(
+                        titleWidget: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Items',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            TextButton.icon(
+                              onPressed: _openSkuPicker,
+                              icon: const Icon(Icons.add_rounded, size: 18),
+                              label: const Text('Add SKU'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: UI.blue,
                               ),
                             ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, false),
-                                child: const Text('Cancel'),
+                          ],
+                        ),
+                        child: (_rows.isEmpty)
+                            ? _emptyItemsHint()
+                            : _ItemsDataTable(
+                                rows: _rows.values.toList(),
+                                orderDiscPerUnit: _allocOrderDiscountPerUnit(),
+                                onDiscountChanged: (skuId, value) =>
+                                    setState(() {
+                                      _rows[skuId]!.discountPerItem = value
+                                          .clamp(0, 1 << 31);
+                                    }),
+                                onRemove: (skuId) =>
+                                    setState(() => _rows.remove(skuId)),
+                                onQtyChanged: (skuId, nextQty) => setState(() {
+                                  if (nextQty <= 0) {
+                                    _rows.remove(skuId);
+                                  } else {
+                                    final row = _rows[skuId];
+                                    if (row != null) {
+                                      _rows[skuId] = row..qty = nextQty;
+                                    }
+                                  }
+                                }),
                               ),
-                              FilledButton(
-                                onPressed: () => Navigator.pop(context, true),
-                                child: const Text('Save'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // --- Details ---
+                      _Section(
+                        title: 'Purchase details',
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 12),
+                              _LabeledField(
+                                label: 'Store location',
+                                child: PickerField(
+                                  placeholder: 'Select store location',
+                                  value: _storeName,
+                                  onTap: _pickStore,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              _LabeledField(
+                                label: 'Note',
+                                child: TextFormField(
+                                  controller: _noteC,
+                                  maxLines: 2,
+                                  decoration: UI.input('Pembelian stok awal…'),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              _LabeledField(
+                                label: 'Discount (order, IDR)',
+                                child: TextFormField(
+                                  controller: _discountOrderC,
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  decoration: UI.input('0'),
+                                  onChanged: (_) => setState(() {}),
+                                ),
                               ),
                             ],
                           ),
-                        );
-                        if (ok == true && mounted) {
-                          setState(
-                            () => _referenceC.text = ctrl.text.trim().isEmpty
-                                ? _generateDefaultReference()
-                                : ctrl.text.trim(),
-                          );
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // --- Items ---
-            Expanded(
-              child: ListView(
-                children: [
-                  _Section(
-                    titleWidget: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Items',
-                          style: TextStyle(fontWeight: FontWeight.w800),
                         ),
-                        TextButton.icon(
-                          onPressed: _openSkuPicker,
-                          icon: const Icon(Icons.add_rounded, size: 18),
-                          label: const Text('Add SKU'),
-                          style: TextButton.styleFrom(foregroundColor: UI.blue),
-                        ),
-                      ],
-                    ),
-                    child: (_rows.isEmpty)
-                        ? _emptyItemsHint()
-                        : _ItemsDataTable(
-                            rows: _rows.values.toList(),
-                            orderDiscPerUnit: _allocOrderDiscountPerUnit(),
-                            onDiscountChanged: (skuId, value) => setState(() {
-                              _rows[skuId]!.discountPerItem = value.clamp(
-                                0,
-                                1 << 31,
-                              );
-                            }),
-                            onRemove: (skuId) =>
-                                setState(() => _rows.remove(skuId)),
-                            onQtyChanged: (skuId, nextQty) => setState(() {
-                              if (nextQty <= 0) {
-                                _rows.remove(skuId);
-                              } else {
-                                final row = _rows[skuId];
-                                if (row != null)
-                                  _rows[skuId] = row..qty = nextQty;
-                              }
-                            }),
-                          ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // --- Details ---
-                  _Section(
-                    title: 'Purchase details',
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 12),
-                          _LabeledField(
-                            label: 'Store location',
-                            child: PickerField(
-                              placeholder: 'Select store location',
-                              value: _storeName,
-                              onTap: _pickStore,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _LabeledField(
-                            label: 'Note',
-                            child: TextFormField(
-                              controller: _noteC,
-                              maxLines: 2,
-                              decoration: UI.input('Pembelian stok awal…'),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _LabeledField(
-                            label: 'Discount (order, IDR)',
-                            child: TextFormField(
-                              controller: _discountOrderC,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                              ],
-                              decoration: UI.input('0'),
-                              onChanged: (_) => setState(() {}),
-                            ),
-                          ),
-                        ],
                       ),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
+
+                // --- Sticky footer ---
+                Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: _maxContentWidth),
+                    child: _StickyFooterBar(
+                      subtotal: _subtotalItems,
+                      discount: _orderDiscount,
+                      grandTotal: _grandTotal,
+                      enabled: hasItems && _storeId != null && !_submitting,
+                      onSubmit: _submit,
+                      onCancel: () => Navigator.maybePop(context),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                ],
-              ),
+                ),
+              ],
             ),
-
-            // --- Sticky footer ---
-            _StickyFooterBar(
-              subtotal: _subtotalItems,
-              discount: _orderDiscount,
-              grandTotal: _grandTotal,
-              enabled: hasItems && _storeId != null && !_submitting,
-              onSubmit: _submit,
-              onCancel: () => Navigator.maybePop(context),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -484,13 +441,18 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
       barrierColor: Colors.black.withOpacity(0.2), // gelapkan sedikit
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (context, animation, secondaryAnimation) {
+        final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+        final dialogMaxW = isTablet
+            ? 520.0
+            : MediaQuery.of(context).size.width * 0.86;
+
         return BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6), // <<< BLUR BACKGROUND
           child: Center(
             child: Material(
               color: Colors.transparent,
               child: Container(
-                width: MediaQuery.of(context).size.width * 0.86,
+                width: dialogMaxW,
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -551,7 +513,7 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
                         onPressed: () {
                           // Langsung arahkan ke /purchase/list
                           Navigator.of(context).pushNamedAndRemoveUntil(
-                            '/report/purchase',
+                            '/purchase/list',
                             (route) => false,
                           );
                         },
@@ -587,6 +549,50 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
   }
 }
 
+/// Pembungkus untuk mem-center + batasi lebar sheet di iPad
+class _CenteredConstrainedSheet extends StatelessWidget {
+  final double maxWidth;
+  final Widget child;
+  const _CenteredConstrainedSheet({
+    required this.maxWidth,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+    final sheet = Material(
+      color: Colors.white,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      child: child,
+    );
+
+    if (!isTablet) return sheet;
+
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x26000000),
+                  blurRadius: 24,
+                  offset: Offset(0, -6),
+                ),
+              ],
+            ),
+            child: sheet,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ProductGridPicker extends StatefulWidget {
   const _ProductGridPicker({required this.initial});
   final Map<String, _PurchaseRow> initial; // skuId -> row
@@ -599,6 +605,8 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
   final _searchC = TextEditingController();
   String _q = '';
   late Map<String, _PurchaseRow> _temp;
+
+  bool get _isTablet => MediaQuery.of(context).size.shortestSide >= 600;
 
   @override
   void initState() {
@@ -632,6 +640,40 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
   int? _price(Product p) => p.basePrice;
 
   Future<void> _pickVariant(Product p) async {
+    // QUICK-ADD: jika tidak ada atribut varian sama sekali
+    if (_hasNoVariantAttrs(p)) {
+      final s = _defaultSku(p);
+      if (s == null) return;
+
+      setState(() {
+        final key = s.idProductSku;
+        final cur = _temp[key];
+        if (cur == null) {
+          _temp[key] = _PurchaseRow(
+            productId: p.idProduct,
+            skuId: s.idProductSku,
+            productName: p.name,
+            skuLabel: s.code,
+            imageUrl: p.primaryImageUrl,
+            price: s.price,
+            qty: 1,
+          );
+        } else {
+          _temp[key] = cur..qty = cur.qty + 1;
+        }
+      });
+
+      // optional feedback
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added 1 — ${p.name}'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // NORMAL: ada atribut varian → buka sheet
     final row = await showProductVariantSheet(context, p);
     if (!mounted || row == null) return;
     setState(() {
@@ -650,9 +692,7 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
 
     final list = () {
       // Selalu copy dulu supaya mutable
-      List<Product> base = List<Product>.from(
-        prov.products,
-      ); // atau: [...prov.products]
+      List<Product> base = List<Product>.from(prov.products);
 
       if (_q.isNotEmpty) {
         final q = _q.toLowerCase();
@@ -662,12 +702,16 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
             (s) => s.code.toLowerCase().contains(q),
           );
           return inName || inSku;
-        }).toList(); // sudah mutable
+        }).toList();
       }
 
-      base.sort((a, b) => a.name.compareTo(b.name)); // aman sekarang
+      base.sort((a, b) => a.name.compareTo(b.name));
       return base;
     }();
+
+    final hasAnyNoVariant = list.any(
+      (p) => p.productSkus.every((s) => s.attributes.isEmpty),
+    );
 
     final selectedCount = _temp.length;
     final selectedQty = _temp.values.fold<int>(0, (s, r) => s + r.qty);
@@ -715,15 +759,34 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
         return const Expanded(child: Center(child: Text('No products found')));
       }
 
+      final cols = _isTablet
+          ? (MediaQuery.of(context).size.width >= 1024 ? 4 : 3)
+          : 2;
+      final cardAR = _isTablet
+          ? (MediaQuery.of(context).size.width >= 1024 ? 0.72 : 0.68)
+          : 0.62;
+
       return Expanded(
         child: GridView.builder(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 0.62, // ← cegah overflow
-          ),
+          padding: _isTablet
+              ? const EdgeInsets.fromLTRB(16, 8, 16, 16)
+              : const EdgeInsets.fromLTRB(12, 8, 12, 12),
+
+          // 🔧 iPad: 3 kolom fix + mainAxisExtent untuk cegah overflow
+          gridDelegate: _isTablet
+              ? const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  mainAxisExtent: 320, // tinggi sel tetap → tidak overflow
+                )
+              : const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 0.62, // iPhone tetap sama
+                ),
+
           itemCount: list.length,
           itemBuilder: (_, i) {
             final p = list[i];
@@ -744,90 +807,103 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
     }
 
     return SafeArea(
-      minimum: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.9,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _SheetHeader(title: 'Select Products'),
-            // Search
-            Material(
-              elevation: 1,
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              child: TextField(
-                controller: _searchC,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: 'Search product / SKU',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: (_searchC.text.trim().isEmpty)
-                      ? null
-                      : IconButton(
-                          onPressed: _searchC.clear,
-                          icon: const Icon(Icons.close),
-                        ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+      minimum: _isTablet
+          ? const EdgeInsets.fromLTRB(24, 12, 24, 16)
+          : const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: _isTablet ? 900 : double.infinity,
+          ),
+          child: SizedBox(
+            height:
+                MediaQuery.of(context).size.height * (_isTablet ? 0.86 : 0.9),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _SheetHeader(title: 'Select Products'),
+                // Search
+                Material(
+                  elevation: 1,
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  child: TextField(
+                    controller: _searchC,
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      hintText: 'Search product / SKU',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: (_searchC.text.trim().isEmpty)
+                          ? null
+                          : IconButton(
+                              onPressed: _searchC.clear,
+                              icon: const Icon(Icons.close),
+                            ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                      ),
+                      isDense: true,
+                    ),
                   ),
-                  isDense: true,
                 ),
-              ),
-            ),
-            const SizedBox(height: 8),
+                const SizedBox(height: 8),
 
-            // Body
-            body(),
+                // Body
+                body(),
 
-            // Footer
-            SafeArea(
-              top: false,
-              minimum: const EdgeInsets.only(top: 8),
-              child: Column(
-                children: [
-                  Container(height: 1, color: const Color(0xFFE5E7EB)),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-                    child: Text(
-                      (selectedCount > 0)
-                          ? '$selectedCount SKU • $selectedQty qty'
-                          : 'Pilih produk, lalu tentukan variannya',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF6B7280),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-                    child: FilledButton.icon(
-                      onPressed: () =>
-                          Navigator.pop(context, _temp.values.toList()),
-                      icon: const Icon(Icons.check, size: 18),
-                      label: const Text('Use selected'),
-                      style: FilledButton.styleFrom(
-                        elevation: 0,
-                        backgroundColor: const Color(0xFF426FD4),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        textStyle: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
+                // Footer
+                SafeArea(
+                  top: false,
+                  minimum: const EdgeInsets.only(top: 8),
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                        child: Text(
+                          (selectedCount > 0)
+                              ? '$selectedCount SKU • $selectedQty qty'
+                              : 'Pilih produk, lalu tentukan variannya',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF6B7280),
+                            fontSize: 12,
+                          ),
                         ),
                       ),
-                    ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: 50, // <<< lebih besar
+                          child: FilledButton.icon(
+                            onPressed: () =>
+                                Navigator.pop(context, _temp.values.toList()),
+                            icon: const Icon(Icons.check, size: 22),
+                            label: const Text('Use selected'),
+                            style: FilledButton.styleFrom(
+                              elevation: 0,
+                              backgroundColor: const Color(0xFF426FD4),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              textStyle: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                                letterSpacing: .2,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -851,6 +927,7 @@ class _ProductCardFromModel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     final money = NumberFormat.decimalPattern('id_ID');
 
     Widget image() {
@@ -861,18 +938,19 @@ class _ProductCardFromModel extends StatelessWidget {
         ),
         child: const Center(child: Icon(Icons.image, color: Color(0xFFA3A3A3))),
       );
+      final h = isTablet ? 128.0 : 110.0; // 🔧 sedikit lebih pendek biar pas
       return ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: (thumbUrl != null && thumbUrl!.isNotEmpty)
             ? Image.network(
                 thumbUrl!,
-                height: 110, // ← fix height: anti overflow
+                height: h,
                 width: double.infinity,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) =>
-                    SizedBox(height: 110, child: fallback),
+                    SizedBox(height: h, child: fallback),
               )
-            : SizedBox(height: 110, child: fallback),
+            : SizedBox(height: h, child: fallback),
       );
     }
 
@@ -890,7 +968,7 @@ class _ProductCardFromModel extends StatelessWidget {
         border: Border.all(color: UI.line),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(isTablet ? 12 : 12), // keep compact
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -921,7 +999,7 @@ class _ProductCardFromModel extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
               product.name,
               maxLines: 2,
@@ -931,14 +1009,14 @@ class _ProductCardFromModel extends StatelessWidget {
                 color: UI.text,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               (basePrice != null) ? 'Rp. ${money.format(basePrice)}' : '—',
               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
             ),
             const Spacer(),
             SizedBox(
-              height: 40,
+              height: isTablet ? 42 : 40,
               width: double.infinity,
               child: FilledButton(
                 onPressed: onAdd,
@@ -949,9 +1027,9 @@ class _ProductCardFromModel extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: Text(
-                  selectedQty > 0 ? 'Add more variants' : 'Add',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                child: const Text(
+                  'Add',
+                  style: TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
             ),
@@ -1290,19 +1368,17 @@ class _ItemsDataTable extends StatelessWidget {
   Widget build(BuildContext context) {
     final money = NumberFormat.decimalPattern('id_ID');
 
-    // Lebar minimum supaya kolom tidak terlalu sempit di layar kecil
-    const minTableWidth = 980.0;
+    // Lebar minimum supaya kolom tidak terlalu sempit; cukup nyaman di iPad.
+    const minTableWidth = 880.0;
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: ConstrainedBox(
         constraints: const BoxConstraints(minWidth: minTableWidth),
         child: DataTable(
-          // --- FIX tinggi baris: set min & max agar normalized ---
           headingRowHeight: 44,
           dataRowMinHeight: 52,
-          dataRowMaxHeight: 60, // >= dataRowMinHeight
-          // -------------------------------------------------------
+          dataRowMaxHeight: 60,
           columnSpacing: 16,
           dividerThickness: 1,
           headingTextStyle: const TextStyle(
@@ -1387,7 +1463,6 @@ class _ItemsDataTable extends StatelessWidget {
                   ),
                 ),
 
-                // Qty (read-only; kalau mau editable ganti ke _QtyPill + setState di parent)
                 // Qty (editable)
                 DataCell(
                   Align(
@@ -1396,10 +1471,7 @@ class _ItemsDataTable extends StatelessWidget {
                       qty: r.qty,
                       onMinus: () {
                         final next = r.qty - 1;
-                        onQtyChanged(
-                          r.skuId,
-                          next,
-                        ); // kalau 0, parent boleh hapus
+                        onQtyChanged(r.skuId, next);
                       },
                       onPlus: () => onQtyChanged(r.skuId, r.qty + 1),
                       onTyped: (v) => onQtyChanged(r.skuId, v),
@@ -1407,7 +1479,7 @@ class _ItemsDataTable extends StatelessWidget {
                   ),
                 ),
 
-                // Discount / Item (editable, right aligned)
+                // Discount / Item (editable)
                 DataCell(
                   SizedBox(
                     width: 120,
@@ -1434,7 +1506,7 @@ class _ItemsDataTable extends StatelessWidget {
                 // Unit (Base)
                 DataCell(Text(money.format(r.price))),
 
-                // Unit (Effective)  (after-item - allocated order disc)
+                // Unit (Effective)
                 DataCell(
                   (ord > 0 || r.discountPerItem > 0)
                       ? Text(
@@ -1479,15 +1551,16 @@ Future<_PurchaseRow?> showProductVariantSheet(
   BuildContext context,
   Product product,
 ) {
+  final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
   return showModalBottomSheet<_PurchaseRow>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    backgroundColor: Colors.transparent, // center on tablet
+    builder: (_) => _CenteredConstrainedSheet(
+      maxWidth: isTablet ? 640 : double.infinity,
+      child: _ProductVariantSheet(product: product),
     ),
-    builder: (_) => _ProductVariantSheet(product: product),
   );
 }
 
@@ -1519,10 +1592,18 @@ class _ProductVariantSheetState extends State<_ProductVariantSheet> {
     final price = matchedSku?.price ?? product.basePrice ?? 0;
     final money = NumberFormat.decimalPattern('id_ID');
 
+    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+    final heroSize = isTablet ? 84.0 : 72.0;
+
     return Container(
       color: UI.bg,
       child: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        minimum: EdgeInsets.fromLTRB(
+          isTablet ? 20 : 16,
+          12,
+          isTablet ? 20 : 16,
+          0,
+        ),
         child: Column(
           children: [
             _SheetHeader(title: 'Choose Variants', caption: product.name),
@@ -1538,13 +1619,13 @@ class _ProductVariantSheetState extends State<_ProductVariantSheet> {
                     child: (product.primaryImageUrl != null)
                         ? Image.network(
                             product.primaryImageUrl!,
-                            width: 72,
-                            height: 72,
+                            width: heroSize,
+                            height: heroSize,
                             fit: BoxFit.cover,
                           )
                         : Container(
-                            width: 72,
-                            height: 72,
+                            width: heroSize,
+                            height: heroSize,
                             color: const Color(0xFFF3F4F6),
                             child: const Icon(
                               Icons.image,
@@ -1994,4 +2075,15 @@ class _QtyEditorState extends State<_QtyEditor> {
       ),
     );
   }
+}
+
+bool _hasNoVariantAttrs(Product p) {
+  // true jika semua SKU tidak punya attributes
+  return p.productSkus.every((s) => s.attributes.isEmpty);
+}
+
+ProductSku? _defaultSku(Product p) {
+  if (p.productSkus.isEmpty) return null;
+  // ambil SKU pertama sebagai default
+  return p.productSkus.first;
 }

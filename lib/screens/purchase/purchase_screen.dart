@@ -330,7 +330,7 @@ class _PurchaseList extends StatelessWidget {
                       onTap: () {
                         Navigator.pushNamed(
                           context,
-                          '/detail-purchase',
+                          '/purchase/list/detail',
                           arguments: {
                             // ✅ kirim 'number' (atau sesuaikan dengan detail screen-mu)
                             'id': item.idTransaction,
@@ -628,37 +628,6 @@ class _AddPurchaseSheetState extends State<_AddPurchaseSheet> {
             Expanded(
               child: ListView(
                 children: [
-                  _Section(
-                    title: 'Reference',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text(
-                        'Reference Number',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            _referenceC.text,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                          const SizedBox(width: 6),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.edit_rounded,
-                              size: 18,
-                              color: UI.sub,
-                            ),
-                            onPressed: () async {
-                              /* isi sama seperti punyamu */
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
                   _Section(
                     titleWidget: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
