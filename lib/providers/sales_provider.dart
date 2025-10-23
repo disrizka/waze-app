@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:wa_blast/core/provider_helper.dart'; // BizIdCache, ApiJson, FetchHelper, PageMeta
 import 'package:wa_blast/providers/product_provider.dart' as catalog;
 import 'package:wa_blast/models/product_model.dart' as model;
+import 'package:wa_blast/providers/store_provider.dart';
 
 /// =========================
 /// CART SKU (ringan)
@@ -237,6 +238,12 @@ class SalesCalculation {
         ? (j['grandtotal'] as num).toInt()
         : int.tryParse('${j['grandtotal'] ?? 0}') ?? 0,
   );
+}
+
+enum StoreSelectStatus {
+  selected, // sudah ada store aktif
+  missing, // ada list store tapi belum dipilih
+  emptyList, // daftar store kosong (belum fetch / memang tidak ada)
 }
 
 @immutable
@@ -678,6 +685,91 @@ class SalesProvider extends ChangeNotifier {
   void _setSalesDetailError(String? v) {
     _salesDetailError = v;
     notifyListeners();
+  }
+
+  // ====== GLOBAL STORE CHECK ======
+  bool _storeRequired = true; // jika true, store wajib dipilih (default true)
+
+  /// Apakah store saat ini sudah dipilih?
+  bool get isStoreSelected => (_storeLocationId ?? '').isNotEmpty;
+
+  /// Flag global untuk mematikan/menyalakan kewajiban memilih store.
+  set storeRequired(bool v) {
+    if (_storeRequired != v) {
+      _storeRequired = v;
+      notifyListeners();
+    }
+  }
+
+  /// True bila store wajib & belum dipilih.
+  bool get isStoreMissingGlobally => _storeRequired && !isStoreSelected;
+
+  /// Set store aktif secara eksplisit (mis. dari picker).
+  void setActiveStore(String? id, {String? name}) {
+    final normalized = (id == null || id.isEmpty) ? null : id;
+    final newName = (name == null || name.isEmpty) ? null : name;
+    if (_storeLocationId != normalized || _storeLocationName != newName) {
+      _storeLocationId = normalized;
+      _storeLocationName = newName ?? _storeLocationName;
+      notifyListeners();
+    }
+  }
+
+  /// Hapus store aktif (mis. ketika user “clear”).
+  void clearActiveStore() {
+    if (_storeLocationId != null || _storeLocationName != null) {
+      _storeLocationId = null;
+      _storeLocationName = null;
+      notifyListeners();
+    }
+  }
+
+  /// Pastikan ada store aktif:
+  /// - Jika belum ada, ambil daftar store dari StoreProvider (fetch bila kosong)
+  /// - Auto-pick store pertama bila tersedia
+  /// - Return id store aktif, atau null jika tetap tidak ada
+  Future<String?> ensureStoreSelected(BuildContext context) async {
+    try {
+      if (isStoreSelected) return _storeLocationId;
+
+      final sp = context.read<StoreProvider>();
+
+      if (sp.stores.isEmpty && !sp.loadingList) {
+        await sp.fetchStoreLocations(context);
+      }
+
+      if (sp.stores.isEmpty) {
+        // tidak ada store sama sekali
+        _lastError = 'No store locations available.';
+        notifyListeners();
+        return null;
+      }
+
+      // auto-pick store pertama
+      _storeLocationId = sp.stores.first.idStoreLocation;
+      _storeLocationName = sp.stores.first.name;
+      _lastError = null;
+      notifyListeners();
+      return _storeLocationId;
+    } catch (e) {
+      _lastError = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// Cek status sekarang (berguna untuk guard di UI)
+  Future<StoreSelectStatus> checkStoreStatus(BuildContext context) async {
+    if (isStoreSelected) return StoreSelectStatus.selected;
+
+    final sp = context.read<StoreProvider>();
+    if (sp.stores.isEmpty && !sp.loadingList) {
+      await sp.fetchStoreLocations(context);
+    }
+    if (sp.stores.isEmpty) {
+      return StoreSelectStatus.emptyList;
+    }
+    return StoreSelectStatus.missing;
   }
 
   /// GET /waveup/{bizId}/transaction/sales/:id   (NEW)

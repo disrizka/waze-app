@@ -74,6 +74,42 @@ class BizIdCache {
   }
 }
 
+// ==== Tambahan util kecil untuk build query string aman ====
+String _buildQueryString(
+  Map<String, dynamic?> filters, {
+  int? page,
+  int? limit,
+}) {
+  final qp = <String, String>{};
+
+  if (page != null) qp['page'] = page.toString();
+  // default limit = 40
+  qp['limit'] = (limit ?? 40).toString();
+
+  filters.forEach((k, v) {
+    if (v == null) return;
+    if (v is String) {
+      // ijinkan string kosong (mis. search=)
+      qp[k] = v;
+    } else {
+      qp[k] = v.toString();
+    }
+  });
+
+  final query = Uri(
+    queryParameters: qp,
+  ).query; // otomatis encode & pertahankan empty value (k=)
+  return query.isEmpty ? '' : '?$query';
+}
+
+/// Opsional: ganti placeholder {{idBusiness}} pakai prefs (BizIdCache)
+Future<String?> _inflateBizPath(String template) async {
+  if (!template.contains('{{idBusiness}}')) return template;
+  final id = await BizIdCache.get();
+  if (id == null || id.isEmpty) return null;
+  return template.replaceAll('{{idBusiness}}', id);
+}
+
 /// ===== API JSON wrapper tipis (selalu balikin Map) =====
 class ApiJson {
   static Future<Map<String, dynamic>?> getMap(
@@ -168,5 +204,41 @@ class FetchHelper {
       return parser(raw.first as Map<String, dynamic>);
     }
     return null;
+  }
+
+  static Future<PagedResult<T>?> fetchListByFilter<T>({
+    required BuildContext context,
+
+    /// Contoh: "/waveup/{{idBusiness}}/product"
+    required String basePath,
+    required FromJson<T> parser,
+    Map<String, dynamic?> filters =
+        const {}, // contoh: { 'search': '', 'storelocationid': 'abc' }
+    int page = 1,
+    int limit = 40,
+    String dataKey = 'data',
+    bool injectBizId =
+        true, // set false kalau tidak pakai placeholder {{idBusiness}}
+  }) async {
+    // inflate path bila ada placeholder {{idBusiness}}
+    String? path = injectBizId ? await _inflateBizPath(basePath) : basePath;
+    if (path == null) {
+      debugPrint(
+        '[FetchHelper.fetchListByFilter] idBusiness kosong → path gagal di-inflate',
+      );
+      return null;
+    }
+
+    // rakit query string: page, limit (default 40), dan filters bebas
+    final qs = _buildQueryString(filters, page: page, limit: limit);
+    final fullPath = '$path$qs';
+
+    // delegasikan ke fetchList yang sudah ada
+    return fetchList<T>(
+      context: context,
+      path: fullPath,
+      parser: parser,
+      dataKey: dataKey,
+    );
   }
 }

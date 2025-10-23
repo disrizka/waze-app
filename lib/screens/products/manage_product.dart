@@ -50,12 +50,6 @@ class ManageProductScreen extends StatelessWidget {
               title: 'Category List',
               onTap: () => Navigator.pushNamed(context, '/product/category'),
             ),
-            const SizedBox(height: 8),
-            _MenuTile(
-              icon: Icons.history_rounded,
-              title: 'Inventory History',
-              onTap: () => Navigator.pushNamed(context, '/product/inventory'),
-            ),
 
             // const SizedBox(height: 8),
             // _MenuTile(

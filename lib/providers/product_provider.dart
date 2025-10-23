@@ -4,9 +4,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:wa_blast/core/provider_helper.dart';
 import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/services/api_service.dart';
+import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 /// =========================
 /// MODELS (CREATE PAYLOAD)
@@ -116,6 +119,39 @@ class InventoryStoreLocationLite {
       );
 }
 
+@immutable
+class SkuInventoryBuckets {
+  final List<InventoryHistoryItem> currentStock;
+  final List<InventoryHistoryItem> purchases;
+  final List<InventoryHistoryItem> sales;
+
+  const SkuInventoryBuckets({
+    required this.currentStock,
+    required this.purchases,
+    required this.sales,
+  });
+
+  factory SkuInventoryBuckets.fromJson(Map<String, dynamic> j) {
+    List<InventoryHistoryItem> _parseList(dynamic raw) {
+      final list = (raw as List?) ?? const [];
+      return list
+          .whereType<Map>()
+          .map(
+            (e) => InventoryHistoryItem.fromJson(
+              Map<String, dynamic>.from(e.cast<String, dynamic>()),
+            ),
+          )
+          .toList();
+    }
+
+    return SkuInventoryBuckets(
+      currentStock: _parseList(j['current_stock']),
+      purchases: _parseList(j['purchases']),
+      sales: _parseList(j['sales']),
+    );
+  }
+}
+
 /// Item riwayat per transaksi inventory.
 @immutable
 class InventoryHistoryItem {
@@ -191,6 +227,22 @@ class ProductProvider with ChangeNotifier {
   Product? get productDetail => _productDetail;
   bool get loadingDetail => _loadingDetail;
 
+  // --- Inventory History PER-SKU (non-pagination)
+  final Map<String, SkuInventoryBuckets> _skuBuckets = {};
+  final Map<String, InventoryHistoryItem?> _skuLatestCurrent = {};
+  final Set<String> _skuLoading = {};
+  final Map<String, Object?> _skuError = {};
+  final Map<String, PageMeta?> _skuPageMeta = {}; // kalau backend kirim "page"
+
+  bool isLoadingSkuHistory(String idProductSKU) =>
+      _skuLoading.contains(idProductSKU);
+  Object? skuHistoryError(String idProductSKU) => _skuError[idProductSKU];
+  SkuInventoryBuckets? skuInventoryBuckets(String idProductSKU) =>
+      _skuBuckets[idProductSKU];
+  InventoryHistoryItem? skuLatestCurrentStock(String idProductSKU) =>
+      _skuLatestCurrent[idProductSKU];
+  PageMeta? skuHistoryPage(String idProductSKU) => _skuPageMeta[idProductSKU];
+
   // --- Brands
   final List<ProductBrand> _brands = [];
   bool _loadingBrands = false;
@@ -224,6 +276,9 @@ class ProductProvider with ChangeNotifier {
 
   String? get lastError => _lastError;
 
+  bool get reachedEnd => _reachedEnd;
+  bool get isFirstPageDoneEmpty => _reachedEnd && _products.isEmpty;
+
   // --- Inventory History
   final List<InventoryHistoryItem> _inventoryHistory = [];
   bool _loadingInventoryHistory = false;
@@ -235,6 +290,25 @@ class ProductProvider with ChangeNotifier {
   bool get loadingInventoryHistory => _loadingInventoryHistory;
   PageMeta? get pageInventoryHistory => _pageInventoryHistory;
   String? get inventoryHistoryError => _inventoryHistoryError;
+
+  String _currentSearch = '';
+  String? _currentStoreLocationId;
+  int _currentPage = 1;
+  bool _hasMoreProducts = true;
+
+  // Getter opsional
+  bool get hasMoreProducts => _hasMoreProducts;
+  String get currentSearch => _currentSearch;
+  String? get currentStoreLocationId => _currentStoreLocationId;
+
+  final int _pageSize = 40;
+  PagingController<int, Product>? _pagingController;
+  int _lastFetchedPage = 0;
+
+  int _lastBatchCount = 0;
+  bool _reachedEnd = false;
+
+  PagingController<int, Product>? get pagingController => _pagingController;
 
   void _setLoading({
     bool? products,
@@ -248,6 +322,197 @@ class ProductProvider with ChangeNotifier {
     if (categories != null) _loadingCategories = categories;
     if (detail != null) _loadingDetail = detail;
     if (notify) notifyListeners();
+  }
+
+  void initInfinitePaging(BuildContext context, {String? initialSearch}) {
+    _pagingController?.dispose();
+    _pagingController = null;
+
+    _currentSearch = initialSearch ?? '';
+    _lastFetchedPage = 0;
+    _lastBatchCount = 0;
+    _pageProducts = null;
+    _productError = null;
+    _reachedEnd = false; // 🔧 penting: reset end flag
+
+    _pagingController = PagingController<int, Product>(
+      getNextPageKey: (state) {
+        // ✅ 1) Utamakan meta dari backend
+        final pm =
+            _pageProducts; // selalu di-update di fetchPage setelah respon
+        final current = pm?.currentPage; // map dari "current_page"
+        final total = pm?.totalPages; // map dari "total_pages"
+
+        debugPrint(
+          '[META] after fetch: cur=${_pageProducts?.currentPage} '
+          'tot=${_pageProducts?.totalPages} lastFetched=$_lastFetchedPage '
+          'lastBatch=$_lastBatchCount',
+        );
+
+        debugPrint(
+          '[NEXT] decide: cur=${_pageProducts?.currentPage} '
+          'tot=${_pageProducts?.totalPages}',
+        );
+
+        if (current != null && total != null) {
+          // kalau sudah di halaman terakhir → hentikan
+          return (current >= total) ? null : (current + 1);
+        }
+
+        // ✅ 2) Fallback kalau meta kosong
+        if (_lastFetchedPage == 0) return 1;
+        if (_lastBatchCount < _pageSize) {
+          return null; // batch terakhir < pageSize → habis
+        }
+        return _lastFetchedPage + 1;
+      },
+
+      fetchPage: (pageKey) async {
+        try {
+          final expectedSearch = _currentSearch;
+          final expectedStore = _currentStoreLocationId;
+
+          final res = await FetchHelper.fetchListByFilter<Product>(
+            context: context,
+            basePath: '/waveup/{{idBusiness}}/product',
+            parser: Product.fromJson,
+            filters: {
+              'search': expectedSearch,
+              if (expectedStore != null) 'storelocationid': expectedStore,
+            },
+            page: pageKey,
+            limit: _pageSize,
+            injectBizId: true,
+            dataKey: 'data',
+          );
+
+          // filter berubah → akhiri siklus page ini supaya tidak loop
+          if (_currentSearch != expectedSearch ||
+              _currentStoreLocationId != expectedStore) {
+            _lastFetchedPage = pageKey;
+            _lastBatchCount = 0;
+            _pageProducts = null; // penting agar getNextPageKey via meta → null
+            notifyListeners();
+            return const <Product>[];
+          }
+
+          if (res == null) {
+            _lastFetchedPage = pageKey;
+            _lastBatchCount = 0;
+            _pageProducts = null; // penting
+            notifyListeners();
+            return const <Product>[];
+          }
+
+          final items = res.items;
+
+          // ⬇️ PENTING: update meta terlebih dulu, sebelum logika lain
+          _pageProducts = res.page; // <- contains currentPage & totalPages
+          _lastFetchedPage = pageKey;
+          _lastBatchCount = items.length;
+
+          // sinkron koleksi kamu (opsional)
+          if (pageKey == 1) {
+            _products
+              ..clear()
+              ..addAll(items);
+          } else {
+            _products.addAll(items);
+          }
+
+          notifyListeners();
+          return items;
+        } catch (e) {
+          _pageProducts =
+              null; // supaya getNextPageKey jatuh ke fallback yang aman
+          _productError = e.toString();
+          notifyListeners();
+          throw e;
+        }
+      },
+    );
+  }
+
+  // ===== Infinite Paging: setter store (filter) =====
+
+  /// Set filter store untuk mekanisme infinite paging.
+  /// - Hanya menyetel ID lalu `.refresh()` supaya mulai dari page 1.
+  /// - Boleh kirim `null` untuk menghapus filter (fallback ke ensureDefaultStoreLocation saat fetch).
+  Future<void> setInfiniteStore(BuildContext context, String? storeId) async {
+    _currentStoreLocationId = (storeId == null || storeId.isEmpty)
+        ? null
+        : storeId;
+    // reset meta & end-flag supaya aman
+    _lastFetchedPage = 0;
+    _lastBatchCount = 0;
+    _pageProducts = null;
+    _productError = null;
+    _reachedEnd = false;
+    _pagingController?.refresh();
+  }
+
+  /// Alias ringan bila kamu ingin memanggil via tear-off (seperti yang disebut di UI)
+  void Function(BuildContext, String?)? get setStoreLocationForPaging =>
+      (BuildContext ctx, String? id) {
+        _currentStoreLocationId = (id == null || id.isEmpty) ? null : id;
+      };
+
+  /// Kombinasi: set store lalu refresh langsung (praktis untuk first open sheet)
+  Future<void> setInfiniteStoreAndRefresh(
+    BuildContext context,
+    String? storeId,
+  ) async {
+    await setInfiniteStore(context, storeId);
+    await refreshInfinite(context);
+  }
+
+  Future<void> setInfiniteSearch(BuildContext context, String search) async {
+    _currentSearch = search;
+    _lastFetchedPage = 0;
+    _lastBatchCount = 0;
+    _pageProducts = null;
+    _productError = null;
+    _reachedEnd = false; // 🔧 reset
+    _pagingController?.refresh();
+  }
+
+  /// Set keduanya sekaligus untuk infinite paging (tanpa fetch otomatis).
+  Future<void> setInfiniteFilters(
+    BuildContext context, {
+    String? search,
+    String? storeId,
+    bool andRefresh = true,
+  }) async {
+    if (search != null) _currentSearch = search;
+    _currentStoreLocationId = (storeId == null || storeId.isEmpty)
+        ? null
+        : storeId;
+
+    // reset meta
+    _lastFetchedPage = 0;
+    _lastBatchCount = 0;
+    _pageProducts = null;
+    _productError = null;
+    _reachedEnd = false;
+
+    if (andRefresh) {
+      _pagingController?.refresh();
+    }
+  }
+
+  Future<void> refreshInfinite(BuildContext context) async {
+    _lastFetchedPage = 0;
+    _lastBatchCount = 0; // 🔧 ikut reset
+    _reachedEnd = false; // 🔧 reset
+    _pagingController?.refresh();
+  }
+
+  void disposeInfinitePaging() {
+    _pagingController?.dispose();
+    _pagingController = null;
+    _lastFetchedPage = 0;
+    _lastBatchCount = 0;
+    _reachedEnd = false; // 🔧 reset
   }
 
   /// =========================
@@ -294,6 +559,234 @@ class ProductProvider with ChangeNotifier {
       notifyListeners(); // NEW
     } finally {
       _setLoading(products: false);
+    }
+  }
+
+  Future<void> fetchProductsPagination(
+    BuildContext context, {
+    int page = 1,
+    String? search, // bebas diisi, kosong = "search="
+    String? storeLocationId, // bebas diisi/nullable → tidak dikirim jika null
+    int limit = 40, // default sesuai permintaan
+    bool append = false, // true bila mau load halaman berikutnya & di-append
+  }) async {
+    _productError = null;
+    _setLoading(products: true);
+
+    try {
+      // simpan filter aktif (kalau parameter null, pakai yang sudah tersimpan)
+      final effectiveSearch = search ?? _currentSearch;
+      var effectiveStore = storeLocationId ?? _currentStoreLocationId;
+      if (effectiveStore == null || effectiveStore.isEmpty) {
+        effectiveStore = await ensureDefaultStoreLocation(context);
+      }
+
+      final result = await FetchHelper.fetchListByFilter<Product>(
+        context: context,
+        basePath: '/waveup/{{idBusiness}}/product',
+        parser: Product.fromJson,
+        filters: {
+          'search': effectiveSearch,
+          if (effectiveStore != null && effectiveStore.isNotEmpty)
+            'storeLocationId': effectiveStore,
+        },
+        page: page,
+        limit: limit, // 40 by default
+        injectBizId: true,
+        dataKey: 'data',
+      );
+
+      if (result == null) {
+        if (!append) _products.clear();
+        _pageProducts = null;
+        _currentPage = page;
+        _hasMoreProducts = false;
+        _productError = 'Failed to load products.';
+        notifyListeners();
+        return;
+      }
+
+      // update filter & meta aktif
+      _currentSearch = effectiveSearch;
+      _currentStoreLocationId = effectiveStore;
+      _pageProducts = result.page;
+      _currentPage = page;
+
+      if (append) {
+        _products.addAll(result.items);
+      } else {
+        _products
+          ..clear()
+          ..addAll(result.items);
+      }
+
+      // tentukan apakah masih ada halaman berikutnya
+      final totalPages = result.page?.totalPages ?? page;
+      _hasMoreProducts = page < totalPages;
+
+      _productError = null;
+      notifyListeners();
+    } catch (e) {
+      if (!append) _products.clear();
+      _pageProducts = null;
+      _hasMoreProducts = false;
+      _productError = e.toString();
+      notifyListeners();
+    } finally {
+      _setLoading(products: false);
+    }
+  }
+
+  // ====== Fungsi helper: cari (reset ke page 1, tidak append) ======
+  Future<void> searchProducts(
+    BuildContext context,
+    String search, {
+    String? storeLocationId, // boleh sekalian ganti lokasi toko
+    int limit = 40,
+  }) async {
+    // reset ke page 1 dengan kata kunci baru
+    await fetchProductsPagination(
+      context,
+      page: 1,
+      search: search,
+      storeLocationId: storeLocationId,
+      limit: limit,
+      append: false,
+    );
+  }
+
+  Future<void> initPaginated(
+    BuildContext context, {
+    String? initialSearch,
+    int initialLimit = 40,
+  }) async {
+    _currentSearch = initialSearch ?? '';
+    _currentPage = 1;
+    _hasMoreProducts = true;
+    _productError = null;
+
+    final ok = await ensureDefaultStoreLocation(context);
+    if (ok == null) return; // tidak ada store → biarkan error tampil
+    await fetchProductsPagination(
+      context,
+      page: 1,
+      search: _currentSearch,
+      storeLocationId: _currentStoreLocationId,
+      limit: initialLimit,
+      append: false,
+    );
+  }
+
+  /// Pastikan ada store location terpilih.
+  /// - Ambil dari StoreProvider (fetch jika kosong)
+  /// - Set ke store pertama jika _currentStoreLocationId masih null
+  /// - Return id yang aktif, atau null jika tidak ada store sama sekali
+  Future<String?> ensureDefaultStoreLocation(BuildContext context) async {
+    try {
+      final sp = context.read<StoreProvider>();
+      if (sp.stores.isEmpty && !sp.loadingList) {
+        await sp.fetchStoreLocations(context);
+      }
+      if (_currentStoreLocationId == null) {
+        if (sp.stores.isNotEmpty) {
+          _currentStoreLocationId = sp.stores.first.idStoreLocation;
+          debugPrint(
+            '[ProductProvider] default store set -> $_currentStoreLocationId',
+          );
+          notifyListeners();
+        } else {
+          _productError = 'No store location available.';
+          debugPrint('[ProductProvider] ⚠️ No store location available');
+          notifyListeners();
+          return null;
+        }
+      }
+      return _currentStoreLocationId;
+    } catch (e) {
+      _productError = e.toString();
+      debugPrint('[ProductProvider] ensureDefaultStoreLocation error: $e');
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<void> refreshProducts(BuildContext context) async {
+    await fetchProductsPagination(
+      context,
+      page: 1,
+      search: _currentSearch,
+      storeLocationId: _currentStoreLocationId,
+      limit: 40,
+      append: false,
+    );
+  }
+
+  // ✅ Ganti store + refresh page 1
+  Future<void> setStoreLocationAndRefresh(
+    BuildContext context,
+    String storeId, {
+    int limit = 40,
+  }) async {
+    _currentStoreLocationId = storeId;
+    _currentPage = 1;
+    _productError = null;
+    await fetchProductsPagination(
+      context,
+      page: 1,
+      search: _currentSearch,
+      storeLocationId: _currentStoreLocationId,
+      limit: limit,
+      append: false,
+    );
+  }
+
+  // ✅ Ganti search + refresh page 1
+  Future<void> setSearchAndRefresh(
+    BuildContext context,
+    String search, {
+    int limit = 40,
+  }) async {
+    _currentSearch = search;
+    _currentPage = 1;
+    _productError = null;
+    await fetchProductsPagination(
+      context,
+      page: 1,
+      search: _currentSearch,
+      storeLocationId: _currentStoreLocationId,
+      limit: limit,
+      append: false,
+    );
+  }
+
+  Future<void> goToPage(
+    BuildContext context,
+    int page, {
+    int limit = 40,
+  }) async {
+    if (page < 1) page = 1;
+    final total = _pageProducts?.totalPages;
+    if (total != null && page > total) page = total;
+    await fetchProductsPagination(
+      context,
+      page: page,
+      search: _currentSearch,
+      storeLocationId: _currentStoreLocationId,
+      limit: limit,
+      append: false,
+    );
+  }
+
+  Future<void> nextPage(BuildContext context, {int limit = 40}) async {
+    final total = _pageProducts?.totalPages ?? _currentPage;
+    if (_currentPage < total) {
+      await goToPage(context, _currentPage + 1, limit: limit);
+    }
+  }
+
+  Future<void> prevPage(BuildContext context, {int limit = 40}) async {
+    if (_currentPage > 1) {
+      await goToPage(context, _currentPage - 1, limit: limit);
     }
   }
 
@@ -356,6 +849,99 @@ class ProductProvider with ChangeNotifier {
       _pageCategories = result.page;
     } finally {
       _setLoading(categories: false);
+    }
+  }
+
+  /// Fetch riwayat inventory untuk SATU SKU (tanpa pagination di UI).
+  /// Endpoint: /waveup/{{idBusiness}}/product/history/inventory-transaction/{{idProductSKU}}
+  Future<void> fetchSkuInventoryHistory({
+    required BuildContext context,
+    required String idProductSKU,
+  }) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _skuBuckets.remove(idProductSKU);
+      _skuLatestCurrent[idProductSKU] = null;
+      _skuPageMeta[idProductSKU] = null;
+      _skuError[idProductSKU] = "Business ID is not available.";
+      notifyListeners();
+      return;
+    }
+
+    // set loading
+    _skuError.remove(idProductSKU);
+    _skuLoading.add(idProductSKU);
+    notifyListeners();
+
+    try {
+      final path =
+          '/waveup/$bizId/product/history/inventory-transaction/$idProductSKU';
+      // Pakai helper JSON yang sudah ada di project-mu
+      final jsonMap = await ApiJson.getMap(context, path);
+
+      if (jsonMap == null) {
+        _skuBuckets.remove(idProductSKU);
+        _skuLatestCurrent[idProductSKU] = null;
+        _skuPageMeta[idProductSKU] = null;
+        _skuError[idProductSKU] = 'Empty response';
+        notifyListeners();
+        return;
+      }
+
+      // Struktur respons yang diharapkan:
+      // {
+      //   "status": 200,
+      //   "page": { "current_page": 1, "row_per_page": 40, "total_pages": 1, "total_rows": 4 },
+      //   "data": {
+      //     "current_stock": [...],
+      //     "purchases": [...],
+      //     "sales": [...]
+      //   }
+      // }
+      final status = (jsonMap['status'] as num?)?.toInt() ?? 200;
+      if (status < 200 || status >= 300) {
+        _skuBuckets.remove(idProductSKU);
+        _skuLatestCurrent[idProductSKU] = null;
+        _skuPageMeta[idProductSKU] = null;
+        _skuError[idProductSKU] =
+            jsonMap['message']?.toString() ?? 'Failed to fetch sku history';
+        notifyListeners();
+        return;
+      }
+
+      final pageJ = (jsonMap['page'] as Map?)?.cast<String, dynamic>();
+      if (pageJ != null) {
+        // PageMeta sudah dipakai di provider ini, asumsikan ada di project.
+        _skuPageMeta[idProductSKU] = PageMeta.fromJson(pageJ);
+      } else {
+        _skuPageMeta[idProductSKU] = null;
+      }
+
+      final dataJ =
+          (jsonMap['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final buckets = SkuInventoryBuckets.fromJson(dataJ);
+
+      _skuBuckets[idProductSKU] = buckets;
+
+      // latest current stock untuk dashboard
+      final latest = buckets.currentStock.isNotEmpty
+          ? buckets.currentStock.first
+          : null;
+      _skuLatestCurrent[idProductSKU] = latest;
+
+      _skuError.remove(idProductSKU);
+      notifyListeners();
+    } catch (e, st) {
+      _skuBuckets.remove(idProductSKU);
+      _skuLatestCurrent[idProductSKU] = null;
+      _skuPageMeta[idProductSKU] = null;
+      _skuError[idProductSKU] = e.toString();
+      debugPrint('[fetchSkuInventoryHistory] Exception: $e');
+      debugPrint('$st');
+      notifyListeners();
+    } finally {
+      _skuLoading.remove(idProductSKU);
+      notifyListeners();
     }
   }
 

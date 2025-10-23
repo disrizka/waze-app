@@ -19,6 +19,7 @@ import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
 import 'package:wa_blast/screens/manage_report_screen.dart';
 import 'package:wa_blast/screens/products/inventory_history_list_screen.dart';
+import 'package:wa_blast/screens/products/product_stock_inventory.dart';
 import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
 import 'package:wa_blast/screens/sales/costumer_screen.dart';
@@ -316,12 +317,63 @@ class MyApp extends StatelessWidget {
               );
             }
 
-          case '/product/inventory':
-            return _platformRouteAnimated(
-              settings,
-              const InventoryHistoryListScreen(),
-              android: AndroidTransition.slideRight,
-            );
+          case '/product/sku/inventory':
+            {
+              // Argumen yang diterima bisa:
+              // - String  -> dianggap idProductSKU langsung
+              // - Map     -> dukung beberapa key umum:
+              //              id / idProductSKU / idProductSku / skuId
+              //              skuCode / code
+              //              initialPrice / price (num atau String)
+              final args = settings.arguments;
+              String? id;
+              String? skuCode;
+              num? initialPrice;
+
+              if (args is String) {
+                id = args;
+              } else if (args is Map) {
+                final m = args.cast<Object?, Object?>();
+
+                id =
+                    (m['id'] ??
+                            m['idProductSKU'] ??
+                            m['idProductSku'] ??
+                            m['skuId'])
+                        ?.toString();
+
+                final codeRaw = m['skuCode'] ?? m['code'];
+                if (codeRaw != null) skuCode = codeRaw.toString();
+
+                final priceRaw = m['initialPrice'] ?? m['price'];
+                if (priceRaw is num) {
+                  initialPrice = priceRaw;
+                } else if (priceRaw is String) {
+                  initialPrice = num.tryParse(priceRaw);
+                }
+              }
+
+              if (id == null || id.isEmpty) {
+                return _platformRouteAnimated(
+                  settings,
+                  const _RouteErrorScreen(
+                    message:
+                        'Route /product/sku/inventory membutuhkan argumen idProductSKU.',
+                  ),
+                  android: AndroidTransition.fade,
+                );
+              }
+
+              return _platformRouteAnimated(
+                settings,
+                StockSkuHistory(
+                  idProductSKU: id,
+                  skuCode: skuCode,
+                  initialPrice: initialPrice,
+                ),
+                android: AndroidTransition.slideUp,
+              );
+            }
 
           case '/product/category':
             return _platformRouteAnimated(
@@ -436,7 +488,7 @@ class MyApp extends StatelessWidget {
           case '/report':
             return _platformRouteAnimated(
               settings,
-              const ManageReportScreen(),
+              const ReportDashboardScreen(),
               android: AndroidTransition.slideRight,
             );
 
