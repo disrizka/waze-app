@@ -13,6 +13,7 @@ import 'package:wa_blast/core/provider_helper.dart'; // BizIdCache, ApiJson, Fet
 import 'package:wa_blast/providers/product_provider.dart' as catalog;
 import 'package:wa_blast/models/product_model.dart' as model;
 import 'package:wa_blast/providers/store_provider.dart';
+import 'package:wa_blast/utils/safe_change_notifier.dart';
 
 /// =========================
 /// CART SKU (ringan)
@@ -257,11 +258,15 @@ class SalesDetail {
   final int discount;
   final int shippingFee;
   final int paymentMethod;
-  final DateTime time; // from order_at or created_at
+  final DateTime time;
   final StoreLocationLite? storeLocation;
   final CustomerLite? customer;
   final List<SalesDetailItem> items;
   final SalesCalculation? calculation;
+
+  // ⬇️ NEW
+  final String? paymentToken; // midtrans/snap token
+  final String? paymentLink; // redirect_url / deeplink
 
   const SalesDetail({
     required this.idTransaction,
@@ -278,7 +283,17 @@ class SalesDetail {
     this.storeLocation,
     this.customer,
     this.calculation,
+    this.paymentToken,
+    this.paymentLink,
   });
+
+  static String _pick(Map<String, dynamic> m, List<String> keys) {
+    for (final k in keys) {
+      final v = (m[k] ?? '').toString();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
 
   static DateTime _parseTime(dynamic orderAt, dynamic createdAtIso) {
     if (orderAt is num) {
@@ -311,6 +326,22 @@ class SalesDetail {
           )
         : null;
 
+    // ⬇️ ambil token/link dari beberapa kemungkinan key (server beda-beda)
+    final token = _pick(data, [
+      'payment_token',
+      'paymentToken',
+      'snap_token',
+      'midtrans_token',
+      'token',
+    ]);
+    final link = _pick(data, [
+      'payment_link',
+      'paymentLink',
+      'redirect_url',
+      'snap_redirect_url',
+      'deeplink',
+    ]);
+
     return SalesDetail(
       idTransaction: (data['idTransaction'] ?? '').toString(),
       number: (data['number'] ?? '').toString(),
@@ -342,6 +373,8 @@ class SalesDetail {
           : null,
       items: items,
       calculation: calc,
+      paymentToken: token.isEmpty ? null : token,
+      paymentLink: link.isEmpty ? null : link,
     );
   }
 }
@@ -529,7 +562,7 @@ class PaymentResult {
 /// =========================
 /// PROVIDER
 /// =========================
-class SalesProvider extends ChangeNotifier {
+class SalesProvider extends SafeChangeNotifier {
   // ====== CATALOG (Products + per-SKU ringan) ======
   final List<model.Product> _products = [];
   final List<PosSku> _catalogSkus = [];
@@ -1093,6 +1126,166 @@ class SalesProvider extends ChangeNotifier {
     });
   }
 
+  Future<PaymentResult?> payWithExistingToken(
+    BuildContext context, {
+    required String idTransaction,
+    required String token,
+  }) async {
+    if (token.isEmpty) {
+      _lastError = 'Payment token is empty.';
+      notifyListeners();
+      return PaymentResult('error', message: _lastError);
+    }
+
+    _pendingPaymentTxId = idTransaction;
+
+    try {
+      // buka Snap UI (non-blocking), callback akan ditangani seperti biasa
+      unawaited(_startSnap(token, context));
+
+      // polling status sampai final / timeout
+      final res = await _waitPaymentUntilDone(
+        context,
+        idTransaction: idTransaction,
+      );
+
+      _lastPaymentResult = res;
+      notifyListeners();
+      return res;
+    } finally {
+      // refresh detail supaya chip status & UI ke-update
+      try {
+        await fetchSalesDetail(context, idTransaction);
+      } catch (_) {}
+
+      _pendingPaymentTxId = null;
+      try {
+        _midtrans?.removeTransactionFinishedCallback();
+      } catch (_) {}
+      _snapCompleter = null;
+    }
+  }
+
+  // ===== Change Payment =====
+  bool _loadingChangePayment = false;
+  bool get loadingChangePayment => _loadingChangePayment;
+
+  /// Ganti metode pembayaran transaksi PENDING.
+  /// Hanya mendukung:
+  /// 1 = Tunai (cash)
+  /// 4 = EDC (WAJIB input nomor kartu pelanggan)
+  ///
+  /// Endpoint:
+  ///   POST /waveup/{idBusiness}/transaction/sales/{idTransaction}/payment/change
+  /// Payload minimal:
+  ///   { "payment_method": 1|4, ["card_number": "..."] }
+  ///
+  /// Return: true bila berhasil, false jika gagal (lihat lastError).
+  Future<bool> changePayment(
+    BuildContext context, {
+    required String idTransaction,
+    required int newMethod,
+    String? cardNumber, // wajib diisi bila newMethod == 4 (EDC)
+  }) async {
+    // Validasi metode: hanya 1 & 4
+    const allowed = {1, 4};
+    if (!allowed.contains(newMethod)) {
+      _lastError =
+          'Unsupported payment method. Only CASH (1) or EDC (4) allowed.';
+      notifyListeners();
+      return false;
+    }
+
+    final bizId = await _requireBizId();
+    if (bizId == null) return false;
+
+    final path =
+        '/waveup/$bizId/transaction/sales/$idTransaction/payment/change';
+
+    // siapkan payload
+    final payload = <String, dynamic>{
+      'payment_method': newMethod,
+      if (newMethod == 4) 'card_number': (cardNumber ?? '').trim(),
+    };
+
+    // fungsi masking untuk nomor kartu
+    String mask(String? s) {
+      if (s == null || s.isEmpty) return '';
+      if (s.length <= 4) return '*' * s.length;
+      return '${'*' * (s.length - 4)}${s.substring(s.length - 4)}';
+    }
+
+    if (kDebugMode) {
+      debugPrint('🔁 [SalesProvider] Change Payment request:');
+      debugPrint('  POST $path');
+      debugPrint(
+        '  Payload: ${jsonEncode({'payment_method': newMethod, if (newMethod == 4) 'card_number': mask(cardNumber)})}',
+      );
+    }
+
+    _loadingChangePayment = true;
+    _lastError = null;
+    notifyListeners();
+
+    try {
+      final j = await ApiJson.postMap(
+        context,
+        path,
+        payload,
+        withAccessToken: true,
+      );
+
+      // DEBUG penuh response
+      if (kDebugMode) {
+        debugPrint('📨 [SalesProvider] Change Payment response raw:');
+        _debugBig('[SalesProvider] Change Payment body', j);
+      }
+
+      final ok = j != null && _asInt(j['status']) == 200;
+      if (!ok) {
+        _lastError =
+            j?['message']?.toString() ??
+            j?['msg']?.toString() ??
+            'Failed to change payment method';
+        if (kDebugMode) {
+          debugPrint('❌ [SalesProvider] Change Payment failed: $_lastError');
+        }
+        return false;
+      }
+
+      // tampilkan payload & data yang diterima server
+      if (kDebugMode) {
+        debugPrint('✅ [SalesProvider] Change Payment success!');
+        if (j?['data'] != null) {
+          _debugBig('[SalesProvider] Response data', j?['data']);
+        }
+      }
+
+      // refresh detail agar UI langsung update
+      try {
+        await fetchSalesDetail(context, idTransaction);
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+            '⚠️ [SalesProvider] fetchSalesDetail after changePayment error: $e',
+          );
+        }
+      }
+
+      return true;
+    } catch (e, st) {
+      _lastError = '$e';
+      if (kDebugMode) {
+        debugPrint('❌ [SalesProvider] changePayment exception: $e');
+        debugPrint('$st');
+      }
+      return false;
+    } finally {
+      _loadingChangePayment = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> _initMidtransIfNeeded(BuildContext context) async {
     if (_midtrans != null) return;
     _midtrans = await MidtransSDK.init(
@@ -1307,8 +1500,15 @@ class SalesProvider extends ChangeNotifier {
   }
 
   void _setSubmitting(bool v) {
+    if (isDisposed) return;
     _submitting = v;
     notifyListeners();
+  }
+
+  int _asInt(dynamic v, [int def = 0]) {
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? def;
+    return def;
   }
 
   String? consumeLastError() {

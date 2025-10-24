@@ -46,152 +46,139 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
 
   Future<void> _handleBack(BuildContext context) async {
     final prov = context.read<SalesProvider>();
-    final step = prov.currentStep;
+    final int step = prov.currentStep;
 
-    // Jika bukan di PaymentStep atau tidak sedang submitting → back normal
-    if (step != 2 || !prov.submitting) {
-      if (step > 0) {
-        prov.goTo(step - 1);
-      } else {
+    // Tampilkan dialog HANYA saat di step terakhir & sedang submitting
+    final bool needsDialog = (step == 2 && prov.submitting);
+
+    if (needsDialog) {
+      final bool? confirm = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return Dialog(
+            backgroundColor: Colors.white,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 40,
+              vertical: 24,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEFF6FF),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.exit_to_app_rounded,
+                      size: 40,
+                      color: Color(0xFF1D4ED8),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Keluar dari transaksi?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Anda sedang dalam proses pembayaran. Keluar sekarang akan menghentikan alur pembayaran.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            side: const BorderSide(color: Color(0xFFE5E7EB)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: const Text(
+                            'Batal',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF374151),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1D4ED8),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            elevation: 0,
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          child: const Text(
+                            'Ya, keluar',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+      if (confirm == true) {
+        if (!mounted) return;
+        // Tanpa cancel payment — langsung keluar ke list
         Navigator.pushReplacementNamed(context, '/sales/list');
       }
-      return;
+      return; // stop di sini karena kasus dialog sudah ditangani
     }
 
-    // Di PaymentStep & sedang submitting → minta konfirmasi cancel
-    final confirm = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return Dialog(
-          backgroundColor: Colors.white,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 40,
-            vertical: 24,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 🔴 Icon warning
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEE2E2), // red-100
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.warning_amber_rounded,
-                    color: Color(0xFFDC2626), // red-600
-                    size: 40,
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // 🧾 Title
-                const Text(
-                  'Cancel Ongoing Payment?',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
-                    color: Color(0xFF111827),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                // 💬 Description
-                const Text(
-                  'Are you sure you want to cancel this payment? '
-                  'This will stop the current transaction payment flow.',
-                  textAlign: TextAlign.left,
-                  style: TextStyle(
-                    color: Color(0xFF6B7280),
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 28),
-
-                // 🧭 Buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: const BorderSide(color: Color(0xFFE5E7EB)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        child: const Text(
-                          'No',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF374151),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFDC2626),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          elevation: 0,
-                        ),
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        child: const Text(
-                          'Cancel payment',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-    if (confirm != true) return;
-
-    // Jalankan cancel flow seperti tombol "Cancel payment"
-    final ok = await prov.cancelPendingPayment(
-      context,
-      payload: const {'reason': 'user_cancel'},
-    );
-
-    if (!mounted) return;
-    if (ok) {
-      await showPaymentCancelledDialog(
-        context,
-        reference: prov.currentReference ?? '-',
-        paymentMethodLabel: _pmLabel(prov.paymentMethod),
-      );
+    // Selain kondisi di atas → back normal:
+    if (step > 0) {
+      prov.goTo(step - 1); // mundur satu step
     } else {
-      final err = prov.consumeLastError() ?? 'Failed to cancel payment';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        '/sales/list',
+      ); // sudah di step awal
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<SalesProvider>();
+
+    // Disable tombol add product jika store belum dipilih secara global
+    final bool addDisabled = prov.isStoreMissingGlobally;
 
     final pages = const [
       MakeOrderStep(key: ValueKey('step-0'), withHeader: false),
@@ -226,26 +213,24 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
           surfaceTintColor: Colors.transparent,
           elevation: 0,
           scrolledUnderElevation: 0,
-
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.black87),
             onPressed: () => _handleBack(context),
           ),
-
           title: Row(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
-            children: [
-              const Text(
+            children: const [
+              Text(
                 'Sales',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: Colors.black,
                 ),
               ),
-              const SizedBox(width: 8),
-              const Text(
+              SizedBox(width: 8),
+              Text(
                 "/create",
                 style: TextStyle(
                   fontSize: 12,
@@ -257,42 +242,83 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
             ],
           ),
           centerTitle: false,
-
           actions: [
             if (step == 0)
               Padding(
                 padding: const EdgeInsets.only(right: 12),
-                child: FilledButton.icon(
-                  onPressed: () async {
-                    final changed = await openAddProductSheet(context);
-                    if (!mounted) return;
-                    if (changed == true) setState(() {});
-                  },
-                  icon: const Icon(Icons.add_shopping_cart_outlined, size: 16),
-                  label: const Text(
-                    'Add product',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF426FD4),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+                child: Tooltip(
+                  message: addDisabled
+                      ? 'Pilih store terlebih dahulu'
+                      : 'Tambah produk',
+                  child: FilledButton.icon(
+                    onPressed: addDisabled
+                        ? null
+                        : () async {
+                            final changed = await openAddProductSheet(context);
+                            if (!mounted) return;
+                            if (changed == true) setState(() {});
+                          },
+                    icon: const Icon(
+                      Icons.add_shopping_cart_outlined,
+                      size: 16,
                     ),
-                    minimumSize: const Size(0, 34),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                    label: const Text(
+                      'Add product',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF426FD4),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      minimumSize: const Size(0, 34),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
                 ),
               ),
           ],
         ),
-
         body: Column(
           children: [
+            if (addDisabled && step == 0)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                margin: const EdgeInsets.only(bottom: 6),
+                color: const Color(0xFFFFF7E6),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: Color(0xFFB45309),
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Silakan pilih store terlebih dahulu sebelum menambah produk.',
+                        style: TextStyle(
+                          color: Color(0xFF8A4B08),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             StepperHeader(activeIndex: step),
             Expanded(
               child: PageTransitionSwitcher(

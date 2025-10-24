@@ -10,10 +10,12 @@ import 'package:provider/provider.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
+import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/products/create_edit_sheet/add_product_sheet.dart';
-import 'package:wa_blast/screens/products/create_edit_sheet/edit_product_sheet.dart';
+import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
 import 'package:wa_blast/widgets/empty_state.dart';
+import 'package:wa_blast/widgets/reusable_pickers.dart';
 import 'package:wa_blast/widgets/variant_section_dynamic.dart';
 
 String _formatRp(int value) {
@@ -47,27 +49,36 @@ class ProductScreen extends StatefulWidget {
 
 class _ProductScreenState extends State<ProductScreen> {
   final TextEditingController _searchC = TextEditingController();
+  final ScrollController _listCtrl =
+      ScrollController(); // ⬅️ for infinite scroll
   Timer? _debounce;
 
-  // filter state
   _ProductFilters _filters = const _ProductFilters();
 
-  // range cache (dibangun dari data produk saat ini)
   int _globalMinPrice = 0;
   int _globalMaxPrice = 0;
 
   @override
   void initState() {
     super.initState();
-    // initial fetch
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final prov = context.read<ProductProvider>();
-      await prov.fetchProducts(context);
-      // preload dropdown data sekali
+
+      // pastikan ada store default
+      await prov.ensureDefaultStoreLocation(context);
+
+      // init controller paging (reset internal meta)
+      prov.initInfinitePaging(context, initialSearch: '');
+
+      // refresh page-1 pertama kali
+      await prov.refreshInfinite(context);
+
+      // resource untuk picker
       await Future.wait([
         prov.fetchProductBrands(context),
         prov.fetchProductCategories(context),
       ]);
+
       _rebuildGlobalRange();
     });
   }
@@ -79,17 +90,43 @@ class _ProductScreenState extends State<ProductScreen> {
     super.dispose();
   }
 
+  Future<void> _onPullRefresh() async {
+    final prov = context.read<ProductProvider>();
+    await prov.refreshInfinite(context);
+  }
+
+  // ===== Infinite load when near bottom
+  void _maybeLoadMore() {
+    final prov = context.read<ProductProvider>();
+    if (!prov.hasMoreProducts) return;
+    if (prov.loadingProducts) return;
+
+    final pos = _listCtrl.position;
+    if (pos.pixels >= pos.maxScrollExtent - 300) {
+      final meta = prov.pageProducts;
+      final nextPage = (meta?.currentPage ?? 1) + 1;
+      final limit = meta?.rowPerPage ?? 40;
+
+      prov.fetchProductsPagination(
+        context,
+        page: nextPage,
+        search: prov.currentSearch,
+        storeLocationId: prov.currentStoreLocationId,
+        limit: limit,
+        append: true, // penting: append untuk infinite
+      );
+    }
+  }
+
   void _onSearchChanged(String _) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () {
-      setState(() {
-        _filters = _filters.copyWith(query: _searchC.text);
-      });
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
+      final prov = context.read<ProductProvider>();
+      await prov.setInfiniteSearch(context, _searchC.text.trim());
     });
   }
 
   void _openAdvancedFilter(ProductProvider prov) async {
-    // Pastikan range terbaru dihitung dari data yang ada
     _rebuildGlobalRange();
 
     final result = await showModalBottomSheet<_ProductFilters>(
@@ -107,13 +144,12 @@ class _ProductScreenState extends State<ProductScreen> {
       ),
     );
 
+    if (!mounted) return;
     if (result != null) {
       setState(() => _filters = result);
     }
   }
 
-  // Ambil harga representatif produk:
-  // basePrice ?? min(sku.price) ?? 0
   int _priceOf(Product p) {
     if (p.basePrice != null) return p.basePrice!;
     final skuPrices = p.productSkus.map((s) => s.price).toList();
@@ -137,55 +173,15 @@ class _ProductScreenState extends State<ProductScreen> {
       if (price > maxP) maxP = price;
     }
     if (minP == (1 << 30)) minP = 0;
-    // kalau semua 0, tetap 0-0 biar slider disabled feelnya tetap bisa diubah nanti
     _globalMinPrice = minP;
     _globalMaxPrice = maxP;
-    // kalau filter belum pernah diset range-nya, sync ke global
+
     if (_filters.minPrice == null && _filters.maxPrice == null) {
       _filters = _filters.copyWith(
         minPrice: _globalMinPrice,
         maxPrice: _globalMaxPrice,
       );
     }
-  }
-
-  List<Product> _applyFilters(List<Product> source, ProductProvider prov) {
-    final q = (_filters.query ?? '').trim().toLowerCase();
-    final brandId = _filters.brandId;
-    final catId = _filters.categoryId;
-    final minP = _filters.minPrice ?? _globalMinPrice;
-    final maxP = _filters.maxPrice ?? _globalMaxPrice;
-
-    bool matchQuery(Product p) {
-      if (q.isEmpty) return true;
-      final nameHit = (p.name).toLowerCase().contains(q);
-      final skuHit = p.productSkus.any(
-        (s) => (s.code).toLowerCase().contains(q),
-      );
-      return nameHit || skuHit;
-    }
-
-    bool matchBrand(Product p) {
-      if (brandId == null || brandId.isEmpty) return true;
-      return p.productBrand?.idProductBrand == brandId;
-    }
-
-    bool matchCategory(Product p) {
-      if (catId == null || catId.isEmpty) return true;
-      return p.productCategory?.idProductCategory == catId;
-    }
-
-    bool matchPrice(Product p) {
-      final price = _priceOf(p);
-      return price >= minP && price <= maxP;
-    }
-
-    return source.where((p) {
-      return matchQuery(p) &&
-          matchBrand(p) &&
-          matchCategory(p) &&
-          matchPrice(p);
-    }).toList();
   }
 
   @override
@@ -212,7 +208,27 @@ class _ProductScreenState extends State<ProductScreen> {
       body: SafeArea(
         child: Consumer<ProductProvider>(
           builder: (context, provider, _) {
-            // Top controls (search + advanced)
+            final controller = provider.pagingController;
+            if (controller == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            // ambil state terbaru dari controller
+            final state = controller.value;
+
+            // fungsi ambil halaman berikutnya (patuh meta backend)
+            void next() {
+              final pm = provider.pageProducts;
+              final cur = pm?.currentPage;
+              final tot = pm?.totalPages;
+              if (cur != null && tot != null && cur >= tot) {
+                // sudah di halaman terakhir
+                return;
+              }
+              controller.fetchNextPage();
+            }
+
+            // header: search + tombol advanced filter
             final topControls = Padding(
               padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
               child: Row(
@@ -268,160 +284,199 @@ class _ProductScreenState extends State<ProductScreen> {
               ),
             );
 
-            if (provider.loadingProducts) {
-              return Column(
-                children: const [
-                  SizedBox(height: 8),
-                  // tetap tampilkan kontrol agar user bisa lihat
-                  // (walau datanya masih loading)
-                ],
-              );
-            }
+            // saat first page selesai dan kosong → tampilkan empty
+            final firstPageDoneEmpty = provider.isFirstPageDoneEmpty;
 
-            // filter + list
-            final all = provider.products;
-            if (all.isEmpty) {
-              return RefreshIndicator(
-                onRefresh: () => provider.fetchProducts(context),
-                child: ListView(
-                  children: [
-                    topControls,
-                    const SizedBox(height: 60),
-                    EmptyState(
-                      title: 'No Product',
-                      description: 'Please add new product',
-                    ),
-                  ],
+            return Column(
+              children: [
+                // header di atas list
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: topControls,
                 ),
-              );
-            }
 
-            // pastikan range di-build saat data ada
-            _rebuildGlobalRange();
-
-            final items = _applyFilters(all, provider);
-
-            return RefreshIndicator(
-              onRefresh: () => provider.fetchProducts(context),
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24 + 56),
-                itemCount: items.length + 1, // +1 baris untuk search controls
-                separatorBuilder: (_, i) {
-                  // setelah controls, baru kasih spacing antar item
-                  if (i == 0) return const SizedBox(height: 8);
-                  return const SizedBox(height: 12);
-                },
-                itemBuilder: (_, i) {
-                  if (i == 0) return topControls;
-
-                  final p = items[i - 1];
-                  final priceLabel = _formatRp(_priceOf(p));
-                  final img = p.primaryImageUrl ?? 'assets/empty_box.png';
-                  return _ProductTile(
-                    title: p.name,
-                    priceLabel: priceLabel,
-                    image: img,
-                    onTap: () {
-                      Navigator.pushNamed(
-                        context,
-                        '/product/list/detail',
-                        arguments: p.idProduct,
-                      );
-                    },
-                    onEdit: () => showEditProductSheet(context, p.idProduct),
-                    onDelete: () async {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (context) {
-                          return AlertDialog(
-                            backgroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            title: Row(
-                              children: const [
-                                Icon(
-                                  Icons.warning_amber_rounded,
-                                  color: Colors.red,
-                                  size: 28,
-                                ),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Delete Product',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            content: Text(
-                              'Are you sure you want to permanently delete "${p.name}"?',
-                              style: const TextStyle(
-                                fontSize: 15,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            actionsPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 8,
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, false),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Colors.grey[700],
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 12,
-                                  ),
-                                ),
-                                child: const Text('Cancel'),
-                              ),
-                              ElevatedButton(
-                                onPressed: () => Navigator.pop(context, true),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.red,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 12,
-                                  ),
-                                ),
-                                child: const Text('Delete'),
+                // LIST
+                Expanded(
+                  child: firstPageDoneEmpty
+                      ? RefreshIndicator(
+                          onRefresh: _onPullRefresh,
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 60, 16, 16),
+                            children: const [
+                              EmptyState(
+                                title: 'No Product',
+                                description: 'Please add new product',
                               ),
                             ],
-                          );
-                        },
-                      );
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _onPullRefresh,
+                          child: PagedListView<int, Product>(
+                            state: state,
+                            fetchNextPage: next,
+                            padding: const EdgeInsets.fromLTRB(
+                              16,
+                              0,
+                              16,
+                              24 + 56,
+                            ),
+                            builderDelegate: PagedChildBuilderDelegate<Product>(
+                              // item
+                              itemBuilder: (_, p, __) {
+                                final priceLabel = _formatRp(_priceOf(p));
+                                final img =
+                                    p.primaryImageUrl ?? 'assets/empty_box.png';
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  child: _ProductTile(
+                                    title: p.name,
+                                    priceLabel: priceLabel,
+                                    image: img,
+                                    onTap: () {
+                                      Navigator.pushNamed(
+                                        context,
+                                        '/product/list/detail',
+                                        arguments: p.idProduct,
+                                      );
+                                    },
+                                    onEdit: () => showEditProductSheetById(
+                                      context,
+                                      p.idProduct,
+                                    ),
+                                    onDelete: () async {
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder: (context) {
+                                          return AlertDialog(
+                                            backgroundColor: Colors.white,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                            ),
+                                            title: Row(
+                                              children: const [
+                                                Icon(
+                                                  Icons.warning_amber_rounded,
+                                                  color: Colors.red,
+                                                  size: 28,
+                                                ),
+                                                SizedBox(width: 8),
+                                                Text(
+                                                  'Delete Product',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.black,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            content: Text(
+                                              'Are you sure you want to permanently delete "${p.name}"?',
+                                              style: const TextStyle(
+                                                fontSize: 15,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                            actionsPadding:
+                                                const EdgeInsets.symmetric(
+                                                  horizontal: 16,
+                                                  vertical: 8,
+                                                ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(
+                                                  context,
+                                                  false,
+                                                ),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              ElevatedButton(
+                                                onPressed: () => Navigator.pop(
+                                                  context,
+                                                  true,
+                                                ),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: Colors.red,
+                                                  foregroundColor: Colors.white,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          8,
+                                                        ),
+                                                  ),
+                                                ),
+                                                child: const Text('Delete'),
+                                              ),
+                                            ],
+                                          );
+                                        },
+                                      );
 
-                      if (confirm == true) {
-                        final ok = await context
-                            .read<ProductProvider>()
-                            .deleteProduct(context, p.idProduct);
-                        if (ok && context.mounted) {
-                          AppSnackbar.show(
-                            context,
-                            type: AppSnackType.success,
-                            message: 'Product successfully deleted',
-                          );
-                        }
-                      }
-                    },
-                  );
-                },
-              ),
+                                      if (confirm == true) {
+                                        final ok = await context
+                                            .read<ProductProvider>()
+                                            .deleteProduct(
+                                              context,
+                                              p.idProduct,
+                                            );
+                                        if (ok && context.mounted) {
+                                          AppSnackbar.show(
+                                            context,
+                                            type: AppSnackType.success,
+                                            message:
+                                                'Product successfully deleted',
+                                          );
+                                          await provider.refreshInfinite(
+                                            context,
+                                          );
+                                        }
+                                      }
+                                    },
+                                  ),
+                                );
+                              },
+
+                              // indikator
+                              firstPageProgressIndicatorBuilder: (_) =>
+                                  const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(24),
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  ),
+                              newPageProgressIndicatorBuilder: (_) =>
+                                  const SizedBox.shrink(),
+
+                              // error
+                              firstPageErrorIndicatorBuilder: (_) =>
+                                  _ErrorRetry(
+                                    onRetry: () =>
+                                        provider.refreshInfinite(context),
+                                  ),
+                              newPageErrorIndicatorBuilder: (_) =>
+                                  _ErrorRetry(onRetry: next),
+
+                              // “no more items” → biar bersih (pakai footer sendiri kalau mau)
+                              noMoreItemsIndicatorBuilder: (_) =>
+                                  const SizedBox.shrink(),
+                            ),
+                          ),
+                        ),
+                ),
+              ],
             );
           },
         ),
       ),
+
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(12, 8, 12, 30),
         child: SizedBox(
           height: 48,
+          width: double.infinity,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.blueButton,
@@ -429,12 +484,12 @@ class _ProductScreenState extends State<ProductScreen> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
-              minimumSize: const Size.fromHeight(48),
             ),
             onPressed: () async {
               await showAddProductSheet(context);
               if (!mounted) return;
-              context.read<ProductProvider>().fetchProducts(context);
+              await context.read<ProductProvider>().refreshProducts(context);
+              if (_listCtrl.hasClients) _listCtrl.jumpTo(0);
             },
             child: const Text(
               'Add new product',
@@ -447,6 +502,154 @@ class _ProductScreenState extends State<ProductScreen> {
   }
 }
 
+class _MiniPager extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final prov = context.watch<ProductProvider>();
+    final meta = prov.pageProducts;
+    final f = NumberFormat.decimalPattern('id');
+
+    final page = meta?.currentPage ?? 1;
+    final totalPages = meta?.totalPages ?? 1;
+    final perPage = meta?.rowPerPage ?? 40;
+    final totalRows = meta?.totalRows ?? (prov.products.length);
+    final start = ((page - 1) * perPage) + (totalRows == 0 ? 0 : 1);
+    final end = (page * perPage).clamp(0, totalRows);
+
+    final hasPrev = page > 1;
+    final hasNext = prov.hasMoreProducts;
+
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F8FF),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        children: [
+          _CircleBtn(
+            icon: Icons.chevron_left_rounded,
+            enabled: hasPrev,
+            onTap: hasPrev
+                ? () => prov.fetchProductsPagination(
+                    context,
+                    page: page - 1,
+                    search: prov.currentSearch,
+                    limit: perPage,
+                    append: false,
+                  )
+                : null,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Center(
+              child: RichText(
+                text: TextSpan(
+                  style: const TextStyle(
+                    color: Color(0xFF111827),
+                    fontSize: 13,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: 'Page $page',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    TextSpan(text: ' / $totalPages'),
+                    // const TextSpan(text: ' · '),
+                    // TextSpan(
+                    //   text: '${f.format(start)}–${f.format(end)}',
+                    //   style: const TextStyle(fontWeight: FontWeight.w600),
+                    // ),
+                    // TextSpan(text: ' of ${f.format(totalRows)}'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _CircleBtn(
+            icon: Icons.chevron_right_rounded,
+            enabled: hasNext,
+            onTap: hasNext
+                ? () => prov.fetchProductsPagination(
+                    context,
+                    page: page + 1,
+                    search: prov.currentSearch,
+                    limit: perPage,
+                    append: false,
+                  )
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CircleBtn extends StatelessWidget {
+  const _CircleBtn({required this.icon, required this.enabled, this.onTap});
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 32,
+        height: 32,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: enabled ? Colors.white : const Color(0xFFF3F4F6),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          boxShadow: enabled
+              ? const [
+                  BoxShadow(
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
+                    color: Color(0x11000000),
+                  ),
+                ]
+              : null,
+        ),
+        child: Icon(
+          icon,
+          size: 20,
+          color: enabled ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorRetry extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _ErrorRetry({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.error_outline, color: Colors.redAccent),
+        const SizedBox(height: 8),
+        const Text('Failed to load data'),
+        const SizedBox(height: 8),
+        TextButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Retry'),
+        ),
+      ],
+    ),
+  );
+}
+
 // =====================
 // Filter model
 // =====================
@@ -457,6 +660,7 @@ class _ProductFilters {
   final String? categoryId; // idProductCategory
   final int? minPrice; // inclusive
   final int? maxPrice; // inclusive
+  final String? storeLocationId; // ⬅️ NEW
 
   const _ProductFilters({
     this.query,
@@ -464,6 +668,7 @@ class _ProductFilters {
     this.categoryId,
     this.minPrice,
     this.maxPrice,
+    this.storeLocationId, // ⬅️ NEW
   });
 
   _ProductFilters copyWith({
@@ -472,8 +677,10 @@ class _ProductFilters {
     String? categoryId,
     int? minPrice,
     int? maxPrice,
+    String? storeLocationId, // ⬅️ NEW
     bool clearBrand = false,
     bool clearCategory = false,
+    bool clearStore = false, // ⬅️ NEW
   }) {
     return _ProductFilters(
       query: query ?? this.query,
@@ -481,6 +688,9 @@ class _ProductFilters {
       categoryId: clearCategory ? null : (categoryId ?? this.categoryId),
       minPrice: minPrice ?? this.minPrice,
       maxPrice: maxPrice ?? this.maxPrice,
+      storeLocationId: clearStore
+          ? null
+          : (storeLocationId ?? this.storeLocationId),
     );
   }
 
@@ -488,6 +698,7 @@ class _ProductFilters {
       (query == null || query!.isEmpty) &&
       (brandId == null || brandId!.isEmpty) &&
       (categoryId == null || categoryId!.isEmpty) &&
+      (storeLocationId == null || storeLocationId!.isEmpty) && // ⬅️ NEW
       minPrice == null &&
       maxPrice == null;
 }
@@ -2289,9 +2500,15 @@ class _AdvancedFilterSheet extends StatefulWidget {
 }
 
 class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
+  // ===== Existing fields =====
   String? _brandId;
   String? _categoryId;
   late RangeValues _range;
+
+  // ===== NEW: Store filter (wajib) =====
+  String? _storeId;
+  String? _storeName;
+  String? _storeError; // tampilkan error jika belum dipilih (harus wajib)
 
   @override
   void initState() {
@@ -2313,6 +2530,27 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
       gMax,
     );
     _range = RangeValues(initMin, initMax);
+
+    // Pastikan store default ter-set (wajib), dan isi labelnya
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final pp = context.read<ProductProvider>();
+      final id = await pp.ensureDefaultStoreLocation(context);
+      if (!mounted) return;
+
+      final sp = context.read<StoreProvider>();
+      final sel = sp.stores.firstWhere(
+        (s) => s.idStoreLocation == (id ?? ''),
+        orElse: () => sp.stores.isNotEmpty ? sp.stores.first : null as dynamic,
+      );
+
+      setState(() {
+        _storeId = id ?? sel?.idStoreLocation;
+        _storeName = sel?.name;
+        _storeError = (_storeId == null || _storeId!.isEmpty)
+            ? 'Store location is required'
+            : null;
+      });
+    });
   }
 
   String _formatRpD(double v) => _formatRp(v.round());
@@ -2330,21 +2568,50 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
   }
 
   Future<void> _pickBrand(BuildContext context) async {
-    // gunakan helper yang sudah ada
     final picked = await pickBrandId(context, selectedId: _brandId);
     if (!mounted) return;
-    setState(() => _brandId = picked); // null jika user batal → clear
+    setState(() => _brandId = picked);
   }
 
   Future<void> _pickCategory(BuildContext context) async {
     final picked = await pickCategoryId(context, selectedId: _categoryId);
     if (!mounted) return;
-    setState(() => _categoryId = picked); // null jika user batal → clear
+    setState(() => _categoryId = picked);
+  }
+
+  // ===== NEW: open reusable store picker & apply to provider =====
+  Future<void> _pickStore() async {
+    final picked = await showStorePickerSheet(context, selectedId: _storeId);
+    if (picked == null) return; // user batal
+    setState(() {
+      _storeId = picked.id;
+      _storeName = picked.label;
+      _storeError = null; // valid
+    });
+    // Terapkan ke provider + refresh paginated (page 1)
+    await context.read<ProductProvider>().setStoreLocationAndRefresh(
+      context,
+      picked.id,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<ProductProvider>();
+
+    // Sinkronisasi tampilan nama store jika berubah di tempat lain
+    if ((_storeId == null || _storeName == null) &&
+        prov.currentStoreLocationId != null) {
+      final sp = context.read<StoreProvider>();
+      final match = sp.stores.firstWhere(
+        (s) => s.idStoreLocation == prov.currentStoreLocationId,
+        orElse: () => sp.stores.isNotEmpty ? sp.stores.first : null as dynamic,
+      );
+      if (match != null) {
+        _storeId ??= match.idStoreLocation;
+        _storeName ??= match.name;
+      }
+    }
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -2381,13 +2648,29 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                   TextButton(
                     onPressed: () => Navigator.pop(
                       context,
-                      const _ProductFilters(), // reset semua
+                      const _ProductFilters(), // reset semua (store tetap wajib → tidak di-clear)
                     ),
-                    child: Text('Reset', style: TextStyle(color: Colors.black)),
+                    child: const Text(
+                      'Reset',
+                      style: TextStyle(color: Colors.black),
+                    ),
                   ),
                   const SizedBox(width: 6),
                   ElevatedButton(
-                    onPressed: () {
+                    onPressed: () async {
+                      // Store wajib
+                      if (_storeId == null || _storeId!.isEmpty) {
+                        setState(
+                          () => _storeError = 'Store location is required',
+                        );
+                        return;
+                      }
+                      // Pastikan provider sudah pakai store yang dipilih
+                      await context
+                          .read<ProductProvider>()
+                          .setStoreLocationAndRefresh(context, _storeId!);
+
+                      if (!mounted) return;
                       Navigator.pop(
                         context,
                         _ProductFilters(
@@ -2396,6 +2679,7 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                           minPrice: _range.start.round(),
                           maxPrice: _range.end.round(),
                           query: widget.initial.query,
+                          // Catatan: store dikirim via provider (fetchProductsPagination → storeLocationId)
                         ),
                       );
                     },
@@ -2416,6 +2700,32 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                 controller: controller,
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
                 children: [
+                  // ====== NEW: STORE LOCATION (wajib) ======
+                  const Text(
+                    'Store Location',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _SelectFieldTile(
+                    label: 'Store Location',
+                    showLabel: false,
+                    placeholder: 'Select store…',
+                    valueText: _storeName,
+                    onTap: _pickStore,
+                  ),
+                  if ((_storeError ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      _storeError!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ],
+
+                  const SizedBox(height: 20),
+
                   // ----- BRAND (pakai bottom sheet) -----
                   Row(
                     children: [

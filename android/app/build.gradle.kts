@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("com.google.gms.google-services")
-    id("kotlin-android")
+    id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -15,12 +15,13 @@ val keystoreProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.wave.biz"
+    namespace = "com.wave.up"
     compileSdk = flutter.compileSdkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -28,7 +29,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.wave.biz"
+        applicationId = "com.wave.up"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -46,17 +47,45 @@ android {
         }
     }
 
+    flavorDimensions += "env"
+    productFlavors {
+        create("dev") {
+            dimension = "env"
+            versionNameSuffix = "-dev"
+            resValue("string", "app_name", "Wave Up (Dev)")
+            matchingFallbacks += listOf("sandbox", "debug")
+            manifestPlaceholders["APP_LINK_HOST"] = "dev.waveup.app"
+        }
+        create("prod") {
+            dimension = "env"
+            resValue("string", "app_name", "Wave Up")
+            matchingFallbacks += listOf("production", "release")
+            manifestPlaceholders["APP_LINK_HOST"] = "waveup.app"
+        }
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
+                getDefaultProguardFile("proguard-android.txt"),
                 file("proguard-rules.pro")
             )
         }
     }
+}
+
+configurations.configureEach {
+    if (!name.equals("coreLibraryDesugaring", ignoreCase = true)) {
+        exclude(group = "com.android.tools", module = "desugar_jdk_libs")
+        exclude(group = "com.android.tools", module = "desugar_jdk_libs_nio")
+    }
+}
+
+dependencies {
+coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")
 }
 
 flutter {

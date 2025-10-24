@@ -156,6 +156,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         children: p!.productSkus
                             .map(
                               (s) => _SkuTile(
+                                idProductSku: s.idProductSku, // ← NEW
                                 code: s.code,
                                 price: s.price,
                                 attrs: s.attributes
@@ -437,10 +438,13 @@ class _RowTile extends StatelessWidget {
 
 class _SkuTile extends StatefulWidget {
   const _SkuTile({
+    required this.idProductSku,
     required this.code,
     required this.price,
     required this.attrs,
   });
+
+  final String idProductSku;
   final String code;
   final int price;
   final List<String> attrs;
@@ -452,94 +456,181 @@ class _SkuTile extends StatefulWidget {
 class _SkuTileState extends State<_SkuTile> {
   bool _open = false;
 
+  void _openStock() {
+    Navigator.pushNamed(
+      context,
+      '/product/sku/inventory',
+      arguments: {
+        // route handler kita menerima beberapa alias, ini pakai yang paling eksplisit
+        'idProductSKU': widget.idProductSku,
+        'skuCode': widget.code,
+        'initialPrice': widget.price, // int sudah oke; route akan menerima num
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 360;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: AppColors.greyBackground,
+        color: AppColors.card,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.divider),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 10,
+            offset: Offset(0, 6),
+          ),
+        ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () => setState(() => _open = !_open),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    // Code
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Code', style: _labelStyle),
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.code,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Price
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        children: [
+          // HEADER (collapse view): Code + Open stock + Chevron
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => setState(() => _open = !_open),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Code
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Price', style: _labelStyle),
+                        Text('Code', style: _labelStyle),
                         const SizedBox(height: 2),
                         Text(
-                          _formatRp(widget.price),
+                          widget.code,
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             color: AppColors.textPrimary,
+                            fontSize: 16,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(width: 8),
-                    AnimatedRotation(
-                      turns: _open ? 0.5 : 0.0,
-                      duration: const Duration(milliseconds: 160),
-                      child: const Icon(
-                        Icons.expand_more_rounded,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-                AnimatedCrossFade(
-                  firstChild: const SizedBox.shrink(),
-                  secondChild: Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: widget.attrs
-                            .map((t) => _ChipSoft(label: t))
-                            .toList(),
-                      ),
+                  ),
+
+                  // Open stock button (ikon-only ketika sempit)
+                  SizedBox(
+                    height: 36,
+                    child: isNarrow
+                        ? Tooltip(
+                            message: 'Open stock',
+                            child: OutlinedButton(
+                              onPressed: _openStock,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                side: const BorderSide(
+                                  color: AppColors.primary,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              child: const Icon(
+                                Icons.inventory_2_outlined,
+                                size: 18,
+                              ),
+                            ),
+                          )
+                        : OutlinedButton.icon(
+                            onPressed: _openStock,
+                            icon: const Icon(
+                              Icons.inventory_2_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Open stock'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              side: const BorderSide(color: AppColors.primary),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Chevron
+                  AnimatedRotation(
+                    turns: _open ? 0.5 : 0.0,
+                    duration: const Duration(milliseconds: 160),
+                    child: const Icon(
+                      Icons.expand_more_rounded,
+                      color: AppColors.textSecondary,
                     ),
                   ),
-                  crossFadeState: _open
-                      ? CrossFadeState.showSecond
-                      : CrossFadeState.showFirst,
-                  duration: const Duration(milliseconds: 180),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
+
+          // Divider muncul hanya saat expanded
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 160),
+            crossFadeState: _open
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox.shrink(),
+            secondChild: const Divider(height: 1, color: AppColors.divider),
+          ),
+
+          // BODY (expand view): Price di bawah + attributes
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 180),
+            crossFadeState: _open
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox.shrink(),
+            secondChild: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Price pindah ke bawah (expanded only)
+                  Row(
+                    children: [
+                      Expanded(child: Text('Price', style: _labelStyle)),
+                      Text(
+                        _formatRp(widget.price),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (widget.attrs.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: widget.attrs
+                          .map((t) => _ChipSoft(label: t))
+                          .toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -547,7 +638,7 @@ class _SkuTileState extends State<_SkuTile> {
   TextStyle get _labelStyle => const TextStyle(
     fontSize: 12,
     color: AppColors.textSecondary,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w700,
   );
 }
 

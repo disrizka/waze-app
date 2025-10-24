@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -29,6 +30,8 @@ class SalesReportDetailScreen extends StatefulWidget {
 
 class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
   bool _working = false;
+  bool _busyRetryPay = false;
+  bool _busyChange = false;
 
   @override
   void initState() {
@@ -383,10 +386,253 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
               ] else ...[
                 _rowTotal('Amount', d.amount, fMoney, bold: true),
               ],
+
+              // === ACTIONS UNTUK STATUS PENDING ===
+              if ((d.status).toLowerCase() == 'pending') ...[
+                const SizedBox(height: 18),
+
+                Builder(
+                  builder: (context) {
+                    final hasToken = (d.paymentToken?.isNotEmpty ?? false);
+
+                    return _ActionButtons(
+                      // anim/opacity flags (disable Payment Ulang bila tak ada token)
+                      workingPay: _busyRetryPay || !hasToken,
+                      workingChange: _busyChange,
+
+                      onRetryPayment: () async {
+                        final prov = context.read<SalesProvider>();
+                        final token = d.paymentToken ?? '';
+                        if (token.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Token pembayaran tidak ditemukan.',
+                              ),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          return;
+                        }
+
+                        setState(() => _busyRetryPay = true);
+                        try {
+                          HapticFeedback.lightImpact();
+                          final res = await prov.payWithExistingToken(
+                            context,
+                            idTransaction: d.idTransaction,
+                            token: token,
+                          );
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Status pembayaran: ${res?.status ?? 'unknown'}',
+                              ),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          await prov.fetchSalesDetail(context, d.idTransaction);
+                        } catch (e) {
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Gagal membuka pembayaran: $e'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        } finally {
+                          if (mounted) setState(() => _busyRetryPay = false);
+                        }
+                      },
+
+                      onChangePayment: () async {
+                        final choice = await _showChangePaymentSheet(context);
+                        if (choice == null) return; // batal
+
+                        if (!mounted) return;
+
+                        final prov = context.read<SalesProvider>();
+
+                        setState(() => _busyChange = true);
+                        try {
+                          HapticFeedback.mediumImpact();
+
+                          final ok = await prov.changePayment(
+                            context,
+                            idTransaction: d.idTransaction,
+                            newMethod: choice.method,
+                          );
+
+                          if (!mounted) return;
+                          if (ok) {
+                            await prov.fetchSalesDetail(
+                              context,
+                              d.idTransaction,
+                            );
+                          } else {
+                            final msg =
+                                prov.lastError ??
+                                'Gagal mengubah metode pembayaran';
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(msg),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Gagal mengubah metode: $e'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        } finally {
+                          if (mounted) setState(() => _busyChange = false);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ],
             ],
           );
         },
       ),
+    );
+  }
+
+  Future<_ChangePaymentChoice?> _showChangePaymentSheet(
+    BuildContext context,
+  ) async {
+    int? selected; // 1 or 4
+    final cardCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    return showModalBottomSheet<_ChangePaymentChoice>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 10,
+            bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: StatefulBuilder(
+            builder: (ctx, setSt) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 5,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const Text(
+                    'Change Payment',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  RadioListTile<int>(
+                    value: 1,
+                    groupValue: selected,
+                    onChanged: (v) => setSt(() => selected = v),
+                    title: const Text(
+                      'Cash',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: const Text('Bayar tunai di kasir'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                  const Divider(height: 1),
+                  RadioListTile<int>(
+                    value: 4,
+                    groupValue: selected,
+                    onChanged: (v) => setSt(() => selected = v),
+                    title: const Text(
+                      'EDC',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: const Text('Kartu debit/kredit via mesin EDC'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx, null),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF374151),
+                            side: const BorderSide(color: Color(0xFFE5E7EB)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          child: const Text('Batal'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: selected == null
+                              ? null
+                              : () {
+                                  Navigator.pop(
+                                    ctx,
+                                    _ChangePaymentChoice(
+                                      method: selected!,
+                                      cardNumber: selected == 4
+                                          ? (cardCtrl.text.trim().isEmpty
+                                                ? null
+                                                : cardCtrl.text.trim())
+                                          : null,
+                                    ),
+                                  );
+                                },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF111827),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          child: const Text('Ubah Sekarang'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -1003,6 +1249,190 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
   }
 }
 
+class _ChangePaymentChoice {
+  final int method; // 1 = Cash, 4 = EDC
+  final String? cardNumber;
+  _ChangePaymentChoice({required this.method, this.cardNumber});
+}
+
+class _ActionButtons extends StatelessWidget {
+  final bool workingPay; // disable Payment Ulang
+  final bool workingChange; // disable Change Payment
+  final VoidCallback onRetryPayment;
+  final VoidCallback onChangePayment;
+
+  const _ActionButtons({
+    required this.workingPay,
+    required this.workingChange,
+    required this.onRetryPayment,
+    required this.onChangePayment,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFF8FAFF), Color(0xFFF3F4F6)],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      padding: const EdgeInsets.all(10),
+      child: Row(
+        children: [
+          Expanded(
+            child: _GradientButton(
+              enabled: !workingPay,
+              label: 'Payment Ulang',
+              subtitle: 'Buka kembali',
+              onTap: onRetryPayment,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF4C6EF5), Color(0xFF364FC7)],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _TonalDestructiveButton(
+              // boleh dipakai dulu; kalau mau gaya netral, kabari ya
+              enabled: !workingChange,
+              label: 'Change Payment',
+              subtitle: 'Cash / EDC',
+              onTap: onChangePayment,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<_CancelResult?> _showCancelSheet(BuildContext context) async {
+  final reasons = <String>[
+    'Salah nominal',
+    'Ganti metode',
+    'Customer batal',
+    'Duplikat order',
+  ];
+  String? selected;
+  final noteCtrl = TextEditingController();
+
+  return showModalBottomSheet<_CancelResult>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+    ),
+    builder: (ctx) {
+      return Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 10,
+          bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
+        ),
+        child: StatefulBuilder(
+          builder: (ctx, setSt) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 5,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: const [
+                    Icon(Icons.warning_amber_rounded, color: Color(0xFFB45309)),
+                    SizedBox(width: 8),
+                    Text(
+                      'Batalkan transaksi?',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Ganti metode pembayaran',
+                  style: TextStyle(color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx, null),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF374151),
+                          side: const BorderSide(color: Color(0xFFE5E7EB)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text('Kembali'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(
+                            ctx,
+                            _CancelResult(
+                              reason: selected,
+                              note: noteCtrl.text.trim().isEmpty
+                                  ? null
+                                  : noteCtrl.text.trim(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF991B1B),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text('Ya, Batalkan'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    },
+  );
+}
+
+class _CancelResult {
+  final String? reason;
+  final String? note;
+  _CancelResult({this.reason, this.note});
+}
+
 // === Widgets existing ===
 
 class _Thumb extends StatelessWidget {
@@ -1034,6 +1464,331 @@ class _Thumb extends StatelessWidget {
       ),
     );
   }
+}
+
+class _GradientButton extends StatefulWidget {
+  final bool enabled;
+  final String label;
+  final String? subtitle;
+  final VoidCallback onTap;
+  final Gradient gradient;
+
+  const _GradientButton({
+    required this.enabled,
+    required this.label,
+    this.subtitle,
+    required this.onTap,
+    required this.gradient,
+  });
+
+  @override
+  State<_GradientButton> createState() => _GradientButtonState();
+}
+
+class _GradientButtonState extends State<_GradientButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final ts = MediaQuery.textScaleFactorOf(context).clamp(0.9, 1.1);
+
+    final content = Row(
+      children: [
+        Expanded(
+          child: MediaQuery(
+            data: MediaQuery.of(context).copyWith(textScaleFactor: ts),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+                if (widget.subtitle != null)
+                  Opacity(
+                    opacity: 0.9,
+                    child: Text(
+                      widget.subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        const Icon(Icons.chevron_right_rounded, color: Colors.white, size: 18),
+      ],
+    );
+
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 150),
+      opacity: widget.enabled ? 1.0 : 0.5,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTap: widget.enabled ? widget.onTap : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          constraints: const BoxConstraints(minHeight: 52), // <= compact
+          decoration: BoxDecoration(
+            gradient: widget.gradient,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF4C6EF5).withOpacity(0.18),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: content,
+        ),
+      ),
+    );
+  }
+}
+
+class _TonalDestructiveButton extends StatelessWidget {
+  final bool enabled;
+  final String label;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  const _TonalDestructiveButton({
+    required this.enabled,
+    required this.label,
+    this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ts = MediaQuery.textScaleFactorOf(context).clamp(0.9, 1.1);
+
+    final base = MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaleFactor: ts),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        constraints: const BoxConstraints(minHeight: 52), // <= compact
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF1F2),
+          border: Border.all(color: const Color(0xFFFECACA)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF991B1B),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (subtitle != null)
+                    const Text(
+                      'Ganti metode pembayaran',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Color(0xFFB91C1C),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Color(0xFF991B1B),
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 150),
+      opacity: enabled ? 1.0 : 0.5,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: enabled ? onTap : null,
+        child: base,
+      ),
+    );
+  }
+}
+
+Future<_ChangePaymentChoice?> _showChangePaymentSheet(
+  BuildContext context,
+) async {
+  int? selected; // 1 or 4
+  final cardCtrl = TextEditingController();
+  final formKey = GlobalKey<FormState>();
+
+  return showModalBottomSheet<_ChangePaymentChoice>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+    ),
+    builder: (ctx) {
+      return Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 10,
+          bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
+        ),
+        child: StatefulBuilder(
+          builder: (ctx, setSt) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44,
+                  height: 5,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5E7EB),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const Text(
+                  'Change Payment',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                RadioListTile<int>(
+                  value: 1,
+                  groupValue: selected,
+                  onChanged: (v) => setSt(() => selected = v),
+                  title: const Text(
+                    'Cash',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: const Text('Bayar tunai di kasir'),
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+                const Divider(height: 1),
+                RadioListTile<int>(
+                  value: 4,
+                  groupValue: selected,
+                  onChanged: (v) => setSt(() => selected = v),
+                  title: const Text(
+                    'EDC',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: const Text('Kartu debit/kredit via mesin EDC'),
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+
+                if (selected == 4) ...[
+                  const SizedBox(height: 8),
+                  Form(
+                    key: formKey,
+                    child: TextFormField(
+                      controller: cardCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nomor Kartu (opsional)',
+                        hintText: 'Masukkan nomor kartu',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx, null),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF374151),
+                          side: const BorderSide(color: Color(0xFFE5E7EB)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text('Batal'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: selected == null
+                            ? null
+                            : () {
+                                Navigator.pop(
+                                  ctx,
+                                  _ChangePaymentChoice(
+                                    method: selected!,
+                                    cardNumber: selected == 4
+                                        ? (cardCtrl.text.trim().isEmpty
+                                              ? null
+                                              : cardCtrl.text.trim())
+                                        : null,
+                                  ),
+                                );
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF111827),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text('Ubah Sekarang'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    },
+  );
 }
 
 class _KV extends StatelessWidget {

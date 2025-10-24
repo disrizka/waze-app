@@ -1,25 +1,29 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "wa_blast",
-            "request": "launch",
-            "type": "dart"
-        },
-        {
-            "name": "wa_blast (profile mode)",
+            "name": "Wave Up (dev)",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "profile"
+            "program": "lib/main.dart",
+            "args": [
+                "--flavor",
+                "dev",
+                "--dart-define",
+                "FLAVOR=dev"
+            ]
         },
         {
-            "name": "wa_blast (release mode)",
+            "name": "Wave Up (prod)",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "release"
+            "program": "lib/main.dart",
+            "args": [
+                "--flavor",
+                "prod",
+                "--dart-define",
+                "FLAVOR=prod"
+            ]
         }
     ]
 }

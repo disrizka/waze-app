@@ -52,7 +52,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCkGH0kNKRIxiknB45kcNEbcPjg0GQLtc0',
-    appId: '1:1094236657957:android:0b374fd487ae30b671e2cc',
+    appId: '1:1094236657957:android:65d42710d688500571e2cc',
     messagingSenderId: '1094236657957',
     projectId: 'wave-biz',
     storageBucket: 'wave-biz.firebasestorage.app',
@@ -60,11 +60,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyAQfUNHo63MfzjThBj6f53FQESJBaetI54',
-    appId: '1:1094236657957:ios:caab8a3bb7fdde7571e2cc',
+    appId: '1:1094236657957:ios:2590cb769d44877171e2cc',
     messagingSenderId: '1094236657957',
     projectId: 'wave-biz',
     storageBucket: 'wave-biz.firebasestorage.app',
-    iosBundleId: 'com.wave.biz',
+    iosBundleId: 'com.wave.up',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -85,5 +85,4 @@ class DefaultFirebaseOptions {
     storageBucket: 'wave-biz.firebasestorage.app',
     measurementId: 'G-8F3DQ5T0FL',
   );
-
 }
