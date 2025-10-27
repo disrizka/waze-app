@@ -58,33 +58,75 @@ class _ProductScreenState extends State<ProductScreen> {
   int _globalMinPrice = 0;
   int _globalMaxPrice = 0;
 
+  DateTimeRange? _dateRange;
+
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+    final first = DateTime(now.year - 2, 1, 1);
+    final last = DateTime(now.year + 1, 12, 31);
+
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: first,
+      lastDate: last,
+      initialDateRange: _dateRange,
+      helpText: 'Filter by date',
+      builder: (ctx, child) => Theme(data: Theme.of(ctx), child: child!),
+    );
+    if (picked == null) return;
+
+    setState(() {
+      _dateRange = picked;
+      _filters = _filters.copyWith(createdRange: picked);
+    });
+
+    final prov = context.read<ProductProvider>();
+    final composed = _filters.toSearchString(rawQuery: _searchC.text.trim());
+    await prov.setInfiniteSearch(context, composed);
+  }
+
+  String _dateShortLabel(DateTimeRange? r) {
+    if (r == null) return 'Date';
+    // "12–18 Oct" seperti permintaan kamu
+    final sM = DateFormat('MMM').format(r.start);
+    final eM = DateFormat('MMM').format(r.end);
+    final sD = r.start.day;
+    final eD = r.end.day;
+    return sM == eM ? '$sD–$eD $sM' : '$sD $sM–$eD $eM';
+  }
+
+  late final ProductProvider _prov; // ⬅️ simpan ref
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // aman: listen:false
+    _prov = Provider.of<ProductProvider>(context, listen: false);
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final prov = context.read<ProductProvider>();
-
-      // pastikan ada store default
-      await prov.ensureDefaultStoreLocation(context);
-
-      // init controller paging (reset internal meta)
-      prov.initInfinitePaging(context, initialSearch: '');
-
-      // refresh page-1 pertama kali
-      await prov.refreshInfinite(context);
-
-      // resource untuk picker
-      await Future.wait([
-        prov.fetchProductBrands(context),
-        prov.fetchProductCategories(context),
-      ]);
-
-      _rebuildGlobalRange();
+      // pakai _prov, bukan context.read
+      _prov.initInfinitePaging(context, initialSearch: '');
+      try {
+        await _prov
+            .ensureDefaultStoreLocation(context)
+            .timeout(const Duration(seconds: 6));
+      } catch (_) {}
+      await _prov.refreshInfinite(context);
     });
   }
 
   @override
   void dispose() {
+    // ⬅️ panggil tanpa pakai context
+    _prov.disposeInfinitePaging();
+
+    // kalau kamu buat ScrollController sendiri, jangan lupa dispose:
+    _listCtrl.dispose();
+
     _debounce?.cancel();
     _searchC.dispose();
     super.dispose();
@@ -95,39 +137,44 @@ class _ProductScreenState extends State<ProductScreen> {
     await prov.refreshInfinite(context);
   }
 
-  // ===== Infinite load when near bottom
-  void _maybeLoadMore() {
-    final prov = context.read<ProductProvider>();
-    if (!prov.hasMoreProducts) return;
-    if (prov.loadingProducts) return;
-
-    final pos = _listCtrl.position;
-    if (pos.pixels >= pos.maxScrollExtent - 300) {
-      final meta = prov.pageProducts;
-      final nextPage = (meta?.currentPage ?? 1) + 1;
-      final limit = meta?.rowPerPage ?? 40;
-
-      prov.fetchProductsPagination(
-        context,
-        page: nextPage,
-        search: prov.currentSearch,
-        storeLocationId: prov.currentStoreLocationId,
-        limit: limit,
-        append: true, // penting: append untuk infinite
-      );
-    }
-  }
-
   void _onSearchChanged(String _) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () async {
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      if (!mounted) return;
+
       final prov = context.read<ProductProvider>();
-      await prov.setInfiniteSearch(context, _searchC.text.trim());
+      final composed = _filters
+          .copyWith(query: _searchC.text.trim())
+          .toSearchString(rawQuery: _searchC.text.trim());
+
+      // // 🔧 Pastikan paging sudah ada; kalau belum, init dulu supaya refresh punya efek
+      // if (prov.pagingController == null) {
+      //   prov.initInfinitePaging(context, initialSearch: composed);
+      //   // siapkan store tanpa nge-block lama
+      //   try {
+      //     await prov
+      //         .ensureDefaultStoreLocation(context)
+      //         .timeout(const Duration(seconds: 6));
+      //   } catch (_) {}
+      //   await prov.refreshInfinite(context); // langsung fetch page-1
+      // } else {
+      //   await prov.setInfiniteSearch(context, composed); // trigger fetch
+      // }
+
+      await prov.setInfiniteSearch(context, composed);
+      await prov.refreshInfinite(context);
     });
   }
 
   void _openAdvancedFilter(ProductProvider prov) async {
     _rebuildGlobalRange();
+
+    if (prov.brands.isEmpty) {
+      await prov.fetchProductBrands(context);
+    }
+    if (prov.categories.isEmpty) {
+      await prov.fetchProductCategories(context);
+    }
 
     final result = await showModalBottomSheet<_ProductFilters>(
       context: context,
@@ -147,6 +194,8 @@ class _ProductScreenState extends State<ProductScreen> {
     if (!mounted) return;
     if (result != null) {
       setState(() => _filters = result);
+      final composed = _filters.toSearchString(rawQuery: _searchC.text.trim());
+      await prov.setInfiniteSearch(context, composed);
     }
   }
 
@@ -210,7 +259,31 @@ class _ProductScreenState extends State<ProductScreen> {
           builder: (context, provider, _) {
             final controller = provider.pagingController;
             if (controller == null) {
-              return const Center(child: CircularProgressIndicator());
+              return Center(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(
+                    vertical: 24,
+                    horizontal: 16,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 20,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: const Text(
+                    'No more products',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              );
             }
 
             // ambil state terbaru dari controller
@@ -280,6 +353,33 @@ class _ProductScreenState extends State<ProductScreen> {
                       child: const Icon(Icons.tune_rounded, size: 20),
                     ),
                   ),
+                  if (_filters.createdRange != null) ...[
+                    const SizedBox(width: 6),
+                    SizedBox(
+                      height: 42,
+                      width: 42,
+                      child: IconButton(
+                        tooltip: 'Clear date',
+                        onPressed: () async {
+                          setState(() {
+                            _dateRange = null;
+                            _filters = _filters.copyWith(clearDate: true);
+                          });
+                          final prov = context.read<ProductProvider>();
+                          final composed = _filters.toSearchString(
+                            rawQuery: _searchC.text.trim(),
+                          );
+                          await prov.setInfiniteSearch(context, composed);
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        style: IconButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             );
@@ -440,13 +540,21 @@ class _ProductScreenState extends State<ProductScreen> {
                               },
 
                               // indikator
-                              firstPageProgressIndicatorBuilder: (_) =>
-                                  const Center(
-                                    child: Padding(
-                                      padding: EdgeInsets.all(24),
-                                      child: CircularProgressIndicator(),
+                              firstPageProgressIndicatorBuilder: (_) => Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: Center(
+                                    child: const Text(
+                                      'No more products',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.black54,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                     ),
                                   ),
+                                ),
+                              ),
                               newPageProgressIndicatorBuilder: (_) =>
                                   const SizedBox.shrink(),
 
@@ -497,92 +605,6 @@ class _ProductScreenState extends State<ProductScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _MiniPager extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final prov = context.watch<ProductProvider>();
-    final meta = prov.pageProducts;
-    final f = NumberFormat.decimalPattern('id');
-
-    final page = meta?.currentPage ?? 1;
-    final totalPages = meta?.totalPages ?? 1;
-    final perPage = meta?.rowPerPage ?? 40;
-    final totalRows = meta?.totalRows ?? (prov.products.length);
-    final start = ((page - 1) * perPage) + (totalRows == 0 ? 0 : 1);
-    final end = (page * perPage).clamp(0, totalRows);
-
-    final hasPrev = page > 1;
-    final hasNext = prov.hasMoreProducts;
-
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F8FF),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Row(
-        children: [
-          _CircleBtn(
-            icon: Icons.chevron_left_rounded,
-            enabled: hasPrev,
-            onTap: hasPrev
-                ? () => prov.fetchProductsPagination(
-                    context,
-                    page: page - 1,
-                    search: prov.currentSearch,
-                    limit: perPage,
-                    append: false,
-                  )
-                : null,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Center(
-              child: RichText(
-                text: TextSpan(
-                  style: const TextStyle(
-                    color: Color(0xFF111827),
-                    fontSize: 13,
-                  ),
-                  children: [
-                    TextSpan(
-                      text: 'Page $page',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    TextSpan(text: ' / $totalPages'),
-                    // const TextSpan(text: ' · '),
-                    // TextSpan(
-                    //   text: '${f.format(start)}–${f.format(end)}',
-                    //   style: const TextStyle(fontWeight: FontWeight.w600),
-                    // ),
-                    // TextSpan(text: ' of ${f.format(totalRows)}'),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _CircleBtn(
-            icon: Icons.chevron_right_rounded,
-            enabled: hasNext,
-            onTap: hasNext
-                ? () => prov.fetchProductsPagination(
-                    context,
-                    page: page + 1,
-                    search: prov.currentSearch,
-                    limit: perPage,
-                    append: false,
-                  )
-                : null,
-          ),
-        ],
       ),
     );
   }
@@ -660,7 +682,8 @@ class _ProductFilters {
   final String? categoryId; // idProductCategory
   final int? minPrice; // inclusive
   final int? maxPrice; // inclusive
-  final String? storeLocationId; // ⬅️ NEW
+  final String? storeLocationId; // store filter
+  final DateTimeRange? createdRange; // ⬅️ NEW: filter tanggal dibuat
 
   const _ProductFilters({
     this.query,
@@ -668,7 +691,8 @@ class _ProductFilters {
     this.categoryId,
     this.minPrice,
     this.maxPrice,
-    this.storeLocationId, // ⬅️ NEW
+    this.storeLocationId,
+    this.createdRange, // ⬅️ NEW
   });
 
   _ProductFilters copyWith({
@@ -677,10 +701,12 @@ class _ProductFilters {
     String? categoryId,
     int? minPrice,
     int? maxPrice,
-    String? storeLocationId, // ⬅️ NEW
+    String? storeLocationId,
+    DateTimeRange? createdRange,
     bool clearBrand = false,
     bool clearCategory = false,
-    bool clearStore = false, // ⬅️ NEW
+    bool clearStore = false,
+    bool clearDate = false, // ⬅️ NEW
   }) {
     return _ProductFilters(
       query: query ?? this.query,
@@ -691,6 +717,7 @@ class _ProductFilters {
       storeLocationId: clearStore
           ? null
           : (storeLocationId ?? this.storeLocationId),
+      createdRange: clearDate ? null : (createdRange ?? this.createdRange),
     );
   }
 
@@ -698,9 +725,32 @@ class _ProductFilters {
       (query == null || query!.isEmpty) &&
       (brandId == null || brandId!.isEmpty) &&
       (categoryId == null || categoryId!.isEmpty) &&
-      (storeLocationId == null || storeLocationId!.isEmpty) && // ⬅️ NEW
-      minPrice == null &&
-      maxPrice == null;
+      (storeLocationId == null || storeLocationId!.isEmpty) &&
+      (minPrice == null && maxPrice == null) &&
+      createdRange == null;
+
+  /// Susun string `search` untuk backend kamu.
+  /// Format token kunci:value (gampang di-parse di server). Contoh:
+  ///   q:iphone brand:123 cat:456 min:10000 max:50000 store:abc
+  ///   date_from:2025-10-01 date_to:2025-10-15
+  String toSearchString({String rawQuery = ''}) {
+    final tokens = <String>[];
+    final q = rawQuery.isNotEmpty ? rawQuery : (query ?? '');
+    if (q.isNotEmpty) tokens.add('q:$q');
+    if ((brandId ?? '').isNotEmpty) tokens.add('brand:$brandId');
+    if ((categoryId ?? '').isNotEmpty) tokens.add('cat:$categoryId');
+    if (minPrice != null) tokens.add('min:${minPrice!}');
+    if (maxPrice != null) tokens.add('max:${maxPrice!}');
+    if ((storeLocationId ?? '').isNotEmpty)
+      tokens.add('store:$storeLocationId');
+
+    if (createdRange != null) {
+      final f = DateFormat('yyyy-MM-dd');
+      tokens.add('date_from:${f.format(createdRange!.start)}');
+      tokens.add('date_to:${f.format(createdRange!.end)}');
+    }
+    return tokens.join(' ');
+  }
 }
 
 class _ProductTile extends StatelessWidget {
@@ -830,10 +880,7 @@ Future<void> openEditProductById(BuildContext context, String idProduct) async {
   final prov = context.read<ProductProvider>();
 
   // Ambil detail + pastikan list dropdown siap dulu
-  await Future.wait([
-    prov.fetchProductBrands(context),
-    prov.fetchProductCategories(context),
-  ]);
+  await Future.wait([prov.fetchProductBrands(context)]);
 
   final detail = await prov.fetchProductDetail(context, idProduct);
   if (detail == null) {
@@ -2507,12 +2554,14 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
 
   // ===== NEW: Store filter (wajib) =====
   String? _storeId;
+  DateTimeRange? _created; // NEW
   String? _storeName;
   String? _storeError; // tampilkan error jika belum dipilih (harus wajib)
 
   @override
   void initState() {
     super.initState();
+    _created = widget.initial.createdRange;
     _brandId = widget.initial.brandId;
     _categoryId = widget.initial.categoryId;
 
@@ -2676,8 +2725,6 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                         _ProductFilters(
                           brandId: _brandId,
                           categoryId: _categoryId,
-                          minPrice: _range.start.round(),
-                          maxPrice: _range.end.round(),
                           query: widget.initial.query,
                           // Catatan: store dikirim via provider (fetchProductsPagination → storeLocationId)
                         ),
@@ -2784,42 +2831,42 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
 
                   const SizedBox(height: 20),
 
-                  // ----- PRICE RANGE -----
-                  const Text(
-                    'Price Range',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF111827),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        _formatRpD(_range.start),
-                        style: const TextStyle(color: Color(0xFF6B7280)),
-                      ),
-                      Text(
-                        _formatRpD(_range.end),
-                        style: const TextStyle(color: Color(0xFF6B7280)),
-                      ),
-                    ],
-                  ),
-                  RangeSlider(
-                    activeColor: AppColors.blueButton,
-                    values: _range,
-                    min: widget.globalMin,
-                    max: widget.globalMax <= widget.globalMin
-                        ? widget.globalMin + 1
-                        : widget.globalMax,
-                    divisions: 100,
-                    labels: RangeLabels(
-                      _formatRpD(_range.start),
-                      _formatRpD(_range.end),
-                    ),
-                    onChanged: (v) => setState(() => _range = v),
-                  ),
+                  // // ----- PRICE RANGE -----
+                  // const Text(
+                  //   'Price Range',
+                  //   style: TextStyle(
+                  //     fontWeight: FontWeight.w600,
+                  //     color: Color(0xFF111827),
+                  //   ),
+                  // ),
+                  // const SizedBox(height: 8),
+                  // Row(
+                  //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  //   children: [
+                  //     Text(
+                  //       _formatRpD(_range.start),
+                  //       style: const TextStyle(color: Color(0xFF6B7280)),
+                  //     ),
+                  //     Text(
+                  //       _formatRpD(_range.end),
+                  //       style: const TextStyle(color: Color(0xFF6B7280)),
+                  //     ),
+                  //   ],
+                  // ),
+                  // RangeSlider(
+                  //   activeColor: AppColors.blueButton,
+                  //   values: _range,
+                  //   min: widget.globalMin,
+                  //   max: widget.globalMax <= widget.globalMin
+                  //       ? widget.globalMin + 1
+                  //       : widget.globalMax,
+                  //   divisions: 100,
+                  //   labels: RangeLabels(
+                  //     _formatRpD(_range.start),
+                  //     _formatRpD(_range.end),
+                  //   ),
+                  //   onChanged: (v) => setState(() => _range = v),
+                  // ),
                 ],
               ),
             ),

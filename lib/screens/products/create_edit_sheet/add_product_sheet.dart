@@ -13,6 +13,7 @@ import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 
 import 'package:wa_blast/providers/product_provider.dart';
+import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
 import 'package:wa_blast/widgets/variant_section_dynamic.dart';
 
@@ -35,25 +36,34 @@ class _ResponsiveSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
     final w = mq.size.width;
+    final h = mq.size.height;
 
-    // % lebar layar untuk tablet/desktop (lebih lebar dari sebelumnya)
+    // Lebar hampir penuh di ponsel, sedikit menyempit di tablet/desktop
     final double widthFactor = w < 600 ? 1.0 : 0.96;
 
-    // Tetap batasi agar tidak kepanjangan di layar yang sangat lebar
-    final double hardMax =
-        1100; // naikin dari 840 → 1100 (boleh ubah sesuai selera)
+    // Batas keras untuk layar super lebar
+    const double hardMaxWidth = 1100;
+
+    // ⬇️ BATAS TINGGI: maksimal 88% tinggi layar ATAU 720px (mana yang lebih kecil)
+    final double hardMaxHeight = [
+      h * 0.88, // relatif layar
+      720.0, // agar di tablet pun tidak kepanjangan defaultnya
+    ].reduce((a, b) => a < b ? a : b);
 
     return Align(
       alignment: Alignment.bottomCenter,
       child: FractionallySizedBox(
-        widthFactor: widthFactor, // ⬅️ kunci utama: hampir full width
+        widthFactor: widthFactor,
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: hardMax),
+          constraints: BoxConstraints(
+            maxWidth: hardMaxWidth,
+            maxHeight: hardMaxHeight, // ⬅️ penting supaya tidak menjulang
+          ),
           child: Material(
             color: Colors.white,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             clipBehavior: Clip.antiAlias,
-            child: child, // DraggableScrollableSheet dkk tetap sama
+            child: child,
           ),
         ),
       ),
@@ -79,9 +89,11 @@ class _AddProductSheetState extends State<_AddProductSheet> {
   final _descC = TextEditingController();
   final _priceC = TextEditingController(); // (not used on submit)
   final _stockC = TextEditingController(); // (not used on submit)
+
   bool _available = true; // optional (not used by API yet)
   bool _attemptedSubmit = false;
-
+  String? _selectedStoreId;
+  String? _selectedStoreName;
   // ====== VARIANTS TOGGLE ======
   bool _useVariants = false;
 
@@ -113,6 +125,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     if (!formOk) reasons.add('Form belum valid (Name/Description).');
     if (_selectedBrandId == null) reasons.add('Brand belum dipilih.');
     if (_selectedCategoryId == null) reasons.add('Category belum dipilih.');
+    if (_selectedStoreId == null) reasons.add('Store belum dipilih.');
 
     // 2) Mode variants/single
     if (_useVariants) {
@@ -270,6 +283,48 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     final prov = context.read<ProductProvider>();
     prov.fetchProductBrands(context);
     prov.fetchProductCategories(context);
+
+    // Prefill default store untuk kemudahan user
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final id = await prov.ensureDefaultStoreLocation(context);
+      if (!mounted) return;
+      _selectedStoreId = id;
+
+      final sp = context.read<StoreProvider>();
+      if (sp.stores.isEmpty && !sp.loadingList) {
+        await sp.fetchStoreLocations(context);
+      }
+      final store = sp.stores.firstWhere(
+        (s) => s.idStoreLocation == _selectedStoreId,
+        orElse: () => sp.stores.isNotEmpty ? sp.stores.first : null as dynamic,
+      );
+      if (!mounted) return;
+      setState(() {
+        _selectedStoreId = store?.idStoreLocation ?? _selectedStoreId;
+        _selectedStoreName = store?.name ?? _selectedStoreName;
+      });
+    });
+  }
+
+  Future<String?> pickStoreId(
+    BuildContext context, {
+    String? selectedId,
+  }) async {
+    final sp = context.read<StoreProvider>();
+    if (sp.stores.isEmpty && !sp.loadingList) {
+      await sp.fetchStoreLocations(context);
+    }
+    final opts = sp.stores
+        .map((s) => PickerOption(id: s.idStoreLocation, label: s.name))
+        .toList();
+
+    return showListPicker(
+      context: context,
+      title: 'Choose Store',
+      options: opts,
+      selectedId: selectedId,
+      enableCreate: false, // store tidak creatable dari sini
+    );
   }
 
   @override
@@ -291,7 +346,8 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     final baseOk =
         (_formKey.currentState?.validate() ?? false) &&
         _selectedBrandId != null &&
-        _selectedCategoryId != null;
+        _selectedCategoryId != null &&
+        _selectedStoreId != null;
 
     if (!baseOk) return false;
 
@@ -365,6 +421,13 @@ class _AddProductSheetState extends State<_AddProductSheet> {
           const SnackBar(
             content: Text('Please select Brand & Category first.'),
           ),
+        );
+        return;
+      }
+
+      if (_selectedStoreId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select Store first.')),
         );
         return;
       }
@@ -470,6 +533,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
         'description': _descC.text.trim(),
         'product_brand_id': _selectedBrandId!,
         'product_category_id': _selectedCategoryId!,
+        'store_location_id': _selectedStoreId!,
         'images': imagesJson,
         'skus': skusJson,
         'prices': pricesJson,
@@ -477,13 +541,13 @@ class _AddProductSheetState extends State<_AddProductSheet> {
       final pretty = const JsonEncoder.withIndent('  ').convert(payloadPreview);
       debugPrint('[ADD_PRODUCT] Payload preview:\n$pretty');
 
-      // 4) Call provider
       final ok = await provider.addProductExactPayload(
         context: context,
         name: _nameC.text.trim(),
         description: _descC.text.trim(),
         productBrandId: _selectedBrandId!,
         productCategoryId: _selectedCategoryId!,
+        storeLocationId: _selectedStoreId!, // ⬅️ NEW
         images: imagesJson,
         skus: skusJson,
         prices: pricesJson,
@@ -710,8 +774,46 @@ class _AddProductSheetState extends State<_AddProductSheet> {
                             );
                           },
                         ),
-
                         const SizedBox(height: 16),
+
+                        // ====== STORE LOCATION ======
+                        Consumer<StoreProvider>(
+                          builder: (context, sp, _) {
+                            final storeError =
+                                _attemptedSubmit && _selectedStoreId == null
+                                ? 'Required'
+                                : null;
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _SelectFieldTile(
+                                  label: 'Store',
+                                  placeholder: 'Select a store',
+                                  valueText: _selectedStoreName,
+                                  errorText: storeError,
+                                  onTap: () async {
+                                    final picked = await pickStoreId(
+                                      context,
+                                      selectedId: _selectedStoreId,
+                                    );
+                                    if (picked != null) {
+                                      final matched = sp.stores.firstWhere(
+                                        (s) => s.idStoreLocation == picked,
+                                        orElse: () => sp.stores.first,
+                                      );
+                                      setState(() {
+                                        _selectedStoreId = picked;
+                                        _selectedStoreName = matched.name;
+                                      });
+                                    }
+                                  },
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                            );
+                          },
+                        ),
 
                         // ====== USE VARIANTS TOGGLE ======
                         Container(
@@ -1386,184 +1488,200 @@ Future<String?> showListPicker({
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.transparent,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     builder: (ctx) {
-      return _ResponsiveSheet(
-        child: SafeArea(
-          top: false,
-          child: DraggableScrollableSheet(
-            expand: false,
-            initialChildSize: 0.85,
-            minChildSize: 0.5,
-            maxChildSize: 0.95,
-            builder: (_, sheetCtrl) {
-              return StatefulBuilder(
-                builder: (context, setState) {
-                  void _doFilter(String q) {
-                    final query = q.trim().toLowerCase();
-                    lastQuery = q.trim();
-                    setState(() {
-                      filtered = options
-                          .where(
-                            (o) =>
-                                o.label.toLowerCase().contains(query) ||
-                                (o.subtitle ?? '').toLowerCase().contains(
-                                  query,
-                                ),
-                          )
-                          .toList();
-                    });
-                  }
+      final viewInsets = MediaQuery.of(ctx).viewInsets.bottom;
 
-                  final canShowCreate =
-                      enableCreate &&
-                      lastQuery.isNotEmpty &&
-                      !containsLabel(lastQuery) &&
-                      onCreate != null;
+      return Padding(
+        // ⬇️ Supaya saat keyboard naik, konten ikut naik dan tidak kepotong
+        padding: EdgeInsets.only(bottom: viewInsets),
+        child: _ResponsiveSheet(
+          child: SafeArea(
+            top: false,
+            child: DraggableScrollableSheet(
+              // ⬇️ Default lebih pendek (sekitar 60% layar), bisa didrag hingga 86%
+              initialChildSize: 0.60,
+              minChildSize: 0.40,
+              maxChildSize: 0.86,
+              expand: false,
+              builder: (_, sheetCtrl) {
+                return StatefulBuilder(
+                  builder: (context, setState) {
+                    void _doFilter(String q) {
+                      final query = q.trim().toLowerCase();
+                      lastQuery = q.trim();
+                      setState(() {
+                        filtered = options
+                            .where(
+                              (o) =>
+                                  o.label.toLowerCase().contains(query) ||
+                                  (o.subtitle ?? '').toLowerCase().contains(
+                                    query,
+                                  ),
+                            )
+                            .toList();
+                      });
+                    }
 
-                  return Column(
-                    children: [
-                      const SizedBox(height: 8),
-                      Container(
-                        width: 44,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE5E7EB),
-                          borderRadius: BorderRadius.circular(999),
+                    final canShowCreate =
+                        enableCreate &&
+                        lastQuery.isNotEmpty &&
+                        !containsLabel(lastQuery) &&
+                        onCreate != null;
+
+                    return Column(
+                      children: [
+                        const SizedBox(height: 8),
+                        Container(
+                          width: 44,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE5E7EB),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                title,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF111827),
+                        const SizedBox(height: 10),
+
+                        // Header
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF111827),
+                                  ),
                                 ),
                               ),
-                            ),
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Close'),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: TextField(
-                          controller: controller,
-                          onChanged: _doFilter,
-                          decoration: InputDecoration(
-                            hintText: 'Search…',
-                            isDense: true,
-                            filled: true,
-                            fillColor: const Color(0xFFF3F4F6),
-                            prefixIcon: const Icon(Icons.search, size: 20),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderSide: const BorderSide(
-                                color: Color(0xFFE5E7EB),
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('Close'),
                               ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderSide: const BorderSide(
-                                color: Color(0xFFCBD5E1),
-                              ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
+                            ],
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                      if (canShowCreate)
-                        Material(
-                          color: Colors.transparent,
-                          child: ListTile(
-                            onTap: () async {
-                              final created = await onCreate!(lastQuery);
-                              if (created != null) {
-                                setState(() {
-                                  options.add(created);
-                                  filtered.insert(0, created);
-                                  selectedId = created.id;
-                                });
-                                // ignore: use_build_context_synchronously
-                                Navigator.pop(ctx, created.id);
-                              }
-                            },
-                            leading: const Icon(
-                              Icons.add_circle_outline,
-                              color: Color(0xFF4C6EF5),
-                            ),
-                            title: Text(
-                              createRowLabel?.call(lastQuery) ??
-                                  '"$lastQuery" not found — + Add New',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF111827),
+
+                        const SizedBox(height: 8),
+
+                        // Search
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: TextField(
+                            controller: controller,
+                            onChanged: _doFilter,
+                            decoration: InputDecoration(
+                              hintText: 'Search…',
+                              isDense: true,
+                              filled: true,
+                              fillColor: const Color(0xFFF3F4F6),
+                              prefixIcon: const Icon(Icons.search, size: 20),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE5E7EB),
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFCBD5E1),
+                                ),
+                                borderRadius: BorderRadius.circular(10),
                               ),
                             ),
                           ),
                         ),
-                      Expanded(
-                        child: ListView.separated(
-                          controller: sheetCtrl,
-                          padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
-                          itemCount: filtered.length,
-                          separatorBuilder: (_, __) => const Divider(
-                            height: 1,
-                            color: Color(0xFFF3F4F6),
-                          ),
-                          itemBuilder: (_, i) {
-                            final o = filtered[i];
-                            final isSel = o.id == selectedId;
-                            return ListTile(
-                              onTap: () => Navigator.pop(ctx, o.id),
-                              leading: Radio<String>(
-                                value: o.id,
-                                groupValue: selectedId,
-                                onChanged: (_) => Navigator.pop(ctx, o.id),
+
+                        const SizedBox(height: 8),
+                        const Divider(height: 1, color: Color(0xFFE5E7EB)),
+
+                        if (canShowCreate)
+                          Material(
+                            color: Colors.transparent,
+                            child: ListTile(
+                              onTap: () async {
+                                final created = await onCreate!(lastQuery);
+                                if (created != null) {
+                                  setState(() {
+                                    options.add(created);
+                                    filtered.insert(0, created);
+                                    selectedId = created.id;
+                                  });
+                                  // ignore: use_build_context_synchronously
+                                  Navigator.pop(ctx, created.id);
+                                }
+                              },
+                              leading: const Icon(
+                                Icons.add_circle_outline,
+                                color: Color(0xFF4C6EF5),
                               ),
                               title: Text(
-                                o.label,
+                                createRowLabel?.call(lastQuery) ??
+                                    '"$lastQuery" not found — + Add New',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
                                   color: Color(0xFF111827),
                                 ),
                               ),
-                              subtitle: (o.subtitle?.isNotEmpty ?? false)
-                                  ? Text(o.subtitle!)
-                                  : null,
-                              trailing: isSel
-                                  ? const Icon(
-                                      Icons.check_circle,
-                                      color: Color(0xFF4C6EF5),
-                                    )
-                                  : null,
-                            );
-                          },
+                            ),
+                          ),
+
+                        // List
+                        Expanded(
+                          child: ListView.separated(
+                            controller: sheetCtrl,
+                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) => const Divider(
+                              height: 1,
+                              color: Color(0xFFF3F4F6),
+                            ),
+                            itemBuilder: (_, i) {
+                              final o = filtered[i];
+                              final isSel = o.id == selectedId;
+                              return ListTile(
+                                onTap: () => Navigator.pop(ctx, o.id),
+                                leading: Radio<String>(
+                                  value: o.id,
+                                  groupValue: selectedId,
+                                  onChanged: (_) => Navigator.pop(ctx, o.id),
+                                ),
+                                title: Text(
+                                  o.label,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF111827),
+                                  ),
+                                ),
+                                subtitle: (o.subtitle?.isNotEmpty ?? false)
+                                    ? Text(o.subtitle!)
+                                    : null,
+                                trailing: isSel
+                                    ? const Icon(
+                                        Icons.check_circle,
+                                        color: Color(0xFF4C6EF5),
+                                      )
+                                    : null,
+                              );
+                            },
+                          ),
                         ),
-                      ),
-                    ],
-                  );
-                },
-              );
-            },
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ),
       );
