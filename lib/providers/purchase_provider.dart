@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/models/city_model.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_model.dart' hide City;
 import 'package:wa_blast/models/purchase_model.dart';
 
 import 'package:wa_blast/models/supplier_model.dart';

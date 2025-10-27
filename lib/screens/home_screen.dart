@@ -802,7 +802,7 @@ class _GridMenu extends StatelessWidget {
             _MenuItemData(
               t.grid_setting,
               'assets/setting_icon.png',
-              onTap: () => Navigator.pushNamed(context, '/setting'),
+              onTap: () => Navigator.pushNamed(context, '/business'),
             ),
           ];
 

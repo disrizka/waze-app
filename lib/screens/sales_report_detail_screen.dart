@@ -36,12 +36,14 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<SalesProvider>().fetchSalesDetail(
-        context,
-        widget.idTransaction,
-      );
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshDetail());
+  }
+
+  /// Helper agar refresh bisa dipakai dari mana saja (pull-to-refresh & setelah change payment)
+  Future<void> _refreshDetail() async {
+    if (!mounted) return;
+    final prov = context.read<SalesProvider>();
+    await prov.fetchSalesDetail(context, widget.idTransaction);
   }
 
   @override
@@ -63,6 +65,12 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: [
+          // manual refresh icon (opsional)
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _refreshDetail,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
           // Save PDF
           IconButton(
             tooltip: 'Save PDF',
@@ -140,366 +148,398 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
       ),
       body: Consumer<SalesProvider>(
         builder: (context, prov, _) {
-          if (prov.loadingSalesDetail) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (prov.salesDetailError != null) {
-            return _ErrorBox(
-              message: prov.salesDetailError!,
-              onRetry: () =>
-                  prov.fetchSalesDetail(context, widget.idTransaction),
-            );
-          }
+          // Bungkus seluruh konten dengan RefreshIndicator
+          return RefreshIndicator(
+            onRefresh: _refreshDetail,
+            child: Builder(
+              builder: (_) {
+                if (prov.loadingSalesDetail) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (prov.salesDetailError != null) {
+                  return _ErrorBox(
+                    message: prov.salesDetailError!,
+                    onRetry: _refreshDetail,
+                  );
+                }
 
-          final d = prov.salesDetail;
-          if (d == null) {
-            return _ErrorBox(
-              message:
-                  'Data transaksi tidak ditemukan.\nCoba kembali dan buka lagi detailnya.',
-              onRetry: () =>
-                  prov.fetchSalesDetail(context, widget.idTransaction),
-            );
-          }
+                final d = prov.salesDetail;
+                if (d == null) {
+                  return _ErrorBox(
+                    message:
+                        'Data transaksi tidak ditemukan.\nCoba kembali dan buka lagi detailnya.',
+                    onRetry: _refreshDetail,
+                  );
+                }
 
-          final calc = d.calculation;
-          final totalAmount = calc?.grandtotal ?? d.amount;
+                final calc = d.calculation;
+                final totalAmount = calc?.grandtotal ?? d.amount;
 
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            children: [
-              DottedBorder(
-                options: const RoundedRectDottedBorderOptions(
-                  color: Color(0xFFD1D5DB),
-                  dashPattern: [6, 6],
-                  strokeWidth: 1.4,
-                  radius: Radius.circular(12),
-                  padding: EdgeInsets.all(0),
-                ),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // header
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: Colors.indigo.shade50,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.receipt_long_rounded,
-                              size: 20,
-                              color: Colors.indigo.shade700,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
+                return ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  children: [
+                    DottedBorder(
+                      options: const RoundedRectDottedBorderOptions(
+                        color: Color(0xFFD1D5DB),
+                        dashPattern: [6, 6],
+                        strokeWidth: 1.4,
+                        radius: Radius.circular(12),
+                        padding: EdgeInsets.all(0),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // header
+                            Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  (d.number.isEmpty ? d.reference : d.number),
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF111827),
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: Colors.indigo.shade50,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.receipt_long_rounded,
+                                    size: 20,
+                                    color: Colors.indigo.shade700,
                                   ),
                                 ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  fDate.format(d.time),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF9CA3AF),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        (d.number.isEmpty
+                                            ? d.reference
+                                            : d.number),
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFF111827),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        fDate.format(d.time),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Color(0xFF9CA3AF),
+                                        ),
+                                      ),
+                                    ],
                                   ),
+                                ),
+                                const SizedBox(width: 8),
+                                _StatusChip(status: d.status),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // amounts
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _KV(
+                                    label: 'Grand Total',
+                                    value: 'Rp ${fMoney.format(totalAmount)}',
+                                  ),
+                                ),
+                                _KV(
+                                  label: 'Payment',
+                                  value: _paymentLabel(d.paymentMethod),
+                                  alignEnd: true,
                                 ),
                               ],
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          _StatusChip(status: d.status),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
+                            const SizedBox(height: 8),
 
-                      // amounts
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _KV(
-                              label: 'Grand Total',
-                              value: 'Rp ${fMoney.format(totalAmount)}',
-                            ),
-                          ),
-                          _KV(
-                            label: 'Payment',
-                            value: _paymentLabel(d.paymentMethod),
-                            alignEnd: true,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-
-                      // customer & store singkat
-                      if (d.customer != null) ...[
-                        const SizedBox(height: 8),
-                        _KV(
-                          label: 'Customer',
-                          value:
-                              '${d.customer!.name} ${d.customer!.phone.isNotEmpty ? '• ${d.customer!.phone}' : ''}',
+                            // customer & store singkat
+                            if (d.customer != null) ...[
+                              const SizedBox(height: 8),
+                              _KV(
+                                label: 'Customer',
+                                value:
+                                    '${d.customer!.name} ${d.customer!.phone.isNotEmpty ? '• ${d.customer!.phone}' : ''}',
+                              ),
+                            ],
+                            if (d.storeLocation != null) ...[
+                              const SizedBox(height: 8),
+                              _KV(
+                                label: 'Store',
+                                value:
+                                    '${d.storeLocation!.name}${d.storeLocation!.city != null ? ' • ${d.storeLocation!.city!.name}' : ''}',
+                              ),
+                            ],
+                            if (d.reference.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              _KV(label: 'Reference', value: d.reference),
+                            ],
+                            if (d.note.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              _KV(label: 'Note', value: d.note),
+                            ],
+                          ],
                         ),
-                      ],
-                      if (d.storeLocation != null) ...[
-                        const SizedBox(height: 8),
-                        _KV(
-                          label: 'Store',
-                          value:
-                              '${d.storeLocation!.name}${d.storeLocation!.city != null ? ' • ${d.storeLocation!.city!.name}' : ''}',
-                        ),
-                      ],
-                      if (d.reference.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        _KV(label: 'Reference', value: d.reference),
-                      ],
-                      if (d.note.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        _KV(label: 'Note', value: d.note),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-              const Text(
-                'Items',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF6B7280),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              ...d.items.map((it) {
-                final lineSubtotal = it.qtyOut * it.price;
-                final img = it.product?.imagePath;
-                final title = it.product?.name ?? it.productSkuId;
-                final skuCode = it.productSku?.code ?? '';
-                final attrs = (it.productSku?.attributes ?? [])
-                    .map((a) => '${a['name']}: ${a['value']}')
-                    .join(', ');
-
-                return DottedBorder(
-                  options: const RoundedRectDottedBorderOptions(
-                    color: Color(0xFFE5E7EB),
-                    dashPattern: [6, 6],
-                    strokeWidth: 1.2,
-                    radius: Radius.circular(10),
-                    padding: EdgeInsets.all(0),
-                  ),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        _Thumb(imageUrl: img),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Items',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF6B7280),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    ...d.items.map((it) {
+                      final lineSubtotal = it.qtyOut * it.price;
+                      final img = it.product?.imagePath;
+                      final title = it.product?.name ?? it.productSkuId;
+                      final skuCode = it.productSku?.code ?? '';
+                      final attrs = (it.productSku?.attributes ?? [])
+                          .map((a) => '${a['name']}: ${a['value']}')
+                          .join(', ');
+
+                      return DottedBorder(
+                        options: const RoundedRectDottedBorderOptions(
+                          color: Color(0xFFE5E7EB),
+                          dashPattern: [6, 6],
+                          strokeWidth: 1.2,
+                          radius: Radius.circular(10),
+                          padding: EdgeInsets.all(0),
+                        ),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
                             children: [
-                              // nama produk
-                              Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 15,
-                                  color: Color(0xFF111827),
+                              _Thumb(imageUrl: img),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // nama produk
+                                    Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 15,
+                                        color: Color(0xFF111827),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    // sku & atribut
+                                    if (skuCode.isNotEmpty || attrs.isNotEmpty)
+                                      Text(
+                                        [skuCode, attrs]
+                                            .where((e) => e.isNotEmpty)
+                                            .join(' • '),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Color(0xFF6B7280),
+                                        ),
+                                      ),
+                                    const SizedBox(height: 4),
+                                    // qty x harga (+ discount per item jika ada)
+                                    Text(
+                                      'Qty ${it.qtyOut} × Rp ${fMoney.format(it.price)}'
+                                      '${it.discount > 0 ? ' (disc Rp ${fMoney.format(it.discount)}/item)' : ''}',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF6B7280),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              // sku & atribut
-                              if (skuCode.isNotEmpty || attrs.isNotEmpty)
-                                Text(
-                                  [
-                                    skuCode,
-                                    attrs,
-                                  ].where((e) => e.isNotEmpty).join(' • '),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF6B7280),
-                                  ),
-                                ),
-                              const SizedBox(height: 4),
-                              // qty x harga (+ discount per item jika ada)
+                              const SizedBox(width: 12),
                               Text(
-                                'Qty ${it.qtyOut} × Rp ${fMoney.format(it.price)}'
-                                '${it.discount > 0 ? ' (disc Rp ${fMoney.format(it.discount)}/item)' : ''}',
+                                'Rp ${fMoney.format(lineSubtotal)}',
                                 style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF6B7280),
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF111827),
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Text(
-                          'Rp ${fMoney.format(lineSubtotal)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF111827),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
+                      );
+                    }).toList(),
 
-              const SizedBox(height: 4),
-              const Divider(height: 24),
+                    const SizedBox(height: 4),
+                    const Divider(height: 24),
 
-              if (calc != null) ...[
-                _rowTotal('Subtotal', calc.subtotal, fMoney),
-                _rowTotal('Discount', -calc.discount, fMoney, discount: true),
-                const SizedBox(height: 6),
-                _rowTotal('Grand Total', calc.grandtotal, fMoney, bold: true),
-              ] else ...[
-                _rowTotal('Amount', d.amount, fMoney, bold: true),
-              ],
+                    if (calc != null) ...[
+                      _rowTotal('Subtotal', calc.subtotal, fMoney),
+                      _rowTotal(
+                        'Discount',
+                        -calc.discount,
+                        fMoney,
+                        discount: true,
+                      ),
+                      const SizedBox(height: 6),
+                      _rowTotal(
+                        'Grand Total',
+                        calc.grandtotal,
+                        fMoney,
+                        bold: true,
+                      ),
+                    ] else ...[
+                      _rowTotal('Amount', d.amount, fMoney, bold: true),
+                    ],
 
-              // === ACTIONS UNTUK STATUS PENDING ===
-              if ((d.status).toLowerCase() == 'pending') ...[
-                const SizedBox(height: 18),
+                    // === ACTIONS UNTUK STATUS PENDING ===
+                    if ((d.status).toLowerCase() == 'pending') ...[
+                      const SizedBox(height: 18),
 
-                Builder(
-                  builder: (context) {
-                    final hasToken = (d.paymentToken?.isNotEmpty ?? false);
+                      Builder(
+                        builder: (context) {
+                          final hasToken =
+                              (d.paymentToken?.isNotEmpty ?? false);
 
-                    return _ActionButtons(
-                      // anim/opacity flags (disable Payment Ulang bila tak ada token)
-                      workingPay: _busyRetryPay || !hasToken,
-                      workingChange: _busyChange,
+                          return ActionButtons(
+                            // anim/opacity flags (disable Payment Ulang bila tak ada token)
+                            workingPay: _busyRetryPay || !hasToken,
+                            workingChange: _busyChange,
 
-                      onRetryPayment: () async {
-                        final prov = context.read<SalesProvider>();
-                        final token = d.paymentToken ?? '';
-                        if (token.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Token pembayaran tidak ditemukan.',
-                              ),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                          return;
-                        }
+                            onRetryPayment: () async {
+                              final prov = context.read<SalesProvider>();
+                              final token = d.paymentToken ?? '';
+                              if (token.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Token pembayaran tidak ditemukan.',
+                                    ),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                                return;
+                              }
 
-                        setState(() => _busyRetryPay = true);
-                        try {
-                          HapticFeedback.lightImpact();
-                          final res = await prov.payWithExistingToken(
-                            context,
-                            idTransaction: d.idTransaction,
-                            token: token,
-                          );
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Status pembayaran: ${res?.status ?? 'unknown'}',
-                              ),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                          await prov.fetchSalesDetail(context, d.idTransaction);
-                        } catch (e) {
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Gagal membuka pembayaran: $e'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        } finally {
-                          if (mounted) setState(() => _busyRetryPay = false);
-                        }
-                      },
+                              setState(() => _busyRetryPay = true);
+                              try {
+                                HapticFeedback.lightImpact();
+                                final res = await prov.payWithExistingToken(
+                                  context,
+                                  idTransaction: d.idTransaction,
+                                  token: token,
+                                );
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Status pembayaran: ${res?.status ?? 'unknown'}',
+                                    ),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                                await _refreshDetail();
+                              } catch (e) {
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Gagal membuka pembayaran: $e',
+                                    ),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              } finally {
+                                if (mounted) {
+                                  setState(() => _busyRetryPay = false);
+                                }
+                              }
+                            },
 
-                      onChangePayment: () async {
-                        final choice = await _showChangePaymentSheet(context);
-                        if (choice == null) return; // batal
-
-                        if (!mounted) return;
-
-                        final prov = context.read<SalesProvider>();
-
-                        setState(() => _busyChange = true);
-                        try {
-                          HapticFeedback.mediumImpact();
-
-                          final ok = await prov.changePayment(
-                            context,
-                            idTransaction: d.idTransaction,
-                            newMethod: choice.method,
-                          );
-
-                          if (!mounted) return;
-                          if (ok) {
-                            await prov.fetchSalesDetail(
-                              context,
-                              d.idTransaction,
-                            );
-                          } else {
-                            final msg =
-                                prov.lastError ??
-                                'Gagal mengubah metode pembayaran';
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(msg),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
+                            onChangePayment: () async {
+                              final choice = await _showChangePaymentSheet(
+                                context,
                               );
-                            }
-                          }
-                        } catch (e) {
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Gagal mengubah metode: $e'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
+                              if (choice == null) return; // batal
+                              if (!mounted) return;
+
+                              final prov = context.read<SalesProvider>();
+
+                              setState(() => _busyChange = true);
+                              try {
+                                HapticFeedback.mediumImpact();
+
+                                final ok = await prov.changePayment(
+                                  context,
+                                  idTransaction: d.idTransaction,
+                                  newMethod: choice.method,
+                                );
+
+                                if (!mounted) return;
+                                if (ok) {
+                                  // ✅ refresh halaman detail setelah berhasil
+                                  await _refreshDetail();
+
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Metode pembayaran diperbarui.',
+                                      ),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                } else {
+                                  final msg =
+                                      prov.lastError ??
+                                      'Gagal mengubah metode pembayaran';
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(msg),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Gagal mengubah metode: $e'),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              } finally {
+                                if (mounted) {
+                                  setState(() => _busyChange = false);
+                                }
+                              }
+                            },
                           );
-                        } finally {
-                          if (mounted) setState(() => _busyChange = false);
-                        }
-                      },
-                    );
-                  },
-                ),
-              ],
-            ],
+                        },
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
           );
         },
       ),
@@ -510,8 +550,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
     BuildContext context,
   ) async {
     int? selected; // 1 or 4
-    final cardCtrl = TextEditingController();
-    final formKey = GlobalKey<FormState>();
 
     return showModalBottomSheet<_ChangePaymentChoice>(
       context: context,
@@ -521,113 +559,119 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (ctx) {
+        final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
         return Padding(
           padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 10,
-            bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
+            left: 20,
+            right: 20,
+            top: 14,
+            bottom: bottomInset + 28,
           ),
           child: StatefulBuilder(
             builder: (ctx, setSt) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 44,
-                    height: 5,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE5E7EB),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                  const Text(
-                    'Change Payment',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      color: Color(0xFF111827),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  RadioListTile<int>(
-                    value: 1,
-                    groupValue: selected,
-                    onChanged: (v) => setSt(() => selected = v),
-                    title: const Text(
-                      'Cash',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    subtitle: const Text('Bayar tunai di kasir'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
-                  const Divider(height: 1),
-                  RadioListTile<int>(
-                    value: 4,
-                    groupValue: selected,
-                    onChanged: (v) => setSt(() => selected = v),
-                    title: const Text(
-                      'EDC',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    subtitle: const Text('Kartu debit/kredit via mesin EDC'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
-
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx, null),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF374151),
-                            side: const BorderSide(color: Color(0xFFE5E7EB)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                          child: const Text('Batal'),
-                        ),
+              return SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 5,
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE5E7EB),
+                        borderRadius: BorderRadius.circular(999),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: selected == null
-                              ? null
-                              : () {
-                                  Navigator.pop(
-                                    ctx,
-                                    _ChangePaymentChoice(
-                                      method: selected!,
-                                      cardNumber: selected == 4
-                                          ? (cardCtrl.text.trim().isEmpty
-                                                ? null
-                                                : cardCtrl.text.trim())
-                                          : null,
-                                    ),
-                                  );
-                                },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF111827),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                          child: const Text('Ubah Sekarang'),
-                        ),
+                    ),
+                    const Text(
+                      'Change Payment',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                        color: Color(0xFF111827),
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    RadioListTile<int>(
+                      value: 1,
+                      groupValue: selected,
+                      onChanged: (v) => setSt(() => selected = v),
+                      title: const Text(
+                        'Cash',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: const Text('Bayar tunai di kasir'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                    const Divider(height: 1),
+                    RadioListTile<int>(
+                      value: 4,
+                      groupValue: selected,
+                      onChanged: (v) => setSt(() => selected = v),
+                      title: const Text(
+                        'EDC',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: const Text('Kartu debit/kredit via mesin EDC'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(ctx, null),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF374151),
+                              side: const BorderSide(color: Color(0xFFD1D5DB)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text(
+                              'Batal',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: selected == null
+                                ? null
+                                : () {
+                                    Navigator.pop(
+                                      ctx,
+                                      _ChangePaymentChoice(
+                                        method: selected!,
+                                        cardNumber: null,
+                                      ),
+                                    );
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2563EB), // biru
+                              disabledBackgroundColor: const Color(0xFF93C5FD),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text(
+                              'Ubah Sekarang',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               );
             },
           ),
@@ -909,7 +953,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
 
   String _safeFileName(String s) {
     return s.replaceAll(RegExp(r'[^\w\.-]+'), '_');
-    // contoh: "INV/123 A.pdf" -> "INV_123_A.pdf"
   }
 
   // =========================
@@ -924,7 +967,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
     final port = sp.getInt('printer.port') ?? 9100;
     final paper = sp.getInt('printer.paper') ?? 58;
 
-    // ⛔️ Hard-guard: iOS + bluetooth = not supported by this plugin
     final bool isDev = kDebugMode;
     if (Platform.isIOS && type == 'bluetooth' && isDev) {
       throw 'Bluetooth printing isn’t supported for this printer/plugin in iOS Debug. ';
@@ -938,7 +980,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
     } else {
       if (mac.isEmpty) throw 'MAC Address is empty';
 
-      // ✅ Tambahkan pengecekan & error handling lebih aman di Android
       final btOn = await PrintBluetoothThermal.bluetoothEnabled;
       if (btOn != true) throw 'Bluetooth is off';
 
@@ -968,9 +1009,7 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
     );
     final out = <int>[];
 
-    // ==============
-    // HEADER (kasir)
-    // ==============
+    // HEADER
     final storeName = d.storeLocation?.name ?? '';
     if (storeName.isNotEmpty) {
       out.addAll(
@@ -1009,14 +1048,11 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
     }
     out.addAll(_hrThin(gen));
 
-    // =========
     // DAFTAR ITEM
-    // =========
     for (final it in d.items) {
       final title = it.product?.name ?? it.productSkuId;
       final lineSubtotal = it.qtyOut * it.price;
 
-      // Baris 1: Nama produk (bold) | Subtotal (kanan)
       out.addAll(
         gen.row([
           esc.PosColumn(
@@ -1032,7 +1068,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
         ]),
       );
 
-      // Meta (SKU/atribut) – kecil & abu2
       final skuCode = it.productSku?.code ?? '';
       final attrs = (it.productSku?.attributes ?? [])
           .map<String>((a) => '${a['name']}:${a['value']}')
@@ -1052,7 +1087,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
         );
       }
 
-      // Baris 2: qty × harga (+disc per item)
       final discNote = it.discount > 0
           ? ' (disc ${fMoney.format(it.discount)}/item)'
           : '';
@@ -1063,13 +1097,10 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
         ),
       );
 
-      // Garis tipis antar item
       out.addAll(_hrDots(gen));
     }
 
-    // =========
     // TOTALS
-    // =========
     final calc = d.calculation;
     if (calc != null) {
       out.addAll(_kv(gen, 'Subtotal', money(calc.subtotal)));
@@ -1077,7 +1108,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
         out.addAll(_kv(gen, 'Diskon', '- ${money(calc.discount)}'));
       }
 
-      // Garis tebal sebelum GRAND TOTAL
       out.addAll(_hrThick(gen));
 
       out.addAll(
@@ -1130,7 +1160,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
 
     out.addAll(_hrThin(gen));
 
-    // Metode pembayaran + info tambahan singkat
     out.addAll(gen.text('Pembayaran: ${_paymentLabel(d.paymentMethod)}'));
     if (d.reference.isNotEmpty) {
       out.addAll(gen.text('Ref: ${d.reference}'));
@@ -1139,7 +1168,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
       out.addAll(gen.text('Catatan: ${d.note}'));
     }
 
-    // Footer ramah
     out.addAll(gen.feed(1));
     out.addAll(
       gen.text(
@@ -1161,9 +1189,7 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
     return Uint8List.fromList(out);
   }
 
-  // =======================
-  // Helpers untuk tampilan struk
-  // =======================
+  // Helpers struk
   List<int> _kv(esc.Generator gen, String k, String v) {
     return gen.row([
       esc.PosColumn(width: 8, text: k),
@@ -1176,7 +1202,7 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
   }
 
   List<int> _hrThin(esc.Generator gen) => gen.hr(ch: '-');
-  List<int> _hrThick(esc.Generator gen) => gen.hr(); // default lebih tebal
+  List<int> _hrThick(esc.Generator gen) => gen.hr();
   List<int> _hrDots(esc.Generator gen) => gen.hr(ch: '.');
 
   Future<void> _sendTcpRaw({
@@ -1255,13 +1281,18 @@ class _ChangePaymentChoice {
   _ChangePaymentChoice({required this.method, this.cardNumber});
 }
 
-class _ActionButtons extends StatelessWidget {
-  final bool workingPay; // disable Payment Ulang
-  final bool workingChange; // disable Change Payment
+class ActionButtons extends StatelessWidget {
+  /// Disable "Retry Payment" when processing
+  final bool workingPay;
+
+  /// Disable "Change Payment" when processing
+  final bool workingChange;
+
   final VoidCallback onRetryPayment;
   final VoidCallback onChangePayment;
 
-  const _ActionButtons({
+  const ActionButtons({
+    super.key,
     required this.workingPay,
     required this.workingChange,
     required this.onRetryPayment,
@@ -1270,167 +1301,51 @@ class _ActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFF8FAFF), Color(0xFFF3F4F6)],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      padding: const EdgeInsets.all(10),
-      child: Row(
-        children: [
-          Expanded(
-            child: _GradientButton(
-              enabled: !workingPay,
-              label: 'Payment Ulang',
-              subtitle: 'Buka kembali',
-              onTap: onRetryPayment,
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF4C6EF5), Color(0xFF364FC7)],
+    return Row(
+      children: [
+        Expanded(
+          child: ElevatedButton(
+            onPressed: workingPay ? null : onRetryPayment,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB), // primary blue
+              disabledBackgroundColor: const Color(0xFF93C5FD), // soft blue
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text(
+              'Retry Payment',
+              style: TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _TonalDestructiveButton(
-              // boleh dipakai dulu; kalau mau gaya netral, kabari ya
-              enabled: !workingChange,
-              label: 'Change Payment',
-              subtitle: 'Cash / EDC',
-              onTap: onChangePayment,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton(
+            onPressed: workingChange ? null : onChangePayment,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF111827),
+              disabledForegroundColor: const Color(0xFF9CA3AF),
+              side: const BorderSide(color: Color(0xFFD1D5DB)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text(
+              'Change Payment',
+              style: TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
-}
-
-Future<_CancelResult?> _showCancelSheet(BuildContext context) async {
-  final reasons = <String>[
-    'Salah nominal',
-    'Ganti metode',
-    'Customer batal',
-    'Duplikat order',
-  ];
-  String? selected;
-  final noteCtrl = TextEditingController();
-
-  return showModalBottomSheet<_CancelResult>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-    ),
-    builder: (ctx) {
-      return Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 10,
-          bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
-        ),
-        child: StatefulBuilder(
-          builder: (ctx, setSt) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 44,
-                    height: 5,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE5E7EB),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-                Row(
-                  children: const [
-                    Icon(Icons.warning_amber_rounded, color: Color(0xFFB45309)),
-                    SizedBox(width: 8),
-                    Text(
-                      'Batalkan transaksi?',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        color: Color(0xFF111827),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Ganti metode pembayaran',
-                  style: TextStyle(color: Color(0xFF6B7280)),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx, null),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF374151),
-                          side: const BorderSide(color: Color(0xFFE5E7EB)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text('Kembali'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(
-                            ctx,
-                            _CancelResult(
-                              reason: selected,
-                              note: noteCtrl.text.trim().isEmpty
-                                  ? null
-                                  : noteCtrl.text.trim(),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF991B1B),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text('Ya, Batalkan'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            );
-          },
-        ),
-      );
-    },
-  );
-}
-
-class _CancelResult {
-  final String? reason;
-  final String? note;
-  _CancelResult({this.reason, this.note});
 }
 
 // === Widgets existing ===
@@ -1544,7 +1459,7 @@ class _GradientButtonState extends State<_GradientButton> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          constraints: const BoxConstraints(minHeight: 52), // <= compact
+          constraints: const BoxConstraints(minHeight: 52),
           decoration: BoxDecoration(
             gradient: widget.gradient,
             borderRadius: BorderRadius.circular(12),
@@ -1563,13 +1478,14 @@ class _GradientButtonState extends State<_GradientButton> {
   }
 }
 
-class _TonalDestructiveButton extends StatelessWidget {
+class TonalDestructiveButton extends StatelessWidget {
   final bool enabled;
   final String label;
   final String? subtitle;
   final VoidCallback onTap;
 
-  const _TonalDestructiveButton({
+  const TonalDestructiveButton({
+    super.key,
     required this.enabled,
     required this.label,
     this.subtitle,
@@ -1580,215 +1496,66 @@ class _TonalDestructiveButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final ts = MediaQuery.textScaleFactorOf(context).clamp(0.9, 1.1);
 
-    final base = MediaQuery(
+    return MediaQuery(
       data: MediaQuery.of(context).copyWith(textScaleFactor: ts),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        constraints: const BoxConstraints(minHeight: 52), // <= compact
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFF1F2),
-          border: Border.all(color: const Color(0xFFFECACA)),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: enabled ? 1.0 : 0.5,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
           borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF991B1B),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                    ),
-                  ),
-                  if (subtitle != null)
-                    const Text(
-                      'Ganti metode pembayaran',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Color(0xFFB91C1C),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            constraints: const BoxConstraints(minHeight: 48),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF5F5),
+              border: Border.all(color: const Color(0xFFFECACA)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFFB91C1C),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
                       ),
-                    ),
-                ],
-              ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFFDC2626),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFFB91C1C),
+                  size: 18,
+                ),
+              ],
             ),
-            const SizedBox(width: 4),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: Color(0xFF991B1B),
-              size: 18,
-            ),
-          ],
+          ),
         ),
-      ),
-    );
-
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 150),
-      opacity: enabled ? 1.0 : 0.5,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: enabled ? onTap : null,
-        child: base,
       ),
     );
   }
-}
-
-Future<_ChangePaymentChoice?> _showChangePaymentSheet(
-  BuildContext context,
-) async {
-  int? selected; // 1 or 4
-  final cardCtrl = TextEditingController();
-  final formKey = GlobalKey<FormState>();
-
-  return showModalBottomSheet<_ChangePaymentChoice>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-    ),
-    builder: (ctx) {
-      return Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 10,
-          bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
-        ),
-        child: StatefulBuilder(
-          builder: (ctx, setSt) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 44,
-                  height: 5,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE5E7EB),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-                const Text(
-                  'Change Payment',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    color: Color(0xFF111827),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                RadioListTile<int>(
-                  value: 1,
-                  groupValue: selected,
-                  onChanged: (v) => setSt(() => selected = v),
-                  title: const Text(
-                    'Cash',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  subtitle: const Text('Bayar tunai di kasir'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                ),
-                const Divider(height: 1),
-                RadioListTile<int>(
-                  value: 4,
-                  groupValue: selected,
-                  onChanged: (v) => setSt(() => selected = v),
-                  title: const Text(
-                    'EDC',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  subtitle: const Text('Kartu debit/kredit via mesin EDC'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                ),
-
-                if (selected == 4) ...[
-                  const SizedBox(height: 8),
-                  Form(
-                    key: formKey,
-                    child: TextFormField(
-                      controller: cardCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nomor Kartu (opsional)',
-                        hintText: 'Masukkan nomor kartu',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx, null),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF374151),
-                          side: const BorderSide(color: Color(0xFFE5E7EB)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text('Batal'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: selected == null
-                            ? null
-                            : () {
-                                Navigator.pop(
-                                  ctx,
-                                  _ChangePaymentChoice(
-                                    method: selected!,
-                                    cardNumber: selected == 4
-                                        ? (cardCtrl.text.trim().isEmpty
-                                              ? null
-                                              : cardCtrl.text.trim())
-                                        : null,
-                                  ),
-                                );
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF111827),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text('Ubah Sekarang'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            );
-          },
-        ),
-      );
-    },
-  );
 }
 
 class _KV extends StatelessWidget {

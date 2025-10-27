@@ -66,12 +66,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       body: FutureBuilder(
         future: _future,
         builder: (context, snap) {
-          final loading =
-              prov.loadingDetail &&
-              snap.connectionState != ConnectionState.done;
           final p = prov.productDetail;
           final imgs = [...(p?.productImages ?? const <ProductImage>[])]
             ..sort((a, b) => a.position.compareTo(b.position));
+
+          // gabung "Kota, Provinsi" jika tersedia
+          final storeRegion = [
+            p?.storeLocation?.city?.name,
+            p?.storeLocation?.city?.province?.name,
+          ].where((e) => (e ?? '').isNotEmpty).join(', ');
+          final storeRegionOrNull = storeRegion.isEmpty ? null : storeRegion;
 
           return CustomScrollView(
             slivers: [
@@ -83,7 +87,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 ),
               ),
 
-              // Info card (nama, brand, category, harga)
+              // Info card (nama, brand, category, harga, store location) ← UPDATED
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -93,6 +97,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     brand: p?.productBrand?.name,
                     category: p?.productCategory?.name,
                     headlinePrice: _headlinePriceOf(p),
+                    // NEW ↓↓↓
+                    storeLocationName: p?.storeLocation?.name,
+                    storeRegion: storeRegionOrNull,
                   ),
                 ),
               ),
@@ -156,7 +163,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         children: p!.productSkus
                             .map(
                               (s) => _SkuTile(
-                                idProductSku: s.idProductSku, // ← NEW
+                                idProductSku: s.idProductSku,
                                 code: s.code,
                                 price: s.price,
                                 attrs: s.attributes
@@ -245,7 +252,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             context,
                             prov.productDetail!.idProduct,
                           ),
-
                     icon: const Icon(Icons.edit_rounded),
                     label: const Text('Edit Product'),
                     style: ElevatedButton.styleFrom(
@@ -270,11 +276,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   int? _headlinePriceOf(Product? p) {
     if (p == null) return null;
-    // if (p.productPrices.isNotEmpty) {
-    //   final sorted = [...p.productPrices]
-    //     ..sort((a, b) => a.minQty.compareTo(b.minQty));
-    //   return sorted.first.price;
-    // }
     if (p.productSkus.isNotEmpty) {
       final sorted = [...p.productSkus]
         ..sort((a, b) => a.price.compareTo(b.price));
@@ -295,6 +296,9 @@ class _InfoCard extends StatelessWidget {
     required this.brand,
     required this.category,
     required this.headlinePrice,
+    // NEW ↓↓↓
+    this.storeLocationName,
+    this.storeRegion,
   });
 
   final String name;
@@ -302,6 +306,12 @@ class _InfoCard extends StatelessWidget {
   final String? brand;
   final String? category;
   final int? headlinePrice;
+
+  /// NEW: diambil dari response `storeLocation.name`
+  final String? storeLocationName;
+
+  /// NEW: "Kota, Provinsi" (opsional)
+  final String? storeRegion;
 
   @override
   Widget build(BuildContext context) {
@@ -342,6 +352,49 @@ class _InfoCard extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 color: AppColors.primary,
               ),
+            ),
+          ],
+
+          // NEW: Store Location section
+          if ((storeLocationName ?? '').isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: AppColors.divider),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.store_mall_directory_rounded,
+                  size: 18,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        storeLocationName!,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      if ((storeRegion ?? '').isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            storeRegion!,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ],
@@ -461,10 +514,9 @@ class _SkuTileState extends State<_SkuTile> {
       context,
       '/product/sku/inventory',
       arguments: {
-        // route handler kita menerima beberapa alias, ini pakai yang paling eksplisit
         'idProductSKU': widget.idProductSku,
         'skuCode': widget.code,
-        'initialPrice': widget.price, // int sudah oke; route akan menerima num
+        'initialPrice': widget.price,
       },
     );
   }

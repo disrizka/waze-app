@@ -110,6 +110,65 @@ class ProductSku {
   );
 }
 
+/// =========================
+/// Tambahan: StoreLocation → City → Province
+/// =========================
+
+@immutable
+class StoreLocation {
+  final String idStoreLocation;
+  final String name;
+  final City? city;
+
+  const StoreLocation({
+    required this.idStoreLocation,
+    required this.name,
+    this.city,
+  });
+
+  factory StoreLocation.fromJson(Map<String, dynamic> j) => StoreLocation(
+    // dukung camelCase & snake_case
+    idStoreLocation:
+        (j['idStoreLocation'] ?? j['id_store_location'] ?? j['id'])
+            ?.toString() ??
+        '',
+    name: j['name']?.toString() ?? '',
+    city: (j['city'] is Map<String, dynamic>)
+        ? City.fromJson(j['city'] as Map<String, dynamic>)
+        : null,
+  );
+}
+
+@immutable
+class City {
+  final String id;
+  final String name;
+  final Province? province;
+
+  const City({required this.id, required this.name, this.province});
+
+  factory City.fromJson(Map<String, dynamic> j) => City(
+    id: j['id']?.toString() ?? '',
+    name: j['name']?.toString() ?? '',
+    province: (j['province'] is Map<String, dynamic>)
+        ? Province.fromJson(j['province'] as Map<String, dynamic>)
+        : null,
+  );
+}
+
+@immutable
+class Province {
+  final String id;
+  final String name;
+
+  const Province({required this.id, required this.name});
+
+  factory Province.fromJson(Map<String, dynamic> j) => Province(
+    id: j['id']?.toString() ?? '',
+    name: j['name']?.toString() ?? '',
+  );
+}
+
 @immutable
 class Product {
   final String idProduct;
@@ -122,6 +181,9 @@ class Product {
   final List<ProductSku> productSkus;
   final List<ProductPrice> productPrices;
 
+  /// NEW: lokasi toko (opsional)
+  final StoreLocation? storeLocation;
+
   const Product({
     required this.idProduct,
     required this.name,
@@ -132,13 +194,17 @@ class Product {
     required this.productImages,
     required this.productSkus,
     required this.productPrices,
+    this.storeLocation, // NEW
   });
 
   factory Product.fromJson(Map<String, dynamic> j) {
+    // prices bisa muncul sebagai productPrices / prices / product_prices
     final pricesListRaw = (j['productPrices'] is List)
         ? j['productPrices']
         : (j['prices'] is List)
         ? j['prices']
+        : (j['product_prices'] is List)
+        ? j['product_prices']
         : const [];
 
     final productPrices = (pricesListRaw as List)
@@ -146,21 +212,40 @@ class Product {
         .map(ProductPrice.fromJson)
         .toList(growable: false);
 
+    // storeLocation bisa camelCase / snake_case
+    final storeRaw = (j['storeLocation'] is Map<String, dynamic>)
+        ? j['storeLocation'] as Map<String, dynamic>
+        : (j['store_location'] is Map<String, dynamic>)
+        ? j['store_location'] as Map<String, dynamic>
+        : null;
+
     return Product(
-      idProduct: j['idProduct']?.toString() ?? '',
+      idProduct:
+          j['idProduct']?.toString() ?? j['id_product']?.toString() ?? '',
       name: j['name']?.toString() ?? '',
       description: j['description']?.toString() ?? '',
-      isHide: j['isHide'] == true,
+      isHide: j['isHide'] == true || j['is_hide'] == true || j['is_hide'] == 1,
       productBrand: (j['productBrand'] is Map<String, dynamic>)
           ? ProductBrand.fromJson(j['productBrand'] as Map<String, dynamic>)
+          : (j['product_brand'] is Map<String, dynamic>)
+          ? ProductBrand.fromJson(j['product_brand'] as Map<String, dynamic>)
           : null,
       productCategory: (j['productCategory'] is Map<String, dynamic>)
           ? ProductCategory.fromJson(
               j['productCategory'] as Map<String, dynamic>,
             )
+          : (j['product_category'] is Map<String, dynamic>)
+          ? ProductCategory.fromJson(
+              j['product_category'] as Map<String, dynamic>,
+            )
           : null,
       productImages: (j['productImages'] is List)
           ? (j['productImages'] as List)
+                .whereType<Map<String, dynamic>>()
+                .map(ProductImage.fromJson)
+                .toList(growable: false)
+          : (j['product_images'] is List)
+          ? (j['product_images'] as List)
                 .whereType<Map<String, dynamic>>()
                 .map(ProductImage.fromJson)
                 .toList(growable: false)
@@ -170,8 +255,16 @@ class Product {
                 .whereType<Map<String, dynamic>>()
                 .map(ProductSku.fromJson)
                 .toList(growable: false)
+          : (j['product_skus'] is List)
+          ? (j['product_skus'] as List)
+                .whereType<Map<String, dynamic>>()
+                .map(ProductSku.fromJson)
+                .toList(growable: false)
           : List<ProductSku>.empty(growable: false),
       productPrices: productPrices,
+      storeLocation: (storeRaw == null)
+          ? null
+          : StoreLocation.fromJson(storeRaw), // NEW
     );
   }
 

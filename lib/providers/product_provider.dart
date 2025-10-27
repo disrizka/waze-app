@@ -369,49 +369,49 @@ class ProductProvider with ChangeNotifier {
 
       fetchPage: (pageKey) async {
         try {
-          final expectedSearch = _currentSearch;
-          final expectedStore = _currentStoreLocationId;
+          // Ambil snapshot filter saat ini
+          final rawSearch = _currentSearch;
+          String? expectedStore = _currentStoreLocationId;
+
+          // --- NORMALISASI SEARCH ---
+          // Hilangkan awalan "q:" kalau ada, dan trim spasi
+          String search = rawSearch.trim();
+          if (search.toLowerCase().startsWith('q:')) {
+            search = search.substring(2).trim();
+          }
+
+          final filters = <String, String>{
+            if (search.isNotEmpty) 'search': search,
+            if (expectedStore != null && expectedStore.isNotEmpty)
+              'store_location_id':
+                  expectedStore, //store location id tuh untuk stock per toko atau cabangnya
+          };
 
           final res = await FetchHelper.fetchListByFilter<Product>(
             context: context,
             basePath: '/waveup/{{idBusiness}}/product',
             parser: Product.fromJson,
-            filters: {
-              'search': expectedSearch,
-              if (expectedStore != null) 'storelocationid': expectedStore,
-            },
+            filters: filters,
             page: pageKey,
             limit: _pageSize,
             injectBizId: true,
             dataKey: 'data',
           );
 
-          // filter berubah → akhiri siklus page ini supaya tidak loop
-          if (_currentSearch != expectedSearch ||
-              _currentStoreLocationId != expectedStore) {
-            _lastFetchedPage = pageKey;
-            _lastBatchCount = 0;
-            _pageProducts = null; // penting agar getNextPageKey via meta → null
-            notifyListeners();
-            return const <Product>[];
-          }
-
           if (res == null) {
             _lastFetchedPage = pageKey;
             _lastBatchCount = 0;
-            _pageProducts = null; // penting
+            _pageProducts = null;
             notifyListeners();
             return const <Product>[];
           }
 
           final items = res.items;
 
-          // ⬇️ PENTING: update meta terlebih dulu, sebelum logika lain
-          _pageProducts = res.page; // <- contains currentPage & totalPages
+          _pageProducts = res.page;
           _lastFetchedPage = pageKey;
           _lastBatchCount = items.length;
 
-          // sinkron koleksi kamu (opsional)
           if (pageKey == 1) {
             _products
               ..clear()
@@ -420,14 +420,17 @@ class ProductProvider with ChangeNotifier {
             _products.addAll(items);
           }
 
+          // Simpan filter yang dipakai request ini (pakai yang sudah dinormalisasi)
+          _currentSearch = search;
+          _currentStoreLocationId = search.isEmpty ? expectedStore : null;
+
           notifyListeners();
           return items;
         } catch (e) {
-          _pageProducts =
-              null; // supaya getNextPageKey jatuh ke fallback yang aman
+          _pageProducts = null;
           _productError = e.toString();
           notifyListeners();
-          throw e;
+          rethrow;
         }
       },
     );
@@ -467,12 +470,24 @@ class ProductProvider with ChangeNotifier {
   }
 
   Future<void> setInfiniteSearch(BuildContext context, String search) async {
-    _currentSearch = search;
+    _currentSearch = search.trim();
     _lastFetchedPage = 0;
     _lastBatchCount = 0;
-    _pageProducts = null;
+    _pageProducts = null; // penting: reset meta
     _productError = null;
-    _reachedEnd = false; // 🔧 reset
+    _reachedEnd = false;
+
+    // 🔧 Pastikan store ada (backend kamu biasa butuh store_location_id)
+    if (_currentStoreLocationId == null || _currentStoreLocationId!.isEmpty) {
+      try {
+        await ensureDefaultStoreLocation(
+          context,
+        ).timeout(const Duration(seconds: 6));
+      } catch (_) {
+        // biarkan kosong kalau gagal; fetchPage akan handle juga
+      }
+    }
+
     _pagingController?.refresh();
   }
 
@@ -501,18 +516,93 @@ class ProductProvider with ChangeNotifier {
   }
 
   Future<void> refreshInfinite(BuildContext context) async {
+    debugPrint(
+      '[ProductProvider] refreshInfinite() called '
+      '(search="$_currentSearch", store="$_currentStoreLocationId")',
+    );
+
+    // 🔧 WAJIB: kosongkan meta supaya getNextPageKey balik ke page 1
+    _pageProducts = null;
+
     _lastFetchedPage = 0;
-    _lastBatchCount = 0; // 🔧 ikut reset
-    _reachedEnd = false; // 🔧 reset
+    _lastBatchCount = 0;
+    _reachedEnd = false;
+    _productError = null;
+
+    // opsional: beri tahu listener agar PagedListView re-build state loading
+    notifyListeners();
+
     _pagingController?.refresh();
   }
 
-  void disposeInfinitePaging() {
+  // Provider
+  void disposeInfinitePaging({bool notify = false}) {
     _pagingController?.dispose();
     _pagingController = null;
+
     _lastFetchedPage = 0;
     _lastBatchCount = 0;
-    _reachedEnd = false; // 🔧 reset
+    _reachedEnd = false;
+    _pageProducts = null;
+    _productError = null;
+    _currentPage = 1;
+
+    if (notify) {
+      // aman: jadwalkan setelah frame unlock
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
+    }
+  }
+
+  // === Helper: normalisasi field detail produk dari camelCase → snake_case ===
+
+  // === Helper: normalisasi field detail produk dari camelCase → snake_case ===
+  Map<String, dynamic> _normalizeProductDetail(Map<String, dynamic> src) {
+    // Peta nama key yang perlu diubah agar cocok dengan model Product.fromJson
+    const keyMap = {
+      // root
+      'idProduct': 'id_product',
+      'productBrand': 'product_brand',
+      'productCategory': 'product_category',
+      'storeLocation': 'store_location',
+      'productImages': 'product_images',
+      'productSkus': 'product_skus',
+      'prices': 'product_prices',
+
+      // nested store_location
+      'idStoreLocation': 'id_store_location',
+
+      // images
+      'idProductImage': 'id_product_image',
+      'imagePath': 'image_path',
+
+      // skus
+      'idProductSku': 'id_product_sku',
+
+      // prices
+      'idProductPrice': 'id_product_price',
+      'minQty': 'min_qty',
+    };
+
+    // Satu fungsi rekursif untuk Map/List/primitive (tanpa mutual recursion)
+    dynamic normalizeAny(dynamic value) {
+      if (value is Map) {
+        final m = Map<String, dynamic>.from(value.cast<String, dynamic>());
+        final out = <String, dynamic>{};
+        m.forEach((rawKey, v) {
+          final newKey = keyMap[rawKey] ?? rawKey;
+          out[newKey] = normalizeAny(v);
+        });
+        return out;
+      } else if (value is List) {
+        return value.map(normalizeAny).toList();
+      }
+      return value;
+    }
+
+    final normalized = normalizeAny(src);
+    return Map<String, dynamic>.from(normalized as Map);
   }
 
   /// =========================
@@ -588,7 +678,7 @@ class ProductProvider with ChangeNotifier {
         filters: {
           'search': effectiveSearch,
           if (effectiveStore != null && effectiveStore.isNotEmpty)
-            'storeLocationId': effectiveStore,
+            'store_location_id': effectiveStore,
         },
         page: page,
         limit: limit, // 40 by default
@@ -1564,6 +1654,7 @@ class ProductProvider with ChangeNotifier {
     required String description,
     required String productBrandId,
     required String productCategoryId,
+    required String storeLocationId,
     required List<Map<String, dynamic>>
     images, // [{"image": "...", "position": 1}]
     required List<Map<String, dynamic>> skus,
@@ -1580,6 +1671,7 @@ class ProductProvider with ChangeNotifier {
       'description': description,
       'product_brand_id': productBrandId,
       'product_category_id': productCategoryId,
+      'store_location_id': storeLocationId,
       'images': images,
       'skus': skus,
       'prices': prices, // boleh null

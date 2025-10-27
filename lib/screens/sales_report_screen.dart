@@ -165,19 +165,22 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                 // Filters (collapsible)
                 SliverToBoxAdapter(
                   child: AnimatedCrossFade(
+                    duration: const Duration(milliseconds: 300),
+                    firstCurve: Curves.easeOutCubic,
+                    secondCurve: Curves.easeInCubic,
                     crossFadeState: _showFilters
                         ? CrossFadeState.showFirst
                         : CrossFadeState.showSecond,
-                    duration: const Duration(milliseconds: 220),
                     firstChild: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
                       child: _FiltersCard(
                         searchC: _searchC,
                         onSearchChanged: () => setState(() {}),
                         onPickRange: _pickRange,
-                        rangeLabel: _range == null
-                            ? 'Any time'
-                            : _formatRangeShort(_range!),
+                        range: _range, // kirim DateTimeRange? langsung
                         onClear: (_searchC.text.isNotEmpty || _range != null)
                             ? _clearFilters
                             : null,
@@ -422,96 +425,215 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   }
 }
 
+/// --- Formatter range pendek ---
+/// - Same month/year:  "27 Oct — 31"
+/// - Same year:        "27 Oct — 02 Nov"
+/// - Different year:   "27 Oct 2025 — 02 Jan 2026"
+String formatRangeCompact(DateTimeRange r) {
+  final s = r.start;
+  final e = r.end;
+  final mS = DateFormat('MMM').format(s);
+  final mE = DateFormat('MMM').format(e);
+
+  if (s.year == e.year && s.month == e.month) {
+    return '${s.day} $mS — ${e.day}';
+  } else if (s.year == e.year) {
+    return '${s.day} $mS — ${e.day} $mE';
+  } else {
+    return '${s.day} $mS ${s.year} — ${e.day} $mE ${e.year}';
+  }
+}
+
 class _FiltersCard extends StatelessWidget {
   final TextEditingController searchC;
   final VoidCallback onSearchChanged;
   final VoidCallback onPickRange;
-  final String rangeLabel;
+  final DateTimeRange? range; // ganti dari String ke DateTimeRange?
   final VoidCallback? onClear;
 
   const _FiltersCard({
     required this.searchC,
     required this.onSearchChanged,
     required this.onPickRange,
-    required this.rangeLabel,
-    required this.onClear,
+    required this.range,
+    this.onClear,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  const SizedBox(width: 12),
-                  const Icon(Icons.search_rounded, color: Color(0xFF6B7280)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: searchC,
-                      onChanged: (_) => onSearchChanged(),
-                      textInputAction: TextInputAction.search,
-                      decoration: const InputDecoration(
-                        hintText: 'Search code / reference / status',
-                        border: InputBorder.none,
-                        isDense: true,
-                      ),
-                    ),
-                  ),
-                  if (searchC.text.isNotEmpty)
-                    IconButton(
-                      tooltip: 'Clear',
-                      onPressed: () {
-                        searchC.clear();
-                        onSearchChanged();
-                      },
-                      icon: const Icon(Icons.close_rounded, size: 18),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              height: 46,
-              child: OutlinedButton.icon(
-                onPressed: onPickRange,
-                icon: const Icon(Icons.date_range_rounded),
-                label: Text(
-                  rangeLabel,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF111827),
-                  side: const BorderSide(color: Color(0xFFE5E7EB)),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
+    const borderColor = Color(0xFFE5E7EB);
+    const textMain = Color(0xFF111827);
+    const textSub = Color(0xFF6B7280);
+
+    final rangeLabel = range == null ? 'Any time' : formatRangeCompact(range!);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0B1220).withOpacity(0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        if (onClear != null) ...[
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: onClear,
-              icon: const Icon(Icons.restart_alt_rounded),
-              label: const Text('Reset filters'),
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF426FD4),
-              ),
-            ),
-          ),
-        ],
-      ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isTight = constraints.maxWidth < 360; // responsif sederhana
+            return Row(
+              children: [
+                const Icon(Icons.search_rounded, size: 20, color: textSub),
+                const SizedBox(width: 8),
+
+                // search field
+                Expanded(
+                  child: TextField(
+                    controller: searchC,
+                    onChanged: (_) => onSearchChanged(),
+                    textInputAction: TextInputAction.search,
+                    textAlignVertical: TextAlignVertical.center,
+                    style: const TextStyle(fontSize: 14, color: textMain),
+                    maxLines: 1,
+                    decoration: const InputDecoration(
+                      hintText: 'Search code / reference / status',
+                      hintStyle: TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF9CA3AF),
+                      ),
+                      isCollapsed: true,
+                      filled: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+
+                if (searchC.text.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () {
+                      searchC.clear();
+                      onSearchChanged();
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.all(6),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: Color(0xFF9CA3AF),
+                      ),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(width: 10),
+                _VDivider(color: borderColor),
+                const SizedBox(width: 10),
+
+                // date (Flexible supaya tidak overflow)
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: onPickRange,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.date_range_rounded,
+                            size: 18,
+                            color: textMain,
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              rangeLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              softWrap: false,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: textMain,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                if (onClear != null) ...[
+                  const SizedBox(width: 8),
+                  _VDivider(color: borderColor),
+                  const SizedBox(width: 4),
+
+                  // Reset: teks atau ikon saja bila sempit
+                  if (!isTight)
+                    TextButton(
+                      onPressed: onClear,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 8,
+                        ),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        minimumSize: Size.zero,
+                        foregroundColor: const Color(0xFF2563EB),
+                      ),
+                      child: const Text(
+                        'Reset',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      onPressed: onClear,
+                      tooltip: 'Reset filters',
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                      icon: const Icon(
+                        Icons.restart_alt_rounded,
+                        size: 18,
+                        color: Color(0xFF2563EB),
+                      ),
+                    ),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
     );
+  }
+}
+
+class _VDivider extends StatelessWidget {
+  final Color color;
+  const _VDivider({required this.color});
+  @override
+  Widget build(BuildContext context) {
+    return Container(width: 1, height: 24, color: color);
   }
 }
 

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
 import 'package:wa_blast/widgets/modal_login.dart';
+import 'package:wa_blast/widgets/simple_web_view.dart';
 
 import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
@@ -413,17 +414,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
               title: t.profile_menu_terms,
               icon: LucideIcons.fileText,
               onTap: () {
-                Navigator.pushNamed(context, '/terms'); // ganti rute bila perlu
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    settings: const RouteSettings(name: '/web/terms'),
+                    builder: (_) => const SimpleWebView(
+                      title: 'Terms & Conditions',
+                      initialUrl: 'https://wave.id/terms-and-conditions',
+                    ),
+                  ),
+                );
               },
             ),
             _MenuTile(
               title: t.profile_menu_privacy,
               icon: LucideIcons.shield,
               onTap: () {
-                Navigator.pushNamed(
-                  context,
-                  '/privacy',
-                ); // ganti rute bila perlu
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    settings: const RouteSettings(name: '/web/privacy'),
+                    builder: (_) => const SimpleWebView(
+                      title: 'Privacy Policy',
+                      initialUrl: 'https://wave.id/privacy-policy',
+                    ),
+                  ),
+                );
               },
             ),
 

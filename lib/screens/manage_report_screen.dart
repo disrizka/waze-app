@@ -81,7 +81,6 @@ class _ReportDashboardScreenState extends State<ReportDashboardScreen> {
     }
   }
 
-  // ===== dummy data berdasar panjang range =====
   int get _days => _range.end.difference(_range.start).inDays.clamp(1, 9999);
   int get _sales => _days * 120;
   int get _revenue => _days * 1_350_000;
