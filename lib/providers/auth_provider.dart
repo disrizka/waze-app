@@ -1429,4 +1429,162 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
     return true;
   }
+
+  /// =========================
+  /// Deactivate & Delete Account
+  /// =========================
+
+  /// Helper kecil untuk POST ke endpoint sensitif (dengan access token)
+  Future<Map<String, dynamic>> _postSensitiveAccountAction(
+    BuildContext context, {
+    required String endpoint,
+    required String password,
+  }) async {
+    final body = {"password": password};
+
+    final res = await ApiService.postJson(
+      endpoint,
+      body,
+      withAccessToken: true,
+    );
+
+    final raw = res.body;
+    debugPrint(
+      "ACCOUNT ACTION $endpoint ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
+    );
+
+    Map<String, dynamic> decoded = {};
+    try {
+      decoded = (jsonDecode(raw) as Map).cast<String, dynamic>();
+    } catch (_) {
+      // biarkan kosong, nanti _pickMsg pakai fallback
+    }
+
+    return {"statusCode": res.statusCode, "json": decoded, "raw": raw};
+  }
+
+  Future<bool> deactivateAccount(
+    BuildContext context, {
+    required String password,
+  }) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final result = await _postSensitiveAccountAction(
+        context,
+        endpoint: '/user/deactivate',
+        password: password,
+      );
+
+      final statusCode = result["statusCode"] as int;
+      final Map<String, dynamic> j =
+          (result["json"] as Map?)?.cast<String, dynamic>() ?? {};
+      final msg = _pickMsg(
+        j,
+        httpStatus: statusCode,
+        fallback: 'Deactivate account failed',
+      );
+
+      if (statusCode >= 200 && statusCode < 300) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(j['message']?.toString() ?? 'Account deactivated'),
+            ),
+          );
+        }
+        await logout(context);
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } else {
+        _error = msg;
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(_error!)));
+        }
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+    } catch (e, st) {
+      _error = 'Error deactivating account: $e';
+      debugPrint('DEACTIVATE ❌ $e\n$st');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to deactivate account.')),
+        );
+      }
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> deleteAccountPermanently(
+    BuildContext context, {
+    required String password,
+  }) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final result = await _postSensitiveAccountAction(
+        context,
+        endpoint: '/user/delete-permanently',
+        password: password,
+      );
+
+      final statusCode = result["statusCode"] as int;
+      final Map<String, dynamic> j =
+          (result["json"] as Map?)?.cast<String, dynamic>() ?? {};
+      final msg = _pickMsg(
+        j,
+        httpStatus: statusCode,
+        fallback: 'Delete account failed',
+      );
+
+      if (statusCode >= 200 && statusCode < 300) {
+        // Sukses → bersihkan sesi lokal & arahkan ke splash
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                j['message']?.toString() ?? 'Account deleted permanently',
+              ),
+            ),
+          );
+        }
+        await logout(context);
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } else {
+        _error = msg;
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(_error!)));
+        }
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+    } catch (e, st) {
+      _error = 'Error deleting account: $e';
+      debugPrint('DELETE PERMANENTLY ❌ $e\n$st');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to delete account.')),
+        );
+      }
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
 }
