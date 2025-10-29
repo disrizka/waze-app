@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
@@ -18,7 +20,6 @@ import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
 import 'package:wa_blast/screens/manage_report_screen.dart';
-import 'package:wa_blast/screens/products/inventory_history_list_screen.dart';
 import 'package:wa_blast/screens/products/product_stock_inventory.dart';
 import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
@@ -27,6 +28,7 @@ import 'package:wa_blast/screens/sales/manage_sales_screen.dart';
 import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
 import 'package:wa_blast/screens/sales_report_detail_screen.dart';
 import 'package:wa_blast/screens/sales_report_screen.dart';
+import 'package:wa_blast/screens/settings/business/business_settings_screen.dart';
 import 'package:wa_blast/screens/settings/thermal_printer_setting.dart';
 import 'package:wa_blast/screens/store_list_screen.dart';
 import 'package:wa_blast/services/deep_link_service.dart';
@@ -68,14 +70,46 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('BG notification: ${message.notification?.title}');
 }
 
-void startApp() {
+void startApp() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await _initEnvSafe();
 
   Env.debugPrintEnv(' @startApp');
 
   BuildDiag.printSummary(' @startApp');
 
   runApp(const _AppShell());
+}
+
+Future<void> _initEnvSafe() async {
+  final candidates = <String>[
+    BuildDiag.isProd ? '.env.prod' : '.env.dev',
+    '.env',
+  ];
+
+  bool loaded = false;
+
+  for (final file in candidates) {
+    try {
+      await dotenv.load(fileName: file);
+      debugPrint('✅ dotenv loaded: $file');
+      loaded = true;
+      break;
+    } on FileSystemException catch (_) {
+      // File tidak ditemukan → lanjut ke file berikut
+      debugPrint('⚠️ dotenv file "$file" tidak ditemukan, coba yang lain...');
+    } catch (e) {
+      // Error lain (parse error, permission, dsb.)
+      debugPrint('⚠️ dotenv gagal load ($file): $e');
+    }
+  }
+
+  if (!loaded) {
+    debugPrint(
+      '⚠️ Tidak ada file .env ditemukan, lanjut dengan fallback default.',
+    );
+  }
 }
 
 class _AppShell extends StatelessWidget {
@@ -184,16 +218,6 @@ class _BootstrapperState extends State<_Bootstrapper> {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
-  Route<dynamic> _fadeRoute(RouteSettings settings, Widget page) {
-    return PageRouteBuilder(
-      settings: settings,
-      transitionDuration: const Duration(milliseconds: 250),
-      pageBuilder: (_, __, ___) => page,
-      transitionsBuilder: (_, animation, __, child) =>
-          FadeTransition(opacity: animation, child: child),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -572,6 +596,13 @@ class MyApp extends StatelessWidget {
             return _platformRouteAnimated(
               settings,
               const ThermalPrinterSettingsScreen(),
+              android: AndroidTransition.slideUp,
+            );
+
+          case '/business':
+            return _platformRouteAnimated(
+              settings,
+              const BusinessSettingsScreen(),
               android: AndroidTransition.slideUp,
             );
 

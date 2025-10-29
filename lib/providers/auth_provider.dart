@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/app_nav.dart';
@@ -45,6 +46,50 @@ class BusinessInfo {
     'username': username,
     'logoPath': logoPath,
   };
+}
+
+/// =========================
+/// Logging & Utilities
+/// =========================
+void _log(String tag, String message) => debugPrint('$tag $message');
+
+String _maskSecret(String? s) {
+  if (s == null || s.isEmpty) return '(empty)';
+  if (s.length <= 4) return '*' * s.length;
+  return '${s.substring(0, 1)}${'*' * (s.length - 2)}${s.substring(s.length - 1)}';
+}
+
+String _prettyJson(Object? data) {
+  try {
+    if (data == null) return 'null';
+    if (data is String) {
+      final decoded = json.decode(data);
+      return const JsonEncoder.withIndent('  ').convert(decoded);
+    }
+    return const JsonEncoder.withIndent('  ').convert(data);
+  } catch (_) {
+    return data.toString();
+  }
+}
+
+/// Selalu tunda ke post-frame; jangan memanggil notify sinkron.
+extension _NotifyLater on ChangeNotifier {
+  void notifyLater({String? tag}) {
+    if (tag != null) _log(tag, '🕒 notifyLater() scheduled (post-frame)');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        if (hasListeners) {
+          notifyListeners();
+          if (tag != null)
+            _log(tag, '🔄 notifyListeners() executed (post-frame)');
+        } else {
+          if (tag != null) _log(tag, '⚠️ skipped notify (no listeners)');
+        }
+      } catch (e) {
+        if (tag != null) _log(tag, '❌ notifyLater error: $e');
+      }
+    });
+  }
 }
 
 class AuthProvider with ChangeNotifier {
@@ -99,6 +144,81 @@ class AuthProvider with ChangeNotifier {
     if (_email != null && _email!.isNotEmpty) return _email;
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(kActiveAccountKey) ?? prefs.getString('email');
+  }
+
+  /// =========================
+  /// Helpers anti “notify during build”
+  /// =========================
+
+  /// Tampilkan SnackBar di post-frame (aman dipanggil kapan pun).
+  Future<void> _snackLater(
+    BuildContext context, {
+    required Widget content,
+    Color? bg,
+    Duration duration = const Duration(seconds: 4),
+    String? tag,
+    SnackBarAction? action,
+  }) async {
+    if (tag != null) _log(tag, '🕒 snackLater() scheduled (post-frame)');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) {
+        if (tag != null) _log(tag, '⚠️ context not mounted; skip SnackBar');
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: bg,
+          elevation: 6,
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          duration: duration,
+          content: content,
+          action: action,
+        ),
+      );
+      if (tag != null) _log(tag, '🔔 SnackBar shown (post-frame)');
+    });
+  }
+
+  /// =========================
+  /// Penilaian sukses “app-level”
+  /// =========================
+  bool _isAppLevelSuccess({
+    required int httpStatus,
+    required Map<String, dynamic> body,
+  }) {
+    final okHttp = httpStatus >= 200 && httpStatus < 300;
+
+    // Guard kata-kata error umum
+    final lowerAll = body.values
+        .map((v) => v.toString().toLowerCase())
+        .join(' ');
+    if (lowerAll.contains('wrong password') ||
+        lowerAll.contains('invalid password') ||
+        lowerAll.contains('password salah')) {
+      return false;
+    }
+
+    // status: int → harus 2xx juga
+    final s = body['status'];
+    if (s is int) return okHttp && s >= 200 && s < 300;
+
+    // success: bool → harus true
+    final success = body['success'];
+    if (success is bool) return okHttp && success;
+
+    // fallback: HTTP saja
+    return okHttp;
+  }
+
+  String _pickMsgCompat(
+    Map<String, dynamic> j, {
+    String fallback = 'Operation failed',
+  }) {
+    return (j['message'] ?? j['msg'] ?? fallback).toString();
   }
 
   String _pickMsg(
@@ -1434,7 +1554,250 @@ class AuthProvider with ChangeNotifier {
   /// Deactivate & Delete Account
   /// =========================
 
+  /// =========================
+  /// Deactivate & Delete Account
+  /// =========================
+
+  // ---------- Dialog helpers (UI) ----------
+  Future<String?> _showPasswordDialog(
+    BuildContext context, {
+    required String title,
+    String subtitle = 'Please enter your account password to continue.',
+  }) async {
+    final controller = TextEditingController();
+    String? errorText;
+    bool obscured = true;
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Row(
+                children: [
+                  const Icon(Icons.lock_outline, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(title)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      subtitle,
+                      style: Theme.of(
+                        ctx,
+                      ).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    obscureText: obscured,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      hintText: 'Your account password',
+                      errorText: errorText,
+                      prefixIcon: const Icon(Icons.password_outlined),
+                      suffixIcon: IconButton(
+                        tooltip: obscured ? 'Show' : 'Hide',
+                        icon: Icon(
+                          obscured ? Icons.visibility : Icons.visibility_off,
+                        ),
+                        onPressed: () => setState(() => obscured = !obscured),
+                      ),
+                      border: const OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => setState(() {
+                      if (controller.text.trim().isEmpty) {
+                        errorText = 'Password is required';
+                      } else {
+                        errorText = null;
+                        Navigator.of(ctx).pop(controller.text.trim());
+                      }
+                    }),
+                  ),
+                ],
+              ),
+              actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(null),
+                  child: const Text('Cancel'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.blue.shade700,
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final val = controller.text.trim();
+                    if (val.isEmpty) {
+                      setState(() => errorText = 'Password is required');
+                      return;
+                    }
+                    Navigator.of(ctx).pop(val);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade600,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Continue'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<bool?> _showConfirmDialog(
+    BuildContext context, {
+    required String title,
+    required String message,
+    String positiveText = 'Yes, continue',
+    String negativeText = 'No',
+    bool danger = true,
+  }) async {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Icon(
+                danger ? Icons.warning_amber_rounded : Icons.help_outline,
+                color: danger ? Colors.red.shade600 : null,
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: Text(title)),
+            ],
+          ),
+          content: Text(message, style: Theme.of(ctx).textTheme.bodyMedium),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.blue.shade700,
+                side: BorderSide(color: Colors.blue.shade700),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: Text(negativeText),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: danger
+                    ? Colors.red.shade600
+                    : Colors.blue.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: Text(positiveText),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ---------- Public flows (UI + API) ----------
+  /// Flow DEACTIVATE:
+  /// 1) Password dialog → 2) Confirm Yes/No → 3) Call deactivateAccount(password)
+  Future<void> startDeactivateFlow(BuildContext context) async {
+    const tag = '🛑 [DeactivateFlow]';
+    _log(tag, '▶︎ open password dialog');
+
+    final pwd = await _showPasswordDialog(
+      context,
+      title: 'Deactivate Account',
+      subtitle: 'To deactivate your account, please confirm your password.',
+    );
+    if (pwd == null) {
+      _log(tag, '⏹ cancelled at password step');
+      return;
+    }
+
+    final ok = await _showConfirmDialog(
+      context,
+      title: 'Are you sure?',
+      message:
+          'Your account will be deactivated. You can reactivate later by logging in again (depending on server policy). Continue?',
+      positiveText: 'Yes, deactivate',
+      negativeText: 'No',
+      danger: true,
+    );
+    if (ok != true) {
+      _log(tag, '⏹ cancelled at confirm step');
+      return;
+    }
+
+    _log(tag, '✅ calling deactivateAccount()');
+    await deactivateAccount(context, password: pwd);
+  }
+
+  /// Flow DELETE PERMANENT:
+  /// 1) Password dialog → 2) Confirm Yes/No → 3) Call deleteAccountPermanently(password)
+  Future<void> startDeleteFlow(BuildContext context) async {
+    const tag = '🗑️ [DeleteFlow]';
+    _log(tag, '▶︎ open password dialog');
+
+    final pwd = await _showPasswordDialog(
+      context,
+      title: 'Delete Account Permanently',
+      subtitle:
+          'This action is irreversible. Please enter your password to proceed.',
+    );
+    if (pwd == null) {
+      _log(tag, '⏹ cancelled at password step');
+      return;
+    }
+
+    final ok = await _showConfirmDialog(
+      context,
+      title: 'Delete permanently?',
+      message:
+          'All your data may be removed permanently and cannot be recovered. Do you really want to delete your account?',
+      positiveText: 'Yes, delete',
+      negativeText: 'No',
+      danger: true,
+    );
+    if (ok != true) {
+      _log(tag, '⏹ cancelled at confirm step');
+      return;
+    }
+
+    _log(tag, '✅ calling deleteAccountPermanently()');
+    await deleteAccountPermanently(context, password: pwd);
+  }
+
+  // ---------- Core API callers (unchanged) ----------
   /// Helper kecil untuk POST ke endpoint sensitif (dengan access token)
+  ///
+  /// Evaluasi sukses versi “app-level”:
+  /// - HTTP sukses (2xx) saja TIDAK cukup.
+  /// - Jika body punya `status` (int), maka wajib juga 2xx.
+  /// - Jika body punya `success` (bool), wajib true.
+  /// - Jika pesan mengandung indikasi error (mis. Wrong password), dianggap gagal.
   Future<Map<String, dynamic>> _postSensitiveAccountAction(
     BuildContext context, {
     required String endpoint,
@@ -1467,123 +1830,299 @@ class AuthProvider with ChangeNotifier {
     BuildContext context, {
     required String password,
   }) async {
+    const tag = '🛑 [DeactivateAccount]';
+    final sw = Stopwatch()..start();
+
+    _log(tag, '🚀 Start deactivate');
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    notifyLater(tag: tag);
+
+    _log(tag, '📥 Input: password="${_maskSecret(password)}"');
 
     try {
+      _log(tag, '📤 _postSensitiveAccountAction("/user/deactivate") …');
       final result = await _postSensitiveAccountAction(
         context,
         endpoint: '/user/deactivate',
         password: password,
       );
 
-      final statusCode = result["statusCode"] as int;
-      final Map<String, dynamic> j =
-          (result["json"] as Map?)?.cast<String, dynamic>() ?? {};
-      final msg = _pickMsg(
-        j,
-        httpStatus: statusCode,
-        fallback: 'Deactivate account failed',
-      );
+      sw.stop();
+      _log(tag, '⏱️ ${sw.elapsedMilliseconds} ms');
 
-      if (statusCode >= 200 && statusCode < 300) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(j['message']?.toString() ?? 'Account deactivated'),
-            ),
-          );
+      final statusCode = (result['statusCode'] as int?) ?? -1;
+      final rawJson = result['json'];
+      Map<String, dynamic> j;
+      if (rawJson is Map) {
+        j = rawJson.cast<String, dynamic>();
+      } else if (rawJson is String) {
+        try {
+          j = (json.decode(rawJson) as Map).cast<String, dynamic>();
+        } catch (_) {
+          j = <String, dynamic>{'raw': rawJson};
         }
+      } else {
+        j = const <String, dynamic>{};
+      }
+
+      _log(tag, '📦 statusCode=$statusCode');
+      _log(tag, '🧾 JSON:\n${_prettyJson(j)}');
+
+      final appOk = _isAppLevelSuccess(httpStatus: statusCode, body: j);
+      final msg = _pickMsgCompat(j, fallback: 'Deactivate account failed');
+      _log(tag, '🧠 appOk=$appOk | msg="$msg"');
+
+      if (appOk) {
+        await _snackLater(
+          context,
+          tag: tag,
+          bg: Colors.green.shade600,
+          content: Row(
+            children: const [
+              Icon(Icons.check_circle_outline, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Account deactivated',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () =>
+                ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+          ),
+        );
+
         await logout(context);
+        _log(tag, '🚪 logout() selesai');
+
         _isLoading = false;
-        notifyListeners();
+        notifyLater(tag: tag);
+        _log(tag, '🎉 Done (success=true)');
         return true;
       } else {
-        _error = msg;
-        if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(_error!)));
-        }
+        _error = msg.isNotEmpty ? msg : 'Deactivate account failed';
+        _log(tag, '❗ FAIL: $_error');
+
+        await _snackLater(
+          context,
+          tag: tag,
+          bg: Colors.red.shade600,
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _error!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
         _isLoading = false;
-        notifyListeners();
+        notifyLater(tag: tag);
+        _log(tag, '🧯 Done (success=false)');
         return false;
       }
     } catch (e, st) {
+      sw.stop();
       _error = 'Error deactivating account: $e';
-      debugPrint('DEACTIVATE ❌ $e\n$st');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to deactivate account.')),
-        );
-      }
+      _log(tag, '❌ Exception after ${sw.elapsedMilliseconds} ms: $e');
+      _log(tag, '🧵 $st');
+
+      await _snackLater(
+        context,
+        tag: tag,
+        bg: Colors.red.shade600,
+        content: const Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.white),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Failed to deactivate account.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
       _isLoading = false;
-      notifyListeners();
+      notifyLater(tag: tag);
+      _log(tag, '🧯 Done (exception, success=false)');
       return false;
     }
   }
 
+  /// =================================================
+  ///  deleteAccountPermanently dengan debug komplit
+  /// =================================================
   Future<bool> deleteAccountPermanently(
     BuildContext context, {
     required String password,
   }) async {
+    const tag = '🗑️ [DeleteAccount]';
+    final sw = Stopwatch()..start();
+
+    _log(tag, '🚀 Start delete permanently');
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    notifyLater(tag: tag);
+
+    _log(tag, '📥 Input: password="${_maskSecret(password)}"');
 
     try {
+      _log(tag, '📤 _postSensitiveAccountAction("/user/delete-permanently") …');
       final result = await _postSensitiveAccountAction(
         context,
         endpoint: '/user/delete-permanently',
         password: password,
       );
 
-      final statusCode = result["statusCode"] as int;
-      final Map<String, dynamic> j =
-          (result["json"] as Map?)?.cast<String, dynamic>() ?? {};
-      final msg = _pickMsg(
-        j,
-        httpStatus: statusCode,
-        fallback: 'Delete account failed',
-      );
+      sw.stop();
+      _log(tag, '⏱️ ${sw.elapsedMilliseconds} ms');
 
-      if (statusCode >= 200 && statusCode < 300) {
-        // Sukses → bersihkan sesi lokal & arahkan ke splash
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                j['message']?.toString() ?? 'Account deleted permanently',
-              ),
-            ),
-          );
+      final statusCode = (result['statusCode'] as int?) ?? -1;
+      final rawJson = result['json'];
+      Map<String, dynamic> j;
+      if (rawJson is Map) {
+        j = rawJson.cast<String, dynamic>();
+      } else if (rawJson is String) {
+        try {
+          j = (json.decode(rawJson) as Map).cast<String, dynamic>();
+        } catch (_) {
+          j = <String, dynamic>{'raw': rawJson};
         }
+      } else {
+        j = const <String, dynamic>{};
+      }
+
+      _log(tag, '📦 statusCode=$statusCode');
+      _log(tag, '🧾 JSON:\n${_prettyJson(j)}');
+
+      final appOk = _isAppLevelSuccess(httpStatus: statusCode, body: j);
+      final msg = _pickMsgCompat(j, fallback: 'Delete account failed');
+      _log(tag, '🧠 appOk=$appOk | msg="$msg"');
+
+      if (appOk) {
+        await _snackLater(
+          context,
+          tag: tag,
+          bg: Colors.green.shade600,
+          content: Row(
+            children: const [
+              Icon(Icons.check_circle_outline, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Account deleted permanently',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () =>
+                ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+          ),
+        );
+
         await logout(context);
+        _log(tag, '🚪 logout() selesai');
+
         _isLoading = false;
-        notifyListeners();
+        notifyLater(tag: tag);
+        _log(tag, '🎉 Done (success=true)');
         return true;
       } else {
-        _error = msg;
-        if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(_error!)));
-        }
+        _error = msg.isNotEmpty ? msg : 'Delete account failed';
+        _log(tag, '❗ FAIL: $_error');
+
+        await _snackLater(
+          context,
+          tag: tag,
+          bg: Colors.red.shade600,
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _error!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'DISMISS',
+            textColor: Colors.white,
+            onPressed: () =>
+                ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+          ),
+        );
+
         _isLoading = false;
-        notifyListeners();
+        notifyLater(tag: tag);
+        _log(tag, '🧯 Done (success=false)');
         return false;
       }
     } catch (e, st) {
+      sw.stop();
       _error = 'Error deleting account: $e';
-      debugPrint('DELETE PERMANENTLY ❌ $e\n$st');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to delete account.')),
-        );
-      }
+      _log(tag, '❌ Exception after ${sw.elapsedMilliseconds} ms: $e');
+      _log(tag, '🧵 $st');
+
+      await _snackLater(
+        context,
+        tag: tag,
+        bg: Colors.red.shade600,
+        content: const Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.white),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Failed to delete account.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
       _isLoading = false;
-      notifyListeners();
+      notifyLater(tag: tag);
+      _log(tag, '🧯 Done (exception, success=false)');
       return false;
     }
   }

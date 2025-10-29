@@ -243,7 +243,7 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
           ),
           centerTitle: false,
           actions: [
-            if (step == 0)
+            if (step == 1)
               Padding(
                 padding: const EdgeInsets.only(right: 12),
                 child: Tooltip(

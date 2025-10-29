@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:midtrans_sdk/midtrans_sdk.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1287,10 +1288,11 @@ class SalesProvider extends SafeChangeNotifier {
   }
 
   Future<void> _initMidtransIfNeeded(BuildContext context) async {
+    final midtransClientKey = dotenv.env['MIDTRANS_CLIENT_KEY'];
     if (_midtrans != null) return;
     _midtrans = await MidtransSDK.init(
       config: MidtransConfig(
-        clientKey: 'Mid-client-ej_BQW5VVp_G2hAy',
+        clientKey: midtransClientKey!,
         merchantBaseUrl: '',
         colorTheme: ColorTheme(
           colorPrimary: Theme.of(context).colorScheme.primary,

@@ -1,15 +1,30 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:wa_blast/env.dart';
 
 class ApiConstant {
+  /// Ambil Base URL dari Env (dimuat lewat startApp)
   static String get baseUrl {
-    // Log sekali setiap akses (boleh hapus setelah root cause ketemu)
     debugPrint(
       '[ApiConstant] baseUrl dibaca → ${Env.isInitialized ? Env.apiBaseUrl : '(ENV BELUM SET)'}',
     );
     return Env.apiBaseUrl;
   }
 
-  static const String basicAuth =
-      'Basic bWFudWFsX2FwcDpkZGY0YjY1OTE2NTc2N2E2Mjc4NGY5NGM0ZWU1NmQwNzVkYjEwYzk0NTBkYTVjZjgxYjZhZjdiOWY1NmYxZWY3';
+  /// Ambil Basic Auth dari .env (fallback otomatis)
+  static String get basicAuth {
+    final direct = dotenv.env['BASIC_AUTH']?.trim();
+
+    // Jika BASIC_AUTH langsung tersedia (sudah mengandung "Basic ...")
+    if (direct != null && direct.isNotEmpty) {
+      // Kalau user hanya isi raw base64 tanpa "Basic ", tambahkan prefix
+      debugPrint('[ApiConstant] $direct');
+      return 'Basic $direct';
+    }
+
+    // Fallback terakhir — supaya tidak null
+    debugPrint('[ApiConstant] ⚠️ BASIC_AUTH tidak ditemukan di .env');
+    return 'Basic REPLACE_ME';
+  }
 }

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 
@@ -39,7 +40,11 @@ class _EditProfileView extends StatelessWidget {
             Icons.arrow_back_ios_new_rounded,
             color: AppColors.black,
           ),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pushReplacementNamed(
+            context,
+            '/home',
+            arguments: {'tab': 'settings'},
+          ),
         ),
         title: const Text(
           'Account',
@@ -49,6 +54,7 @@ class _EditProfileView extends StatelessWidget {
           ),
         ),
         actions: [
+          // Tombol Save ke prefs (tetap dipertahankan)
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: SizedBox(
@@ -59,7 +65,7 @@ class _EditProfileView extends StatelessWidget {
                     : () async {
                         final ok = await context
                             .read<EditProfileProvider>()
-                            .saveToPrefs();
+                            .submitEditProfile(context);
                         if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -92,7 +98,7 @@ class _EditProfileView extends StatelessWidget {
                   elevation: WidgetStateProperty.all(0),
                 ),
                 child: Text(
-                  p.isSaving ? 'Saving…' : 'Save',
+                  p.isSaving ? 'Saving…' : 'Save Update',
                   style: const TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
@@ -111,17 +117,21 @@ class _EditProfileView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Email (read-only / disabled)
                     AccountField(
                       label: 'Email',
                       controller: p.emailC,
                       hint: 'Your Email',
                       keyboardType: TextInputType.emailAddress,
+                      readOnly: true,
+                      enabled: false, // <-- disabled UI
                     ),
+                    // Username (editable)
                     AccountField(
-                      label: 'Phone Number',
-                      controller: p.phoneC,
-                      hint: 'Your Phone Number',
-                      keyboardType: TextInputType.phone,
+                      label: 'Username',
+                      controller: p.usernameC,
+                      hint: 'Your Username',
+                      keyboardType: TextInputType.text,
                     ),
                     AccountField(
                       label: 'First Name',
@@ -133,32 +143,122 @@ class _EditProfileView extends StatelessWidget {
                       controller: p.lastNameC,
                       hint: 'Your Last Name',
                     ),
-                    AccountField(
-                      label: 'Business Name',
-                      controller: p.businessNameC,
-                      hint: 'Your Business Name',
-                    ),
                     const SizedBox(height: 8),
                     const _LogoPicker(),
                     const SizedBox(height: 28),
-                    // === Danger zone ===
+
+                    // === Danger zone (baru, lebih menarik) ===
                     const Divider(height: 32),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => _startDeleteOrDeactivateEntry(context),
-                        child: const Text(
-                          'Delete account',
-                          style: TextStyle(
-                            color: AppColors.red,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
+                    _DangerZoneCard(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        _startDeleteOrDeactivateEntry(context);
+                      },
                     ),
                   ],
                 ),
               ),
             ),
+    );
+  }
+}
+
+class _DangerZoneCard extends StatelessWidget {
+  final VoidCallback onTap;
+  const _DangerZoneCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFFFFE9EC), // soft red-rose
+              const Color(0xFFFFF7F8), // very light
+            ],
+          ),
+          border: Border.all(color: AppColors.red.withOpacity(0.18), width: 1),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.red.withOpacity(0.06),
+              blurRadius: 20,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            // Icon bulat
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.red.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.delete_forever_rounded,
+                color: AppColors.red,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Teks
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Delete your account',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15.5,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Delete or temporarily deactivate your account. Deletion is permanent.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: AppColors.disabledFg,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Tombol kecil “Manage”
+            TextButton(
+              onPressed: onTap,
+              style: TextButton.styleFrom(
+                backgroundColor: AppColors.red,
+                foregroundColor: AppColors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text(
+                'Manage',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -303,11 +403,11 @@ class _LogoPicker extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              Expanded(
+              const Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
+                  children: [
                     Text.rich(
                       TextSpan(
                         text: 'Add your logo Business',
@@ -445,6 +545,8 @@ class AccountField extends StatelessWidget {
   final String? hint;
   final TextEditingController controller;
   final TextInputType? keyboardType;
+  final bool readOnly; // <-- tambahan
+  final bool? enabled; // <-- tambahan (null = default true)
 
   const AccountField({
     super.key,
@@ -452,10 +554,14 @@ class AccountField extends StatelessWidget {
     required this.controller,
     this.hint,
     this.keyboardType,
+    this.readOnly = false,
+    this.enabled, // jika null => TextField default (enabled = true)
   });
 
   @override
   Widget build(BuildContext context) {
+    final isEnabled = enabled ?? true;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Column(
@@ -473,11 +579,25 @@ class AccountField extends StatelessWidget {
           TextField(
             controller: controller,
             keyboardType: keyboardType,
+            readOnly: readOnly,
+            enabled: isEnabled,
             style: const TextStyle(
               fontSize: 15.5,
               color: AppColors.textPrimary,
             ),
-            decoration: InputDecoration(hintText: hint),
+            decoration: InputDecoration(
+              hintText: hint,
+              // Tambahkan style disabled agar jelas (opsional)
+              disabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(
+                  color: AppColors.greyBackground,
+                  width: 1,
+                ),
+              ),
+              filled: !isEnabled,
+              fillColor: !isEnabled ? AppColors.greyBackground : null,
+            ),
           ),
         ],
       ),
@@ -508,6 +628,7 @@ Future<void> _startDeleteOrDeactivateEntry(BuildContext context) async {
   if (choice == null) return;
 
   if (choice == _Choice.delete) {
+    // === DELETE: password → confirm → execute
     final password = await _showPasswordDialog(context);
     if (password == null || password.isEmpty) return;
 
@@ -518,12 +639,16 @@ Future<void> _startDeleteOrDeactivateEntry(BuildContext context) async {
           'Are you sure you want to permanently delete your account? This action cannot be undone.',
       yesLabel: 'Delete',
       noLabel: 'Cancel',
-      destructive: true,
+      destructive: false,
     );
     if (confirm == true) {
       await _executeDelete(context, password);
     }
   } else {
+    // === DEACTIVATE: password → confirm → execute (dibuat sama seperti delete)
+    final password = await _showPasswordDialog(context);
+    if (password == null || password.isEmpty) return;
+
     final confirm = await _showConfirmDialog(
       context,
       title: 'Deactivate account?',
@@ -534,7 +659,7 @@ Future<void> _startDeleteOrDeactivateEntry(BuildContext context) async {
       destructive: false,
     );
     if (confirm == true) {
-      await _executeDeactivate(context);
+      await _executeDeactivate(context, password);
     }
   }
 }
@@ -845,42 +970,63 @@ Future<bool?> _showConfirmDialog(
 Future<void> _executeDelete(BuildContext context, String password) async {
   final auth = context.read<AuthProvider>();
 
-  await showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) {
-      () async {
-        final ok = await auth.deleteAccountPermanently(
-          context,
-          password: password,
-        );
-        if (!ctx.mounted) return;
-        Navigator.of(ctx).pop(); // tutup loading dialog
-        if (!ok) return; // snackbar sudah dihandle di provider
-      }();
+  // Pegang root navigator SEBELUM await agar context-nya valid
+  final rootNav = Navigator.of(context, rootNavigator: true);
 
-      return _buildLoadingDialog('Deleting account…');
-    },
+  // Tampilkan loading di root
+  showDialog(
+    context: rootNav.context,
+    useRootNavigator: true,
+    barrierDismissible: false,
+    builder: (_) => _buildLoadingDialog('Deleting account…'),
   );
+
+  // Eksekusi
+  final ok = await auth.deleteAccountPermanently(context, password: password);
+
+  // Tutup loading dengan navigator yang sama (aman meski stack berubah)
+  if (rootNav.mounted) {
+    try {
+      await rootNav.maybePop();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  if (!ok) {
+    // optional: extra feedback di sini
+  }
 }
 
-Future<void> _executeDeactivate(BuildContext context) async {
+Future<void> _executeDeactivate(BuildContext context, String password) async {
   final auth = context.read<AuthProvider>();
 
-  await showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) {
-      () async {
-        final ok = await auth.deactivateAccount(context, password: '');
-        if (!ctx.mounted) return;
-        Navigator.of(ctx).pop();
-        if (!ok) return;
-      }();
+  // Pegang root navigator SEBELUM await
+  final rootNav = Navigator.of(context, rootNavigator: true);
 
-      return _buildLoadingDialog('Deactivating account…');
-    },
+  // Tampilkan loading di root
+  showDialog(
+    context: rootNav.context,
+    useRootNavigator: true,
+    barrierDismissible: false,
+    builder: (_) => _buildLoadingDialog('Deactivating account…'),
   );
+
+  // Eksekusi
+  final ok = await auth.deactivateAccount(context, password: password);
+
+  // Tutup loading secara aman
+  if (rootNav.mounted) {
+    try {
+      await rootNav.maybePop();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  if (!ok) {
+    // optional
+  }
 }
 
 Widget _buildLoadingDialog(String text) {
