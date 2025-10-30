@@ -92,8 +92,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
 
   bool _available = true; // optional (not used by API yet)
   bool _attemptedSubmit = false;
-  String? _selectedStoreId;
-  String? _selectedStoreName;
   // ====== VARIANTS TOGGLE ======
   bool _useVariants = false;
 
@@ -125,7 +123,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     if (!formOk) reasons.add('Form belum valid (Name/Description).');
     if (_selectedBrandId == null) reasons.add('Brand belum dipilih.');
     if (_selectedCategoryId == null) reasons.add('Category belum dipilih.');
-    if (_selectedStoreId == null) reasons.add('Store belum dipilih.');
 
     // 2) Mode variants/single
     if (_useVariants) {
@@ -288,43 +285,13 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final id = await prov.ensureDefaultStoreLocation(context);
       if (!mounted) return;
-      _selectedStoreId = id;
 
       final sp = context.read<StoreProvider>();
       if (sp.stores.isEmpty && !sp.loadingList) {
         await sp.fetchStoreLocations(context);
       }
-      final store = sp.stores.firstWhere(
-        (s) => s.idStoreLocation == _selectedStoreId,
-        orElse: () => sp.stores.isNotEmpty ? sp.stores.first : null as dynamic,
-      );
       if (!mounted) return;
-      setState(() {
-        _selectedStoreId = store?.idStoreLocation ?? _selectedStoreId;
-        _selectedStoreName = store?.name ?? _selectedStoreName;
-      });
     });
-  }
-
-  Future<String?> pickStoreId(
-    BuildContext context, {
-    String? selectedId,
-  }) async {
-    final sp = context.read<StoreProvider>();
-    if (sp.stores.isEmpty && !sp.loadingList) {
-      await sp.fetchStoreLocations(context);
-    }
-    final opts = sp.stores
-        .map((s) => PickerOption(id: s.idStoreLocation, label: s.name))
-        .toList();
-
-    return showListPicker(
-      context: context,
-      title: 'Choose Store',
-      options: opts,
-      selectedId: selectedId,
-      enableCreate: false, // store tidak creatable dari sini
-    );
   }
 
   @override
@@ -346,8 +313,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     final baseOk =
         (_formKey.currentState?.validate() ?? false) &&
         _selectedBrandId != null &&
-        _selectedCategoryId != null &&
-        _selectedStoreId != null;
+        _selectedCategoryId != null;
 
     if (!baseOk) return false;
 
@@ -421,13 +387,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
           const SnackBar(
             content: Text('Please select Brand & Category first.'),
           ),
-        );
-        return;
-      }
-
-      if (_selectedStoreId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select Store first.')),
         );
         return;
       }
@@ -533,7 +492,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
         'description': _descC.text.trim(),
         'product_brand_id': _selectedBrandId!,
         'product_category_id': _selectedCategoryId!,
-        'store_location_id': _selectedStoreId!,
         'images': imagesJson,
         'skus': skusJson,
         'prices': pricesJson,
@@ -547,7 +505,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
         description: _descC.text.trim(),
         productBrandId: _selectedBrandId!,
         productCategoryId: _selectedCategoryId!,
-        storeLocationId: _selectedStoreId!, // ⬅️ NEW
         images: imagesJson,
         skus: skusJson,
         prices: pricesJson,
@@ -775,45 +732,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
                           },
                         ),
                         const SizedBox(height: 16),
-
-                        // ====== STORE LOCATION ======
-                        Consumer<StoreProvider>(
-                          builder: (context, sp, _) {
-                            final storeError =
-                                _attemptedSubmit && _selectedStoreId == null
-                                ? 'Required'
-                                : null;
-
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _SelectFieldTile(
-                                  label: 'Store',
-                                  placeholder: 'Select a store',
-                                  valueText: _selectedStoreName,
-                                  errorText: storeError,
-                                  onTap: () async {
-                                    final picked = await pickStoreId(
-                                      context,
-                                      selectedId: _selectedStoreId,
-                                    );
-                                    if (picked != null) {
-                                      final matched = sp.stores.firstWhere(
-                                        (s) => s.idStoreLocation == picked,
-                                        orElse: () => sp.stores.first,
-                                      );
-                                      setState(() {
-                                        _selectedStoreId = picked;
-                                        _selectedStoreName = matched.name;
-                                      });
-                                    }
-                                  },
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-                            );
-                          },
-                        ),
 
                         // ====== USE VARIANTS TOGGLE ======
                         Container(

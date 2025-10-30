@@ -17,27 +17,104 @@ class PaymentStep extends StatefulWidget {
 }
 
 class _PaymentStepState extends State<PaymentStep> {
+  // === Discount pindahan dari MakeOrderStep ===
+  late final TextEditingController _orderDiscountC;
+
+  @override
+  void initState() {
+    super.initState();
+    final prov = context.read<SalesProvider>();
+    _orderDiscountC = TextEditingController(
+      text: (prov.discount ?? 0).toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _orderDiscountC.dispose();
+    super.dispose();
+  }
+
   Future<void> _onPlaceOrder() async {
     final prov = context.read<SalesProvider>();
 
     final ok = await prov.submitSales(context);
     if (!mounted) return;
 
-    // ▼ gunakan subtotalEffective (sudah net diskon per-item)
-    final subtotal = prov.subtotalEffective; // <— ganti
-    final disc = prov.discount ?? 0; // order-level adjustment
-    final totalFinal =
-        (subtotal - disc).clamp(0, 1 << 31) as int; // clamp ≥ 0, cast int
+    // Hitung total untuk dialog
+    final subtotal = prov.subtotalEffective;
+    final disc = prov.discount ?? 0;
+    final totalFinal = (subtotal - disc).clamp(0, 1 << 31) as int;
 
-    if (ok) {
+    if (!ok) {
+      final err = prov.consumeLastError() ?? 'Failed to submit order';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+
+    final pmId = prov.paymentMethod ?? 1;
+
+    // Cash / EDC: transaksi selesai saat submit
+    if (pmId == 1 || pmId == 2) {
       await showOrderSuccessDialog(
         context,
         reference: prov.currentReference ?? '-',
         total: totalFinal,
+        paymentMethodLabel: _PayMethod.byId(pmId).label,
+      );
+      return;
+    }
+
+    // Midtrans: cek hasil akhir yang sudah disimpan provider
+    final result = prov.lastPaymentResult;
+    bool _isSuccess(String? s) {
+      switch ((s ?? '').toLowerCase()) {
+        case 'settlement':
+        case 'capture':
+        case 'success':
+        case 'paid':
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    if (result != null && _isSuccess(result.status)) {
+      await showOrderSuccessDialog(
+        context,
+        reference: prov.currentReference ?? '-',
+        total: totalFinal,
+        paymentMethodLabel: _PayMethod.byId(pmId).label,
+      );
+    } else if (result != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Payment ${result.status}')));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment initiated. Waiting for confirmation...'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onCancelPayment() async {
+    final prov = context.read<SalesProvider>();
+    final ok = await prov.cancelPendingPayment(
+      context,
+      payload: const {'reason': 'user_cancel'},
+    );
+
+    if (!mounted) return;
+    if (ok) {
+      await showPaymentCancelledDialog(
+        context,
+        reference: prov.currentReference ?? '-',
         paymentMethodLabel: _PayMethod.byId(prov.paymentMethod ?? 1).label,
       );
     } else {
-      final err = prov.consumeLastError() ?? 'Failed to submit order';
+      final err = prov.consumeLastError() ?? 'Failed to cancel payment';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
     }
   }
@@ -47,7 +124,6 @@ class _PaymentStepState extends State<PaymentStep> {
     final prov = context.watch<SalesProvider>();
     prov.ensureReferenceInitialized(); // ensure REF exists
 
-    // === Konsisten dengan Make Order ===
     // Subtotal efektif = Σ (price - diskon per item) * qty  (clamp ≥ 0)
     final subtotal = prov.cartItems.fold<int>(0, (sum, it) {
       final d = prov.perItemDiscountOf(it.sku.skuId);
@@ -56,7 +132,7 @@ class _PaymentStepState extends State<PaymentStep> {
       return sum + safeUnit * it.qty;
     });
 
-    // Order-level discount (adjustment)
+    // Order-level discount (adjustment) — sekarang diedit di Payment
     final disc = prov.discount ?? 0;
 
     // Service fee ditiadakan
@@ -78,6 +154,59 @@ class _PaymentStepState extends State<PaymentStep> {
             child: ListView(
               padding: DS.p16,
               children: [
+                // ===== ADJUSTMENTS / DISCOUNT (pindahan dari MakeOrder) =====
+                _SectionCard(
+                  title: 'Adjustments',
+                  subtitle: 'Set order-level discount. (Optional)',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      Text('Discount (IDR)', style: DS.tsPrice),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: _orderDiscountC,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        decoration: InputDecoration(
+                          hintText: '0',
+                          isDense: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: AppColors.divider,
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          prefixText: 'Rp ',
+                        ),
+                        onChanged: (v) {
+                          final d = int.tryParse(v) ?? 0;
+                          // simpan ke provider
+                          context.read<SalesProvider>().setOrderMeta(
+                            discount: d,
+                          );
+                          setState(() {}); // supaya summary update realtime
+                        },
+                        validator: (v) {
+                          final n = int.tryParse((v ?? '').trim());
+                          if ((v ?? '').trim().isEmpty) return null;
+                          if (n == null) return 'Invalid number';
+                          if (n < 0) return 'Must be ≥ 0';
+                          return null;
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
                 // ===== SUMMARY =====
                 _SectionCard(
                   title: 'Payment Summary',
@@ -103,7 +232,7 @@ class _PaymentStepState extends State<PaymentStep> {
                 ),
                 const SizedBox(height: 14),
 
-                // ===== EXTRA DETAILS (optional) =====
+                // ===== DETAILS (opsional) =====
                 if ((prov.storeLocationName ?? '').isNotEmpty ||
                     (prov.customerName ?? '').isNotEmpty ||
                     (prov.note ?? '').isNotEmpty)
@@ -151,22 +280,45 @@ class _PaymentStepState extends State<PaymentStep> {
           // FOOTER CTA
           SafeArea(
             minimum: DS.p16,
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: prov.submitting ? null : _onPlaceOrder,
-                style: DS.primaryBtn(enabled: !prov.submitting),
-                child: prov.submitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Text('Pay with ${pm.label}'),
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: prov.submitting ? null : _onPlaceOrder,
+                    style: DS.primaryBtn(enabled: !prov.submitting),
+                    child: prov.submitting
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text('Pay with ${pm.label}'),
+                  ),
+                ),
+
+                // Jika ingin tombol Cancel saat submitting, aktifkan blok di bawah:
+                // if (prov.submitting) ...[
+                //   const SizedBox(height: 10),
+                //   SizedBox(
+                //     width: double.infinity,
+                //     child: TextButton(
+                //       onPressed: _onCancelPayment,
+                //       child: const Text(
+                //         'Cancel payment',
+                //         style: TextStyle(
+                //           fontWeight: FontWeight.w700,
+                //           color: Color(0xFFDC2626),
+                //         ),
+                //       ),
+                //     ),
+                //   ),
+                // ],
+              ],
             ),
           ),
         ],
@@ -473,14 +625,14 @@ class _PayMethod {
     _PayMethod(
       id: 2,
       label: 'EDC',
-      shortLabel: 'Transfer',
+      shortLabel: 'EDC',
       subtitle: 'Manual bank transfer to the store account.',
       icon: Icons.account_balance_outlined,
     ),
     _PayMethod(
       id: 3,
       label: 'QRIS/VA',
-      shortLabel: 'Midtrans',
+      shortLabel: 'QRIS/VA',
       subtitle: 'QRIS, Virtual Account, and e-wallet via Midtrans.',
       icon: Icons.qr_code_2_outlined,
     ),
@@ -757,6 +909,257 @@ class _SuccessCardState extends State<_SuccessCard>
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/* ----------------------- PAYMENT CANCELLED DIALOG ----------------------- */
+
+Future<void> showPaymentCancelledDialog(
+  BuildContext context, {
+  required String reference,
+  String? paymentMethodLabel,
+}) {
+  return showGeneralDialog(
+    context: context,
+    barrierLabel: 'Payment cancelled',
+    barrierDismissible: true,
+    barrierColor: Colors.black.withOpacity(0.35),
+    transitionDuration: const Duration(milliseconds: 320),
+    pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+    transitionBuilder: (ctx, anim, _, __) {
+      final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+      return FadeTransition(
+        opacity: curved,
+        child: Stack(
+          children: [
+            BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(color: Colors.transparent),
+            ),
+            Center(
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.94, end: 1.0).animate(curved),
+                child: _CancelledCard(
+                  reference: reference,
+                  paymentMethodLabel: paymentMethodLabel,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _CancelledCard extends StatefulWidget {
+  final String reference;
+  final String? paymentMethodLabel;
+
+  const _CancelledCard({required this.reference, this.paymentMethodLabel});
+
+  @override
+  State<_CancelledCard> createState() => _CancelledCardState();
+}
+
+class _CancelledCardState extends State<_CancelledCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ac;
+  late final Animation<double> _ring;
+  late final Animation<double> _iconScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ac = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 850),
+    )..forward();
+    _ring = CurvedAnimation(
+      parent: _ac,
+      curve: const Interval(0.0, 0.6, curve: Curves.easeOutBack),
+    );
+    _iconScale = CurvedAnimation(
+      parent: _ac,
+      curve: const Interval(0.35, 1.0, curve: Curves.easeOutCubic),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ac.dispose();
+    super.dispose();
+  }
+
+  void _onClose() {
+    Navigator.of(context).pop(); // tutup dialog
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil('/sales/list', (route) => false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const red = Color(0xFFDC2626); // red-600
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.92,
+        constraints: const BoxConstraints(maxWidth: 420),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: const [
+            BoxShadow(
+              blurRadius: 24,
+              color: Color(0x22000000),
+              offset: Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // header gradient merah
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [red, Color(0xFFE11D48)], // red-600 to rose-600
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  AnimatedBuilder(
+                    animation: _ac,
+                    builder: (_, __) {
+                      final ringSize = 82.0 * _ring.value.clamp(0.0, 1.0);
+                      final ringOpacity = (_ring.value).clamp(0.0, 1.0);
+                      final iconScale = (_iconScale.value).clamp(0.0, 1.0);
+
+                      return SizedBox(
+                        height: 90,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Opacity(
+                              opacity: ringOpacity,
+                              child: Container(
+                                width: ringSize,
+                                height: ringSize,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white.withOpacity(0.12),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x33FFFFFF),
+                                      blurRadius: 16,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Transform.scale(
+                              scale: iconScale,
+                              child: const CircleAvatar(
+                                radius: 30,
+                                backgroundColor: Colors.white,
+                                child: Icon(
+                                  Icons.cancel_outlined,
+                                  size: 34,
+                                  color: red,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Payment Successfully Cancelled',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Reference: ${widget.reference}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // body
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+              child: Column(
+                children: [
+                  if ((widget.paymentMethodLabel ?? '').isNotEmpty)
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.payments_outlined,
+                          color: AppColors.textSecondary,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          widget.paymentMethodLabel!,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _onClose,
+                      icon: const Icon(
+                        Icons.check_circle_outline,
+                        color: Colors.white,
+                      ),
+                      label: const Text(
+                        'Close',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: red,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),

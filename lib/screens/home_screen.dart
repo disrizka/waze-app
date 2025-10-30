@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
+import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
 
 import '../l10n/app_localizations.dart';
@@ -40,19 +41,29 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _didKickRoleLoad = false;
-
-  /// 🔑 simpan key sebagai field agar tidak ganti instance tiap rebuild
   final GlobalKey<_HeaderGradientState> _headerKey =
       GlobalKey<_HeaderGradientState>();
+
+  Future<void> _kickDailyFetch() async {
+    final rp = context.read<ReportProvider>();
+    // pastikan daily, lalu fetch
+    if (rp.period != SalesPeriod.daily) {
+      rp.setPeriod(SalesPeriod.daily);
+    }
+    await rp.fetchSalesReport(context); // → GET .../report/sales?period=daily
+  }
 
   @override
   void initState() {
     super.initState();
-    // load role aktif sekali saat mount
     Future.microtask(() async {
       if (!mounted || _didKickRoleLoad) return;
       _didKickRoleLoad = true;
+
       await context.read<RoleProvider>().refreshActiveRoleFromPrefs(context);
+
+      // 🔹 di sini kita pastikan report = daily & fetch
+      await _kickDailyFetch();
     });
   }
 
@@ -244,6 +255,10 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     if (changed == true && mounted) {
       // reload label/logo setelah switch
       await _loadPrefs();
+      await context.read<ReportProvider>().changePeriodAndFetch(
+        context,
+        SalesPeriod.daily,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -477,7 +492,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                                 ),
                         ),
                         title: _accountName,
-                        subtitle: '@$_accountUsername',
+                        subtitle: '@${_shortId(_accountUsername)}',
                       ),
                     ),
 
@@ -606,7 +621,7 @@ class _InfoBlock extends StatelessWidget {
         if (onTap != null)
           const Icon(
             Icons.keyboard_arrow_down_rounded,
-            size: 18,
+            size: 12,
             color: Color(0xFF9A9A9A),
           ),
       ],
@@ -1403,95 +1418,204 @@ class _TrackingReportPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
 
+    return Consumer<ReportProvider>(
+      builder: (context, rp, _) {
+        final isLoading = rp.isLoading;
+        final summary = rp.summary;
+        final err = rp.lastError;
+
+        final String salesToday = isLoading
+            ? '—'
+            : _formatRpCompact2Digits(
+                summary?.totalRevenue ?? rp.totalRevenueComputed,
+              );
+
+        final String productsToday = isLoading
+            ? '—'
+            : '${summary?.totalQty ?? rp.totalQtyComputed} product';
+
+        return Container(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // kiri
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Tracking Report',
+                      style: TextStyle(
+                        color: Color(0xFF374151),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    const Text(
+                      'Sales Today',
+                      style: TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _MetricText.loadingAware(
+                      isLoading: isLoading,
+                      text: salesToday,
+                      color: const Color(0xFF16A34A),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    const Text(
+                      'Products Sold Today',
+                      style: TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _MetricText.loadingAware(
+                      isLoading: isLoading,
+                      text: productsToday,
+                      color: const Color(0xFF16A34A),
+                    ),
+
+                    if (!isLoading && err != null) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            size: 16,
+                            color: Color(0xFFDC2626),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              err,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFFDC2626),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
+              // kanan
+              SizedBox(
+                width: isTablet ? 180 : 140,
+                height: isTablet ? 180 : 140,
+                child: Image.asset(
+                  'assets/tracking_report_image.png',
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+String _formatRp(num v) {
+  final s = v.floor().toString();
+  final re = RegExp(r'\B(?=(\d{3})+(?!\d))');
+  final withDots = s.replaceAllMapped(re, (m) => '.');
+  return 'Rp $withDots';
+}
+
+String _formatRpCompact2Digits(num v) {
+  final n = v is int ? v.toDouble() : (v.toDouble());
+  if (n < 1_000_000) return _formatRp(n);
+
+  String unit;
+  double base;
+  if (n < 1_000_000_000) {
+    unit = 'juta';
+    base = n / 1_000_000;
+  } else if (n < 1_000_000_000_000) {
+    unit = 'miliar';
+    base = n / 1_000_000_000;
+  } else {
+    unit = 'triliun';
+    base = n / 1_000_000_000_000;
+  }
+
+  String head;
+  if (base >= 10) {
+    head = base.round().toString();
+  } else {
+    head = base.toStringAsFixed(1);
+    if (head.endsWith('.0')) head = head.substring(0, head.length - 2);
+  }
+  return 'Rp $head $unit';
+}
+
+class _MetricText extends StatelessWidget {
+  final bool isLoading;
+  final String text;
+  final Color color;
+
+  const _MetricText({
+    required this.isLoading,
+    required this.text,
+    required this.color,
+  });
+
+  factory _MetricText.loadingAware({
+    required bool isLoading,
+    required String text,
+    required Color color,
+  }) => _MetricText(isLoading: isLoading, text: text, color: color);
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isLoading) {
+      return Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w800,
+          fontSize: 20, // angka diperkecil
+        ),
+      );
+    }
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      height: 24,
+      width: 160,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          // halus banget biar kayak contoh
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ===== kiri: judul + metrik
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                // Judul di dalam kartu
-                Text(
-                  'Tracking Report',
-                  style: TextStyle(
-                    color: Color(0xFF374151), // abu-abu tua
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-                SizedBox(height: 18),
-
-                // Sales Today
-                Text(
-                  'Sales Today',
-                  style: TextStyle(
-                    color: Color(0xFF6B7280),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'Rp. 200,000',
-                  style: TextStyle(
-                    color: Color(0xFF16A34A),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 24,
-                  ),
-                ),
-
-                SizedBox(height: 18),
-
-                // Transaction Today
-                Text(
-                  'Transaction Today',
-                  style: TextStyle(
-                    color: Color(0xFF6B7280),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  '16 product',
-                  style: TextStyle(
-                    color: Color(0xFF16A34A),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 24,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(width: 12),
-
-          // ===== kanan: gambar dummy
-          SizedBox(
-            width: isTablet ? 180 : 140, // rasio mirip contoh
-            height: isTablet ? 180 : 140,
-            child: Image.asset(
-              'assets/tracking_report_image.png',
-              fit: BoxFit.contain,
-            ),
-          ),
-        ],
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(6),
       ),
     );
   }

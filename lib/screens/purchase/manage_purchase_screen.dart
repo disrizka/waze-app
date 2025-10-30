@@ -50,12 +50,12 @@ class ManagePurchaseScreen extends StatelessWidget {
               title: 'Supplier List',
               onTap: () => Navigator.pushNamed(context, '/purchase/supplier'),
             ),
-            const SizedBox(height: 8),
-            _MenuTile(
-              icon: Icons.store,
-              title: 'Store List',
-              onTap: () => Navigator.pushNamed(context, '/purchase/store'),
-            ),
+            // const SizedBox(height: 8),
+            // _MenuTile(
+            //   icon: Icons.store,
+            //   title: 'Store List',
+            //   onTap: () => Navigator.pushNamed(context, '/purchase/store'),
+            // ),
           ],
         ),
       ),

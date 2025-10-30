@@ -1,64 +1,35 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart' as catalog;
+import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
+import 'package:wa_blast/widgets/show_fancy_bar.dart';
 
 import '../../../constants/app_colors.dart';
 import '../../../constants/design_system.dart';
 import '../../../widgets/stepper_header.dart';
 import '../../../widgets/reusable_pickers.dart';
 
+import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+
 // ===============================
 // Minimal UI helpers (theme tokens)
 // ===============================
-class UI {
-  static const bg = Color(0xFFF8FAFC); // slate-50
-  static const card = Colors.white;
-  static const line = Color(0xFFE5E7EB); // gray-200
-  static const text = Color(0xFF0F172A); // slate-900
-  static const sub = Color(0xFF6B7280); // gray-500
-  static const ok = Color(0xFF16A34A); // green-600
-  static const blue = AppColors.primary;
-
-  static const r12 = Radius.circular(12);
-  static const r16 = Radius.circular(16);
-
-  static const tsH6 = TextStyle(
-    fontSize: 16,
-    fontWeight: FontWeight.w800,
-    color: text,
-  );
-  static const tsBody = TextStyle(
-    fontSize: 13,
-    fontWeight: FontWeight.w600,
-    color: text,
-  );
-  static const tsSub = TextStyle(
-    fontSize: 12,
-    fontWeight: FontWeight.w600,
-    color: sub,
-  );
-
-  static OutlineInputBorder thinBorder([Color? c]) => OutlineInputBorder(
-    borderRadius: BorderRadius.circular(10),
-    borderSide: BorderSide(color: c ?? line),
-  );
-}
 
 // NOTE: jika CheckOrderStep dipisah file, import di sini, contoh:
 // import 'check_order_step.dart'; // berisi class CheckOrderStep & CheckOrderStepState
 
 // Expose helper agar bisa dipanggil dari AppBar di wrapper
+// Expose helper agar bisa dipanggil dari AppBar di wrapper
 Future<bool?> openAddProductSheet(BuildContext context) async {
   final parentSp = context.read<SalesProvider>();
 
-  // pastikan katalog sudah ada
-  if (!parentSp.loadingSkus && parentSp.skus.isEmpty) {
-    await parentSp.loadCatalog(context);
-  }
+  // 3) Init paging + pasang filter store ke ProductProvider
 
   return showModalBottomSheet<bool>(
     context: context,
@@ -70,7 +41,7 @@ Future<bool?> openAddProductSheet(BuildContext context) async {
     ),
     builder: (_) => ChangeNotifierProvider<SalesProvider>.value(
       value: parentSp,
-      child: const AddProductSheet(), // <-- perhatikan: pakai widget publik
+      child: const AddProductSheet(),
     ),
   );
 }
@@ -90,12 +61,38 @@ class MakeOrderStep extends StatefulWidget {
 class _MakeOrderStepState extends State<MakeOrderStep> {
   final _discountC = TextEditingController();
 
+  String? _customerId;
+  String? _customerName;
+
+  Future<void> _pickStore() async {
+    final picked = await showStorePickerSheet(
+      context,
+      selectedId: context.read<SalesProvider>().storeLocationId,
+    );
+    if (picked == null || !mounted) return;
+
+    context.read<SalesProvider>().setOrderMeta(
+      storeLocationId: picked.id,
+      storeLocationName: picked.label,
+    );
+
+    // sinkronkan filter product paging
+    final prodProv = context.read<ProductProvider>();
+    await prodProv.setInfiniteStoreAndRefresh(context, picked.id);
+
+    setState(() {}); // hanya untuk repaint UI
+  }
+
   @override
   void initState() {
     super.initState();
     final prov = context.read<SalesProvider>();
     _discountC.text = (prov.discount ?? 0).toString();
-    // Pastikan reference sudah ada SETELAH frame pertama (aman dari "during build")
+
+    // ⬇️ NEW: prefill customer dari provider
+    _customerId = prov.customerId;
+    _customerName = prov.customerName ?? '';
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<SalesProvider>().ensureReferenceInitialized(notify: true);
@@ -134,6 +131,26 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
     return (sub, fee, grand);
   }
 
+  // ⬇️ NEW
+  Future<void> _pickCustomer() async {
+    final picked = await showCustomerPickerSheet(
+      context,
+      selectedId: _customerId,
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() {
+      _customerId = picked.id;
+      _customerName = picked.label;
+    });
+
+    // persist ke SalesProvider
+    context.read<SalesProvider>().setOrderMeta(
+      customerId: picked.id,
+      customerName: picked.label,
+    );
+  }
+
   Future<void> _editReferenceDialog() async {
     final prov = context.read<SalesProvider>();
 
@@ -153,13 +170,15 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
 
   @override
   Widget build(BuildContext context) {
-    // Pastikan rebuild saat isi keranjang berubah
     final cartLen = context.select<SalesProvider, int>((p) => p.cartLen);
-
-    // Tetap watch untuk akses subtotal / total / reference
     final prov = context.watch<SalesProvider>();
+    final storeId = prov.storeLocationId;
+    final storeName = prov.storeLocationName;
+
     final adjustment = int.tryParse(_discountC.text.trim()) ?? 0;
     final (sub, fee, grand) = _totals(prov, adjustment);
+
+    final bool storeNotSelected = (storeId == null || storeId!.isEmpty);
 
     return Container(
       color: UI.bg,
@@ -170,99 +189,127 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                // ===== Order summary =====
+                // ============ STORE SELECTOR (REQUIRED) ============
                 _Section(
                   titleWidget: Row(
                     children: [
-                      const Icon(
-                        Icons.receipt_long_outlined,
+                      Icon(
+                        Icons.store_mall_directory_outlined,
                         size: 18,
                         color: UI.sub,
                       ),
-                      const SizedBox(width: 8),
-                      Text('Order summary', style: UI.tsSub),
-                    ],
-                  ),
-                  child: _orderTable(cartLen, prov),
-                ),
-
-                const SizedBox(height: 12),
-
-                // ===== Adjustments (ORDER-LEVEL DISCOUNT) =====
-                _Section(
-                  title: 'Adjustments',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 4),
-                      Text('Discount (IDR)', style: UI.tsSub),
-                      const SizedBox(height: 6),
-                      TextFormField(
-                        controller: _discountC,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        decoration: InputDecoration(
-                          hintText: '0',
-                          isDense: true,
-                          border: UI.thinBorder(),
-                          focusedBorder: UI.thinBorder(AppColors.primary),
-                          prefixText: 'Rp ',
+                      SizedBox(width: 8),
+                      Text('Store Location', style: UI.tsSub),
+                      SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
                         ),
-                        onChanged: (v) {
-                          final d = int.tryParse(v) ?? 0;
-                          context.read<SalesProvider>().setOrderMeta(
-                            discount: d, // ← diskon order-level
-                          );
-                          setState(() {}); // refresh total bar segera
-                        },
-                        validator: (v) {
-                          final n = int.tryParse((v ?? '').trim());
-                          if ((v ?? '').trim().isEmpty) return null;
-                          if (n == null) return 'Invalid number';
-                          if (n < 0) return 'Must be ≥ 0';
-                          return null;
-                        },
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: AppColors.blueAccent),
+                        ),
+                        child: const Text(
+                          'Required',
+                          style: TextStyle(
+                            color: AppColors.blue,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
                       ),
                     ],
+                  ),
+                  child: SelectFieldTile(
+                    label: 'Choose a store',
+                    valueText: storeName, // ← dari provider
+                    emptyHint: 'Select store…',
+                    onTap: _pickStore,
+                  ),
+                ),
+
+                // ============ CUSTOMER (REQUIRED) ============
+                const SizedBox(height: 12),
+                _Section(
+                  titleWidget: Row(
+                    children: [
+                      const Icon(Icons.person_outline, size: 18, color: UI.sub),
+                      const SizedBox(width: 8),
+                      const Text('Customer', style: UI.tsSub),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: AppColors.blueAccent),
+                        ),
+                        child: const Text(
+                          'Required',
+                          style: TextStyle(
+                            color: AppColors.blue,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  child: SelectFieldTile(
+                    label: 'Choose customer',
+                    valueText: _customerName,
+                    emptyHint: 'Select customer…',
+                    onTap: _pickCustomer,
                   ),
                 ),
               ],
             ),
           ),
 
-          // Totals bar minimal (tanpa Subtotal & Service Fee)
-          StickyTotalsBar(
-            subtotal: sub, // diabaikan di UI
-            serviceFeeLabel: '', // diabaikan di UI
-            serviceFee: 0, // diabaikan di UI
-            adjustment: adjustment,
-            total: grand,
-            enabled: cartLen > 0,
-            onNext: cartLen == 0
-                ? null
-                : () {
-                    context.read<SalesProvider>().setOrderMeta(
-                      discount: adjustment,
-                    );
-                    context.read<SalesProvider>().goTo(1);
-                  },
-          ),
+          // // Totals bar: disable jika belum pilih store atau cart kosong
+          // StickyTotalsBar(
+          //   subtotal: sub,
+          //   serviceFeeLabel: '',
+          //   serviceFee: 0,
+          //   adjustment: adjustment,
+          //   total: grand,
+          //   enabled: !storeNotSelected && cartLen > 0,
+          //   onNext: (!storeNotSelected && cartLen > 0)
+          //       ? () {
+          //           context.read<SalesProvider>().setOrderMeta(
+          //             discount: adjustment,
+          //           );
+          //           context.read<SalesProvider>().goTo(1);
+          //         }
+          //       : null,
+          // ),
 
-          // CTA minimal (opsional, bisa dihapus jika cukup Continue di totals)
+          // CTA minimal (opsional)
           SafeArea(
             minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: cartLen == 0
-                    ? null
-                    : () {
+                onPressed: (!storeNotSelected)
+                    ? () {
+                        if (_customerId == null || _customerId!.isEmpty) {
+                          showFancySnackBar(
+                            context,
+                            message: 'Please select customer',
+                            icon: Icons.person_outline,
+                          );
+                          return;
+                        }
                         final d = int.tryParse(_discountC.text.trim()) ?? 0;
                         context.read<SalesProvider>().setOrderMeta(discount: d);
                         context.read<SalesProvider>().goTo(1);
-                      },
+                      }
+                    : null,
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
@@ -281,254 +328,330 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
       ),
     );
   }
+}
 
-  // ====== Compact DataTable builder (minimal look) ======
-  Widget _orderTable(int cartLen, SalesProvider prov) {
-    if (cartLen == 0) {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: UI.bg,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: const [
-            Icon(Icons.inventory_2_outlined, color: UI.sub),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Belum ada item. Tambahkan produk dari katalog.',
-                style: UI.tsSub,
-              ),
+// ====== Order Summary — Compact List (auto height, scroll only if > 5) ======
+// ====== Order Summary — Compact List (auto height, scroll only if > 5) ======
+Widget _orderSummaryList(SalesProvider prov, context) {
+  if (prov.cartLen == 0) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: UI.bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: const [
+          Icon(Icons.inventory_2_outlined, color: UI.sub),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Belum ada item. Tambahkan produk dari katalog.',
+              style: UI.tsSub,
             ),
-          ],
-        ),
-      );
-    }
-
-    const minTableWidth = 900.0;
-    const _rowHeight = 52.0;
-    const _headHeight = 40.0;
-    const _visibleRows = 7;
-
-    final needsVerticalScroll = prov.cartItems.length > _visibleRows;
-    final tableViewportHeight = _headHeight + (_rowHeight * _visibleRows) + 12;
-
-    const _wQty = 108.0;
-    const _wDisc = 132.0;
-    const _wUnit = 112.0;
-    const _wLineTotal = 136.0;
-
-    Widget _hRight(String t, double w) => SizedBox(
-      width: w,
-      child: Align(alignment: Alignment.centerRight, child: Text(t)),
-    );
-    Widget _cRight(Widget child, double w) => SizedBox(
-      width: w,
-      child: Align(alignment: Alignment.centerRight, child: child),
-    );
-
-    final table = DataTable(
-      horizontalMargin: 10,
-      columnSpacing: 14,
-      headingRowHeight: _headHeight,
-      dataRowMinHeight: 48,
-      dataRowMaxHeight: 56,
-      dividerThickness: .6,
-      headingTextStyle: UI.tsSub.copyWith(fontSize: 11),
-      columns: [
-        const DataColumn(label: Text('Product')),
-        const DataColumn(label: Text('SKU')),
-        DataColumn(label: _hRight('Qty', _wQty)),
-        DataColumn(label: _hRight('Disc/Item', _wDisc)),
-        DataColumn(label: _hRight('Unit (Base)', _wUnit)),
-        DataColumn(label: _hRight('Unit (Effective)', _wUnit)),
-        DataColumn(label: _hRight('Line Total', _wLineTotal)),
-        const DataColumn(label: Text('')),
-      ],
-      rows: prov.cartItems.map((it) {
-        final sku = it.sku;
-        final skuId = sku.skuId;
-
-        // ambil disc dari provider
-        final itemDisc = prov.perItemDiscountOf(skuId);
-        final unitAfterItem = (sku.price - itemDisc).clamp(0, 1 << 31) as int;
-        final lineTotal = unitAfterItem * it.qty;
-        final money = NumberFormat.decimalPattern('id_ID');
-
-        Widget thumb() {
-          final fallback = Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: UI.bg,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.image, color: UI.sub, size: 18),
-          );
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: (sku.imageUrl.isNotEmpty)
-                ? Image.network(
-                    sku.imageUrl,
-                    width: 36,
-                    height: 36,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => fallback,
-                  )
-                : fallback,
-          );
-        }
-
-        return DataRow(
-          cells: [
-            // Product
-            DataCell(
-              Row(
-                children: [
-                  thumb(),
-                  const SizedBox(width: 10),
-                  Flexible(
-                    child: Text(
-                      sku.productName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // SKU
-            DataCell(
-              Text(
-                sku.skuCode,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: UI.tsSub,
-              ),
-            ),
-
-            // Qty
-            DataCell(
-              _cRight(
-                _QtyEditor2(
-                  qty: it.qty,
-                  onMinus: () => prov.removeOne(sku),
-                  onPlus: () => prov.add(sku),
-                  onTyped: (v) {
-                    final cur = it.qty;
-                    if (v <= 0) {
-                      for (var i = 0; i < cur; i++) prov.removeOne(sku);
-                    } else if (v > cur) {
-                      for (var i = 0; i < (v - cur); i++) prov.add(sku);
-                    } else if (v < cur) {
-                      for (var i = 0; i < (cur - v); i++) prov.removeOne(sku);
-                    }
-                  },
-                ),
-                _wQty,
-              ),
-            ),
-
-            // Disc/Item
-            DataCell(
-              _cRight(
-                SizedBox(
-                  width: _wDisc,
-                  child: TextFormField(
-                    initialValue: itemDisc.toString(),
-                    textAlign: TextAlign.right,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: InputDecoration(
-                      isDense: true,
-                      border: UI.thinBorder(),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      prefixText: 'Rp ',
-                    ),
-                    onChanged: (v) => prov.setPerItemDiscount(
-                      skuId: skuId,
-                      discountPerItem: int.tryParse(v) ?? 0,
-                    ),
-                  ),
-                ),
-                _wDisc,
-              ),
-            ),
-
-            // Unit (Base)
-            DataCell(_cRight(Text(money.format(sku.price)), _wUnit)),
-
-            // Unit (Effective)
-            DataCell(
-              _cRight(
-                Text(
-                  money.format(unitAfterItem),
-                  style: TextStyle(
-                    fontWeight: itemDisc > 0
-                        ? FontWeight.w800
-                        : FontWeight.w700,
-                  ),
-                ),
-                _wUnit,
-              ),
-            ),
-
-            // Line Total
-            DataCell(
-              _cRight(
-                Text(
-                  money.format(lineTotal),
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-                _wLineTotal,
-              ),
-            ),
-
-            // Remove
-            DataCell(
-              IconButton(
-                tooltip: 'Remove',
-                icon: const Icon(Icons.delete_outline, color: UI.sub),
-                onPressed: () {
-                  for (var i = 0; i < it.qty; i++) {
-                    prov.removeOne(sku);
-                  }
-                  // Tidak perlu hapus diskon lokal: provider sudah bereskan saat remove
-                },
-              ),
-            ),
-          ],
-        );
-      }).toList(),
-    );
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: minTableWidth),
-        child: needsVerticalScroll
-            ? ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  height: tableViewportHeight,
-                  child: Scrollbar(
-                    thumbVisibility: true,
-                    thickness: 6,
-                    radius: const Radius.circular(999),
-                    child: SingleChildScrollView(child: table),
-                  ),
-                ),
-              )
-            : table,
+          ),
+        ],
       ),
     );
   }
+
+  const double _rowExtent = 86.0; // tinggi 1 baris
+  final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+  final int maxVisible = isTablet ? 9 : 4;
+
+  final bool needScroll = prov.cartLen > maxVisible;
+
+  final list = ListView.separated(
+    padding: EdgeInsets.zero,
+    itemCount: prov.cartItems.length,
+    shrinkWrap: !needScroll,
+    physics: needScroll
+        ? const AlwaysScrollableScrollPhysics()
+        : const NeverScrollableScrollPhysics(),
+    separatorBuilder: (_, __) => const Divider(height: 1, color: UI.line),
+    itemBuilder: (context, i) {
+      final it = prov.cartItems[i];
+      final sku = it.sku;
+
+      // ⬇️ Tambahan: hitung line total (harga efek per item × qty)
+      final itemDisc = prov.perItemDiscountOf(sku.skuId);
+      final unitAfterItem = (sku.price - itemDisc).clamp(0, 1 << 31) as int;
+      final lineTotal = unitAfterItem * it.qty;
+
+      return SizedBox(
+        height: _rowExtent,
+        child: _OrderItemTile(
+          imageUrl: sku.imageUrl,
+          productName: sku.productName,
+          skuCode: sku.skuCode,
+          qty: it.qty,
+          lineTotal: lineTotal, // ⬅️ kirim ke tile
+          onMinus: () => prov.removeOne(sku),
+          onPlus: () => prov.add(sku),
+        ),
+      );
+    },
+  );
+
+  if (!needScroll) return list;
+
+  // batasi tinggi sesuai device: 5 baris (mobile) / 10 baris (tablet)
+  final double maxHeight = (_rowExtent * maxVisible) + (1.0 * (maxVisible - 1));
+
+  return ConstrainedBox(
+    constraints: BoxConstraints(maxHeight: maxHeight),
+    child: Scrollbar(
+      thumbVisibility: true,
+      radius: const Radius.circular(999),
+      child: list,
+    ),
+  );
+}
+
+// ====== Compact DataTable builder (minimal look) ======
+Widget _orderTable(int cartLen, SalesProvider prov) {
+  if (cartLen == 0) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: UI.bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: const [
+          Icon(Icons.inventory_2_outlined, color: UI.sub),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Belum ada item. Tambahkan produk dari katalog.',
+              style: UI.tsSub,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  const minTableWidth = 900.0;
+  const _rowHeight = 52.0;
+  const _headHeight = 40.0;
+  const _visibleRows = 7;
+
+  final needsVerticalScroll = prov.cartItems.length > _visibleRows;
+  final tableViewportHeight = _headHeight + (_rowHeight * _visibleRows) + 12;
+
+  const _wQty = 108.0;
+  const _wDisc = 132.0;
+  const _wUnit = 112.0;
+  const _wLineTotal = 136.0;
+
+  Widget _hRight(String t, double w) => SizedBox(
+    width: w,
+    child: Align(alignment: Alignment.centerRight, child: Text(t)),
+  );
+  Widget _cRight(Widget child, double w) => SizedBox(
+    width: w,
+    child: Align(alignment: Alignment.centerRight, child: child),
+  );
+
+  final table = DataTable(
+    horizontalMargin: 10,
+    columnSpacing: 14,
+    headingRowHeight: _headHeight,
+    dataRowMinHeight: 48,
+    dataRowMaxHeight: 56,
+    dividerThickness: .6,
+    headingTextStyle: UI.tsSub.copyWith(fontSize: 11),
+    columns: [
+      const DataColumn(label: Text('Product')),
+      const DataColumn(label: Text('SKU')),
+      DataColumn(label: _hRight('Qty', _wQty)),
+      DataColumn(label: _hRight('Disc/Item', _wDisc)),
+      DataColumn(label: _hRight('Unit (Base)', _wUnit)),
+      DataColumn(label: _hRight('Unit (Effective)', _wUnit)),
+      DataColumn(label: _hRight('Line Total', _wLineTotal)),
+      const DataColumn(label: Text('')),
+    ],
+    rows: prov.cartItems.map((it) {
+      final sku = it.sku;
+      final skuId = sku.skuId;
+
+      // ambil disc dari provider
+      final itemDisc = prov.perItemDiscountOf(skuId);
+      final unitAfterItem = (sku.price - itemDisc).clamp(0, 1 << 31) as int;
+      final lineTotal = unitAfterItem * it.qty;
+      final money = NumberFormat.decimalPattern('id_ID');
+
+      Widget thumb() {
+        final fallback = Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: UI.bg,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.image, color: UI.sub, size: 18),
+        );
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: (sku.imageUrl.isNotEmpty)
+              ? Image.network(
+                  sku.imageUrl,
+                  width: 36,
+                  height: 36,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => fallback,
+                )
+              : fallback,
+        );
+      }
+
+      return DataRow(
+        cells: [
+          // Product
+          DataCell(
+            Row(
+              children: [
+                thumb(),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    sku.productName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // SKU
+          DataCell(
+            Text(
+              sku.skuCode,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: UI.tsSub,
+            ),
+          ),
+
+          // Qty
+          DataCell(
+            _cRight(
+              _QtyEditor2(
+                qty: it.qty,
+                onMinus: () => prov.removeOne(sku),
+                onPlus: () => prov.add(sku),
+                onTyped: (v) {
+                  final cur = it.qty;
+                  if (v <= 0) {
+                    for (var i = 0; i < cur; i++) prov.removeOne(sku);
+                  } else if (v > cur) {
+                    for (var i = 0; i < (v - cur); i++) prov.add(sku);
+                  } else if (v < cur) {
+                    for (var i = 0; i < (cur - v); i++) prov.removeOne(sku);
+                  }
+                },
+              ),
+              _wQty,
+            ),
+          ),
+
+          // Disc/Item
+          DataCell(
+            _cRight(
+              SizedBox(
+                width: _wDisc,
+                child: TextFormField(
+                  initialValue: itemDisc.toString(),
+                  textAlign: TextAlign.right,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: UI.thinBorder(),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    prefixText: 'Rp ',
+                  ),
+                  onChanged: (v) => prov.setPerItemDiscount(
+                    skuId: skuId,
+                    discountPerItem: int.tryParse(v) ?? 0,
+                  ),
+                ),
+              ),
+              _wDisc,
+            ),
+          ),
+
+          // Unit (Base)
+          DataCell(_cRight(Text(money.format(sku.price)), _wUnit)),
+
+          // Unit (Effective)
+          DataCell(
+            _cRight(
+              Text(
+                money.format(unitAfterItem),
+                style: TextStyle(
+                  fontWeight: itemDisc > 0 ? FontWeight.w800 : FontWeight.w700,
+                ),
+              ),
+              _wUnit,
+            ),
+          ),
+
+          // Line Total
+          DataCell(
+            _cRight(
+              Text(
+                money.format(lineTotal),
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              _wLineTotal,
+            ),
+          ),
+
+          // Remove
+          DataCell(
+            IconButton(
+              tooltip: 'Remove',
+              icon: const Icon(Icons.delete_outline, color: UI.sub),
+              onPressed: () {
+                for (var i = 0; i < it.qty; i++) {
+                  prov.removeOne(sku);
+                }
+                // Tidak perlu hapus diskon lokal: provider sudah bereskan saat remove
+              },
+            ),
+          ),
+        ],
+      );
+    }).toList(),
+  );
+
+  return SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: minTableWidth),
+      child: needsVerticalScroll
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                height: tableViewportHeight,
+                child: Scrollbar(
+                  thumbVisibility: true,
+                  thickness: 6,
+                  radius: const Radius.circular(999),
+                  child: SingleChildScrollView(child: table),
+                ),
+              ),
+            )
+          : table,
+    ),
+  );
 }
 
 // ======= UI HELPERS =======
@@ -569,6 +692,138 @@ class _Section extends StatelessWidget {
   }
 }
 
+class _OrderItemTile extends StatelessWidget {
+  final String imageUrl;
+  final String productName;
+  final String skuCode;
+  final int qty;
+  final int lineTotal; // ⬅️ NEW
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+
+  const _OrderItemTile({
+    Key? key,
+    required this.imageUrl,
+    required this.productName,
+    required this.skuCode,
+    required this.qty,
+    required this.lineTotal, // ⬅️ NEW
+    required this.onMinus,
+    required this.onPlus,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat.decimalPattern('id_ID'); // ⬅️ untuk format Rp
+    return SizedBox(
+      height: 86, // sinkron dengan _rowExtent
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _thumb(imageUrl),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Nama produk
+                Text(
+                  productName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                // SKU Code
+                Text(
+                  skuCode,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: UI.tsSub,
+                ),
+                const SizedBox(height: 4),
+                // ⬇️ TOTAL per SKU (line total)
+                Text(
+                  'Rp ${money.format(lineTotal)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.success,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          _qtyPill(qty, onMinus, onPlus),
+        ],
+      ),
+    );
+  }
+
+  Widget _thumb(String url) {
+    final fallback = Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        color: UI.bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Icon(Icons.image, color: UI.sub),
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: (url.isNotEmpty)
+          ? Image.network(
+              url,
+              width: 64,
+              height: 64,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => fallback,
+            )
+          : fallback,
+    );
+  }
+
+  Widget _qtyPill(int qty, VoidCallback onMinus, VoidCallback onPlus) {
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        border: Border.all(color: UI.line),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _iconBtn(Icons.remove_rounded, onMinus),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Text(
+              '$qty',
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+            ),
+          ),
+          _iconBtn(Icons.add_rounded, onPlus),
+        ],
+      ),
+    );
+  }
+
+  Widget _iconBtn(IconData icon, VoidCallback onTap) => SizedBox(
+    width: 36,
+    height: 36,
+    child: IconButton(
+      onPressed: onTap,
+      icon: Icon(icon),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+      splashRadius: 18,
+    ),
+  );
+}
+
 class StickyTotalsBar extends StatelessWidget {
   final int subtotal; // ← dipertahankan demi kompat, TIDAK ditampilkan
   final String
@@ -604,16 +859,17 @@ class StickyTotalsBar extends StatelessWidget {
         child: Column(
           children: [
             // ⬇️ Subtotal & Service Fee dihilangkan dari tampilan
-            if (adjustment > 0)
+            if (adjustment > 0) ...[
               _kv(
                 'Discount',
                 '- Rp ${money.format(adjustment)}',
                 color: UI.ok,
                 bold: true,
               ),
-            const SizedBox(height: 6),
-            const Divider(height: 1, color: UI.line),
-            const SizedBox(height: 8),
+              const SizedBox(height: 6),
+              const Divider(height: 1, color: UI.line),
+              const SizedBox(height: 8),
+            ],
 
             // Total kiri, angka kanan
             Row(
@@ -932,56 +1188,74 @@ class AddProductSheet extends StatefulWidget {
 
 class AddProductSheetState extends State<AddProductSheet> {
   final _searchC = TextEditingController();
-  String _q = '';
+
+  ProductProvider? _catalogProv; // cache ref provider (non-listen)
+  Timer? _debounce;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _catalogProv ??= Provider.of<ProductProvider>(context, listen: false);
+  }
 
   @override
   void initState() {
     super.initState();
-    _searchC.addListener(() {
-      final t = _searchC.text.trim();
-      if (t != _q) setState(() => _q = t);
-    });
-
-    // pastikan katalog SKU sudah ada (kita group → produk)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final sp = context.read<SalesProvider>();
-      if (!sp.loadingSkus && sp.skus.isEmpty) {
-        await sp.loadCatalog(context);
-        if (mounted) setState(() {});
+      if (!mounted) return;
+
+      _catalogProv ??= Provider.of<ProductProvider>(context, listen: false);
+      final salesProv = Provider.of<SalesProvider>(context, listen: false);
+      final String? storeId = salesProv.storeLocationId;
+
+      // Init + set filter store
+      _catalogProv?.initInfinitePaging(context);
+      if (storeId != null && storeId.isNotEmpty) {
+        // prefer method khusus store:
+        // _catalogProv?.setInfiniteStore(context, storeId);
+        _catalogProv?.setStoreLocationForPaging?.call(context, storeId);
       }
+      await _catalogProv?.refreshInfinite(context);
+
+      if (mounted) setState(() {});
     });
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchC.dispose();
+    _catalogProv?.disposeInfinitePaging();
     super.dispose();
   }
 
-  // Group SKUs → produk (productId)
-  List<_SalesProductGroup> _groupProducts(
-    List<Product> products,
-    String query,
-  ) {
-    final q = query.toLowerCase();
+  void _debouncedSearch(String raw) {
+    final q = raw.trim();
 
-    final filtered = (q.isEmpty)
-        ? products
-        : products.where((p) {
-            final nameHit = p.name.toLowerCase().contains(q);
-            final skuHit = p.productSkus.any(
-              (s) =>
-                  s.code.toLowerCase().contains(q) ||
-                  s.attributes.any(
-                    (a) =>
-                        a.name.toLowerCase().contains(q) ||
-                        a.value.toLowerCase().contains(q),
-                  ),
-            );
-            return nameHit || skuHit;
-          }).toList();
+    // Kosong → langsung trigger search="" supaya tidak nyantol di huruf terakhir
+    if (q.isEmpty) {
+      _debounce?.cancel();
+      _catalogProv?.setInfiniteSearch(context, '');
+      return;
+    }
 
-    int _minPrice(Product p) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 250), () {
+      _catalogProv?.setInfiniteSearch(context, q);
+    });
+  }
+
+  void _doSearch() {
+    final q = _searchC.text.trim();
+    _catalogProv?.setInfiniteSearch(context, q);
+  }
+
+  Future<void> _refreshPaging() async {
+    await _catalogProv?.refreshInfinite(context);
+  }
+
+  _SalesProductGroup _toGroup(Product p) {
+    int minPriceOf(Product p) {
       if (p.productSkus.isNotEmpty) {
         final prices = p.productSkus.map((s) => s.price).toList()..sort();
         return prices.first;
@@ -990,125 +1264,62 @@ class AddProductSheetState extends State<AddProductSheet> {
         final prices = p.productPrices.map((x) => x.price).toList()..sort();
         return prices.first;
       }
-      return 0;
+      return p.basePrice ?? 0;
     }
 
-    final groups =
-        filtered
-            .map(
-              (p) => _SalesProductGroup(
-                product: p,
-                productId: p.idProduct,
-                productName: p.name,
-                thumbUrl: p.primaryImageUrl,
-                skus: p.productSkus,
-                minPrice: _minPrice(p),
-              ),
-            )
-            .toList()
-          ..sort((a, b) => a.productName.compareTo(b.productName));
-
-    return groups;
+    return _SalesProductGroup(
+      product: p,
+      productId: p.idProduct,
+      productName: p.name,
+      thumbUrl: p.primaryImageUrl,
+      skus: p.productSkus,
+      minPrice: minPriceOf(p),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final prov = context.watch<SalesProvider>();
-    final productProv = context.watch<catalog.ProductProvider>();
+    final salesProv = context.watch<SalesProvider>();
+    final productProv = context.watch<ProductProvider>();
+    final controller = productProv.pagingController;
 
-    Widget body() {
-      if (prov.loadingProducts && prov.products.isEmpty) {
-        return const Expanded(
+    if (controller == null) {
+      return const SafeArea(
+        minimum: EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: SizedBox(
+          height: 240,
           child: Center(child: CircularProgressIndicator()),
-        );
-      }
-      if (prov.catalogError != null) {
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  color: AppColors.danger,
-                  size: 32,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Failed to load products',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  prov.catalogError!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: () => prov.loadCatalog(context),
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
-          ),
-        );
-      }
-
-      final groups = _groupProducts(productProv.products, _q);
-      if (groups.isEmpty) {
-        return const Expanded(child: Center(child: Text('No products found')));
-      }
-
-      return Expanded(
-        child: GridView.builder(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 0.62,
-          ),
-          itemCount: groups.length,
-          itemBuilder: (_, i) {
-            final g = groups[i];
-
-            // qty sudah dipilih utk product ini
-            final selectedQty = prov.cartItems
-                .where((it) => it.sku.productId == g.productId)
-                .fold<int>(0, (s, it) => s + it.qty);
-
-            return _SalesProductCard(
-              group: g,
-              selectedQty: selectedQty,
-              onChoose: () async {
-                final changed = await showModalBottomSheet<bool>(
-                  context: context,
-                  isScrollControlled: true,
-                  useSafeArea: true,
-                  backgroundColor: Colors.white,
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(16),
-                    ),
-                  ),
-                  builder: (_) => ChangeNotifierProvider<SalesProvider>.value(
-                    value: prov,
-                    child: _SalesVariantAttributeSheet(group: g),
-                  ),
-                );
-                if (mounted && changed == true) setState(() {});
-              },
-            );
-          },
         ),
       );
     }
 
-    // ringkasan: ambil dari cart provider
-    final selectedItems = prov.cartItems.length;
-    final selectedQty = prov.cartItems.fold<int>(0, (s, it) => s + it.qty);
+    final state = controller.value;
+    next() {
+      final pm = productProv.pageProducts;
+      final cur = pm?.currentPage;
+      final tot = pm?.totalPages;
+
+      // ⛔️ stop kalau sudah halaman terakhir
+      if (cur != null && tot != null && cur >= tot) {
+        debugPrint('[NEXT] blocked by meta cur=$cur tot=$tot');
+        return;
+      } else {
+        controller.fetchNextPage();
+      }
+    }
+
+    // Pakai data provider, bukan state.itemList
+    final firstPageEmptyAndDone = productProv.isFirstPageDoneEmpty;
+    debugPrint(firstPageEmptyAndDone.toString());
+    final reachedEnd = productProv.reachedEnd;
+
+    final pm = productProv.pageProducts;
+    final isAtEnd = (pm?.currentPage != null && pm?.totalPages != null)
+        ? (pm!.currentPage! >= pm.totalPages!)
+        : productProv.reachedEnd; // fallback
+
+    final selectedItems = salesProv.cartItems.length;
+    final selectedQty = salesProv.cartItems.fold<int>(0, (s, it) => s + it.qty);
 
     return SafeArea(
       minimum: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -1118,7 +1329,8 @@ class AddProductSheetState extends State<AddProductSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const _SheetHeader(title: 'Select Products'),
-            // Sticky-ish search
+
+            // SEARCH
             Material(
               elevation: 1,
               color: Colors.white,
@@ -1126,13 +1338,22 @@ class AddProductSheetState extends State<AddProductSheet> {
               child: TextField(
                 controller: _searchC,
                 textInputAction: TextInputAction.search,
+                onSubmitted: (_) => _doSearch(),
+                onChanged: (t) {
+                  setState(() {}); // update ikon clear
+                  _debouncedSearch(t);
+                },
                 decoration: InputDecoration(
                   hintText: 'Search product / SKU',
                   prefixIcon: const Icon(Icons.search_rounded),
                   suffixIcon: (_searchC.text.trim().isEmpty)
                       ? null
                       : IconButton(
-                          onPressed: _searchC.clear,
+                          onPressed: () {
+                            _searchC.clear();
+                            _doSearch(); // langsung search=""
+                            setState(() {});
+                          },
                           icon: const Icon(Icons.close_rounded),
                         ),
                   border: OutlineInputBorder(
@@ -1145,10 +1366,79 @@ class AddProductSheetState extends State<AddProductSheet> {
             ),
             const SizedBox(height: 8),
 
-            // BODY
-            body(),
+            // GRID (pagination menggunakan state & fetchNextPage)
+            Expanded(
+              child: firstPageEmptyAndDone
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('No products found'),
+                      ),
+                    )
+                  : PagedGridView<int, Product>(
+                      state: state,
+                      fetchNextPage: next,
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                            childAspectRatio: 0.62,
+                          ),
+                      builderDelegate: PagedChildBuilderDelegate<Product>(
+                        itemBuilder: (_, p, __) {
+                          final g = _toGroup(p);
+                          final qtyOfProduct = salesProv.cartItems
+                              .where((it) => it.sku.productId == g.productId)
+                              .fold<int>(0, (s, it) => s + it.qty);
 
-            // Footer ringkasan + CTA
+                          return _SalesProductCard(
+                            group: g,
+                            selectedQty: qtyOfProduct,
+                            onChoose: () async {
+                              final changed = await showModalBottomSheet<bool>(
+                                context: context,
+                                isScrollControlled: true,
+                                useSafeArea: true,
+                                backgroundColor: Colors.white,
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.vertical(
+                                    top: Radius.circular(16),
+                                  ),
+                                ),
+                                builder: (_) =>
+                                    ChangeNotifierProvider<SalesProvider>.value(
+                                      value: salesProv,
+                                      child: _SalesVariantAttributeSheet(
+                                        group: g,
+                                      ),
+                                    ),
+                              );
+                              if (mounted && changed == true) setState(() {});
+                            },
+                          );
+                        },
+                        firstPageProgressIndicatorBuilder: (_) => const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(24),
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
+                        newPageProgressIndicatorBuilder: (_) =>
+                            const SizedBox.shrink(),
+                        firstPageErrorIndicatorBuilder: (_) =>
+                            _ErrorRetry(onRetry: _refreshPaging),
+                        newPageErrorIndicatorBuilder: (_) =>
+                            _ErrorRetry(onRetry: next),
+                        // tetap boleh, tapi kita juga pasang footer manual di bawah
+                        noMoreItemsIndicatorBuilder: (_) =>
+                            const SizedBox.shrink(),
+                      ),
+                    ),
+            ),
+
+            // FOOTER
             SafeArea(
               top: false,
               minimum: const EdgeInsets.only(top: 8),
@@ -1172,13 +1462,10 @@ class AddProductSheetState extends State<AddProductSheet> {
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                     child: SizedBox(
                       width: double.infinity,
-                      height: 50, // 🔥 tinggi besar
+                      height: 50,
                       child: FilledButton.icon(
                         onPressed: () => Navigator.pop<bool>(context, true),
-                        icon: const Icon(
-                          Icons.check_rounded,
-                          size: 24,
-                        ), // 🔥 icon besar
+                        icon: const Icon(Icons.check_rounded, size: 24),
                         label: const Text('Use selected'),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.primary,
@@ -1189,7 +1476,7 @@ class AddProductSheetState extends State<AddProductSheet> {
                           ),
                           textStyle: const TextStyle(
                             fontWeight: FontWeight.w800,
-                            fontSize: 17, // 🔥 font besar
+                            fontSize: 17,
                             letterSpacing: .2,
                           ),
                         ),
@@ -1201,6 +1488,27 @@ class AddProductSheetState extends State<AddProductSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ErrorRetry extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _ErrorRetry({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.redAccent),
+          const SizedBox(height: 8),
+          const Text('Something went wrong'),
+          const SizedBox(height: 8),
+          OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
       ),
     );
   }

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
@@ -398,18 +399,7 @@ class _ProductScreenState extends State<ProductScreen> {
                 // LIST
                 Expanded(
                   child: firstPageDoneEmpty
-                      ? RefreshIndicator(
-                          onRefresh: _onPullRefresh,
-                          child: ListView(
-                            padding: const EdgeInsets.fromLTRB(16, 60, 16, 16),
-                            children: const [
-                              EmptyState(
-                                title: 'No Product',
-                                description: 'Please add new product',
-                              ),
-                            ],
-                          ),
-                        )
+                      ? _buildShimmerList()
                       : RefreshIndicator(
                           onRefresh: _onPullRefresh,
                           child: PagedListView<int, Product>(
@@ -870,6 +860,49 @@ class _ImageErrorPlaceholder extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget _buildShimmerList() {
+  return ListView.builder(
+    padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+    itemCount: 6,
+    itemBuilder: (_, i) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Shimmer.fromColors(
+          baseColor: Colors.grey.shade300,
+          highlightColor: Colors.grey.shade100,
+          child: Row(
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 14,
+                      width: double.infinity,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(height: 6),
+                    Container(height: 12, width: 120, color: Colors.white),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
 
 /// --------------------------------------------------------------------------

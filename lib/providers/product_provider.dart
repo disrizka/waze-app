@@ -1654,7 +1654,6 @@ class ProductProvider with ChangeNotifier {
     required String description,
     required String productBrandId,
     required String productCategoryId,
-    required String storeLocationId,
     required List<Map<String, dynamic>>
     images, // [{"image": "...", "position": 1}]
     required List<Map<String, dynamic>> skus,
@@ -1671,7 +1670,6 @@ class ProductProvider with ChangeNotifier {
       'description': description,
       'product_brand_id': productBrandId,
       'product_category_id': productCategoryId,
-      'store_location_id': storeLocationId,
       'images': images,
       'skus': skus,
       'prices': prices, // boleh null
