@@ -211,7 +211,7 @@ class EditProfileProvider with ChangeNotifier {
         didAnything = true;
 
         // gunakan ApiService.post (dengan context) → auto refresh token bila 401
-        final res = await ApiService.post(context, '/user/account/edit', {
+        final res = await ApiService.post(context, '/user/edit/account', {
           "firstname": firstName,
           "lastname": lastName,
           "username": username,
@@ -335,6 +335,146 @@ class EditProfileProvider with ChangeNotifier {
       }
     } catch (e, st) {
       debugPrint('_refreshUserFromServer ❌ $e\n$st');
+    }
+  }
+
+  /// Submit edit business (semua parameter boleh null).
+  /// - Jika [organisationLogoFile] != null → upload dulu (mengikuti pola submitEditProfile),
+  ///   ambil `uploadedFilename`, lalu masukkan ke payload `organisation_logo`.
+  /// - Jika [organisationLogoFile] == null → tidak kirim field `organisation_logo`.
+  ///
+  /// Return: (ok, uploadedFilename)
+  Future<(bool ok, String? uploadedFilename)> submitEditBusiness(
+    BuildContext context, {
+    String? name,
+    String? about,
+    String? organisationName,
+    File? organisationLogoFile,
+  }) async {
+    bool allOk = true;
+    String? uploadedFilename;
+    final successNotes = <String>[];
+    bool didAnything = false;
+
+    debugPrint('🟦 [submitEditBusiness] START');
+    debugPrint('  ↳ name=$name');
+    debugPrint('  ↳ about=$about');
+    debugPrint('  ↳ organisationName=$organisationName');
+    debugPrint('  ↳ organisationLogoFile=${organisationLogoFile?.path}');
+
+    try {
+      // 1) Upload organisation logo (jika ada)
+      if (organisationLogoFile != null) {
+        didAnything = true;
+        debugPrint('📤 [1] Uploading organisation logo...');
+
+        try {
+          final uploadRes = await ApiService.uploadFile(
+            organisationLogoFile.path,
+          );
+          debugPrint('📦 Upload result: $uploadRes');
+
+          if (uploadRes != null) {
+            final data =
+                (uploadRes['data'] as Map?)?.cast<String, dynamic>() ??
+                const {};
+            uploadedFilename = (data['filename'] ?? '').toString();
+            debugPrint('✅ Uploaded filename: $uploadedFilename');
+          }
+        } catch (e, st) {
+          debugPrint('❌ Upload photo failed: $e\n$st');
+        }
+
+        if (uploadedFilename == null || uploadedFilename.isEmpty) {
+          allOk = false;
+          debugPrint('🚫 No uploaded filename found, upload failed.');
+          _snack(context, 'Failed to upload organisation logo');
+        }
+      }
+
+      // 2) Bangun payload
+      final payload = <String, dynamic>{};
+
+      if (name != null && name.trim().isNotEmpty) {
+        payload['business_name'] = name.trim(); // 🔄 FIX: pakai business_name
+        debugPrint(
+          '🧩 Payload add: business_name="${payload['business_name']}"',
+        );
+      }
+      if (about != null && about.trim().isNotEmpty) {
+        payload['about'] = about.trim();
+        debugPrint('🧩 Payload add: about="${payload['about']}"');
+      }
+      if (organisationName != null && organisationName.trim().isNotEmpty) {
+        payload['organisation_name'] = organisationName.trim();
+        debugPrint(
+          '🧩 Payload add: organisation_name="${payload['organisation_name']}"',
+        );
+      }
+      if (uploadedFilename != null && uploadedFilename.isNotEmpty) {
+        payload['organisation_logo'] = uploadedFilename;
+        debugPrint(
+          '🧩 Payload add: organisation_logo="${payload['organisation_logo']}"',
+        );
+      }
+
+      if (payload.isNotEmpty) {
+        didAnything = true;
+      }
+
+      // 3) Jika tidak ada perubahan
+      if (!didAnything) {
+        debugPrint('ℹ️ Nothing to update, skipping API call.');
+        _snack(context, 'Nothing to update');
+        return (true, uploadedFilename);
+      }
+
+      // 4) Panggil API edit business
+      debugPrint('🚀 [2] Sending API request to /waveup/business/edit');
+      debugPrint('    Payload: $payload');
+
+      final res = await ApiService.post(
+        context,
+        '/waveup/business/edit',
+        payload,
+        withAccessToken: true,
+      );
+
+      debugPrint('📥 Response status: ${res.statusCode}');
+      debugPrint('📥 Response body: ${res.body}');
+
+      final j = _tryDecodeBody(res.body);
+      final ok = _isOk(j, http: res.statusCode);
+
+      if (ok) {
+        successNotes.add('Business updated');
+        debugPrint('✅ Business edit success');
+      } else {
+        allOk = false;
+        final msg = _pickMsg(
+          j,
+          http: res.statusCode,
+          fallback: 'Update business failed',
+        );
+        debugPrint('❌ Business edit failed: $msg');
+        _snack(context, msg);
+      }
+
+      // 5) Feedback
+      if (successNotes.isNotEmpty) {
+        final joined = successNotes.join(' · ');
+        debugPrint('📢 Success notes: $joined');
+        _snack(context, joined);
+      }
+
+      debugPrint(
+        '🟩 [submitEditBusiness] END → ok=$allOk uploaded="$uploadedFilename"',
+      );
+      return (allOk, uploadedFilename);
+    } catch (e, st) {
+      debugPrint('🔥 [submitEditBusiness] EXCEPTION: $e\n$st');
+      _snack(context, 'Failed to edit business.');
+      return (false, uploadedFilename);
     }
   }
 

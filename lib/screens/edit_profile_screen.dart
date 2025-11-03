@@ -3,6 +3,7 @@ import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 
 import '../constants/app_colors.dart';
@@ -67,6 +68,27 @@ class _EditProfileView extends StatelessWidget {
                             .read<EditProfileProvider>()
                             .submitEditProfile(context);
                         if (!context.mounted) return;
+
+                        if (ok) {
+                          // ✅ REFRESH DATA TERBARU
+                          final auth = context.read<AuthProvider>();
+                          final prefs = await SharedPreferences.getInstance();
+
+                          // Kunci active id saat ini
+                          final lockedId =
+                              (prefs.getString('activeBizId') ?? '').trim();
+                          debugPrint(
+                            '🔐 [BusinessEdit] lockedId="$lockedId" before refresh',
+                          );
+
+                          // Jalankan refresh profil/user yang juga memuat ulang daftar bisnis di prefs
+                          final refreshed = await auth.refreshCurrentUser(
+                            context,
+                          );
+                          debugPrint(
+                            '♻️ [BusinessEdit] refreshCurrentUser -> $refreshed',
+                          );
+                        }
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             behavior: SnackBarBehavior.floating,

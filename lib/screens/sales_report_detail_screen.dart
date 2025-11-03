@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Thermal printing
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart' as esc;
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'package:wa_blast/providers/sales_provider.dart';
 
@@ -32,6 +33,11 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
   bool _working = false;
   bool _busyRetryPay = false;
   bool _busyChange = false;
+
+  // ===== platform flags & regex MAC Android =====
+  bool get _isAndroid => Platform.isAndroid;
+  bool get _isIOS => Platform.isIOS;
+  final _macRegex = RegExp(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$');
 
   @override
   void initState() {
@@ -125,7 +131,7 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                     if (d == null) return;
                     setState(() => _working = true);
                     try {
-                      await _printThermal(d);
+                      await _printThermal(d); // ⬅️ pakai setting yang tersimpan
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
@@ -958,48 +964,128 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
   // =========================
   // === THERMAL PRINTING ====
   // =========================
+
+  /// Pastikan kita pakai setting yang disimpan & bluetooth ON.
+  /// Key yang dipakai:
+  /// - printer.type: 'bluetooth' | 'network'
+  /// - printer.bt.id: MAC (Android) / UUID (iOS BLE)
+  /// - printer.ip: IP printer
+  /// - printer.port: port (default 9100)
+  /// - printer.paper: 58 | 80
   Future<void> _printThermal(dynamic d) async {
     final sp = await SharedPreferences.getInstance();
-    final type =
-        sp.getString('printer.type') ?? 'bluetooth'; // 'bluetooth' | 'network'
-    final mac = sp.getString('printer.mac') ?? '';
-    final ip = sp.getString('printer.ip') ?? '';
+
+    final type = sp.getString('printer.type') ?? 'bluetooth';
+    // fallback ke 'printer.mac' bila setting lama
+    final btId =
+        (sp.getString('printer.bt.id') ?? sp.getString('printer.mac') ?? '')
+            .trim();
+    final ip = (sp.getString('printer.ip') ?? '').trim();
     final port = sp.getInt('printer.port') ?? 9100;
     final paper = sp.getInt('printer.paper') ?? 58;
 
-    final bool isDev = kDebugMode;
-    if (Platform.isIOS && type == 'bluetooth' && isDev) {
-      throw 'Bluetooth printing isn’t supported for this printer/plugin in iOS Debug. ';
-    }
-
+    // Siapkan data ESC/POS
     final bytes = await _buildEscPosBytes(d, paper: paper);
 
     if (type == 'network') {
-      if (ip.isEmpty) throw 'IP Address is empty';
+      if (ip.isEmpty) {
+        throw 'IP Address is empty (atur di Settings > Thermal Printer)';
+      }
       await _sendTcpRaw(host: ip, port: port, bytes: bytes);
+      return;
+    }
+
+    // ===== Bluetooth path =====
+    if (btId.isEmpty) {
+      throw 'Bluetooth device not selected. Buka Settings > Thermal Printer lalu "Scan & Pick".';
+    }
+
+    // iOS: minta izin BLE (best effort)
+    await _ensureBluetoothPermission();
+
+    // Pastikan bluetooth ON
+    final btOn = await PrintBluetoothThermal.bluetoothEnabled;
+    if (btOn != true) {
+      throw 'Bluetooth is OFF. Nyalakan Bluetooth terlebih dahulu.';
+    }
+
+    // Android harus MAC valid (format XX:XX:XX:XX:XX:XX)
+    if (_isAndroid && !_macRegex.hasMatch(btId)) {
+      throw 'Invalid Bluetooth MAC. Pair di Settings Android & pilih ulang di app.';
+    }
+
+    // Putuskan koneksi lama (best effort)
+    try {
+      await PrintBluetoothThermal.disconnect;
+    } catch (_) {}
+
+    // Coba connect (dengan 1x retry ringan)
+    bool connected = await PrintBluetoothThermal.connect(
+      macPrinterAddress: btId,
+    );
+    if (!connected) {
+      await Future.delayed(const Duration(milliseconds: 250));
+      connected = await PrintBluetoothThermal.connect(macPrinterAddress: btId);
+    }
+    if (!connected) {
+      throw 'Unable to connect to printer ($btId).';
+    }
+
+    final status = await PrintBluetoothThermal.connectionStatus;
+    if (status != true) {
+      throw 'Bluetooth not connected.';
+    }
+
+    // Delay kecil sebelum tulis pertama (beberapa chipset butuh warm-up)
+    await Future.delayed(const Duration(milliseconds: 120));
+
+    // Kirim data: WAJIB List<int> + CHUNKED supaya stabil
+    await _writeBluetoothBytesChunked(bytes);
+
+    // (opsional) tunggu sebentar agar buffer kirim selesai sebelum user close
+    await Future.delayed(const Duration(milliseconds: 150));
+  }
+
+  /// Kirim dalam chunk agar stabil & menghindari ClassCastException
+  /// iOS BLE umumnya 20 bytes; Android SPP relatif besar.
+  Future<void> _writeBluetoothBytesChunked(Uint8List data) async {
+    final payload = data.toList(); // konversi ke List<int> (bukan Uint8List)
+    final chunkSize = _isIOS ? 20 : 512;
+
+    for (int offset = 0; offset < payload.length; offset += chunkSize) {
+      final end = (offset + chunkSize < payload.length)
+          ? offset + chunkSize
+          : payload.length;
+      final part = payload.sublist(offset, end);
+
+      final ok = await PrintBluetoothThermal.writeBytes(part);
+      if (kDebugMode) {
+        debugPrint('[BT] write part $offset..$end => $ok');
+      }
+      if (ok != true) throw 'Write failed at $offset..$end';
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
+  }
+
+  Future<void> _ensureBluetoothPermission() async {
+    if (_isIOS) {
+      final status = await Permission.bluetooth.request();
+      if (status.isDenied) throw 'Bluetooth permission denied';
     } else {
-      if (mac.isEmpty) throw 'MAC Address is empty';
+      final statuses = await [
+        Permission.bluetooth,
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+      ].request();
 
-      final btOn = await PrintBluetoothThermal.bluetoothEnabled;
-      if (btOn != true) throw 'Bluetooth is off';
-
-      try {
-        await PrintBluetoothThermal.disconnect;
-      } catch (_) {}
-      final ok = await PrintBluetoothThermal.connect(macPrinterAddress: mac);
-      if (ok != true) throw 'Unable to connect to $mac';
-
-      final connected = await PrintBluetoothThermal.connectionStatus;
-      if (connected != true) throw 'Bluetooth not connected';
-
-      final okWrite = await PrintBluetoothThermal.writeBytes(bytes);
-      if (okWrite != true) throw 'Failed to send to Bluetooth printer';
+      if (statuses[Permission.bluetoothConnect]?.isDenied == true) {
+        throw 'Bluetooth Connect permission is required';
+      }
     }
   }
 
   Future<Uint8List> _buildEscPosBytes(dynamic d, {required int paper}) async {
     final fMoney = NumberFormat.decimalPattern('id_ID');
-
     String money(int v) => 'Rp ${fMoney.format(v)}';
 
     final profile = await esc.CapabilityProfile.load();
@@ -1223,13 +1309,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
     } finally {
       await socket?.close();
     }
-  }
-
-  Future<void> _sendBluetoothRaw(Uint8List bytes) async {
-    final btOn = await PrintBluetoothThermal.bluetoothEnabled;
-    if (!btOn) throw 'Bluetooth is off';
-    final ok = await PrintBluetoothThermal.writeBytes(bytes);
-    if (!ok) throw 'Failed to send to Bluetooth printer';
   }
 
   // =======================
@@ -1571,6 +1650,7 @@ class _KV extends StatelessWidget {
           ? CrossAxisAlignment.end
           : CrossAxisAlignment.start,
       children: [
+        const SizedBox(height: 4),
         Text(
           label,
           style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),

@@ -14,6 +14,7 @@ import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/env.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
+import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
@@ -28,6 +29,7 @@ import 'package:wa_blast/screens/sales/manage_sales_screen.dart';
 import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
 import 'package:wa_blast/screens/sales_report_detail_screen.dart';
 import 'package:wa_blast/screens/sales_report_screen.dart';
+import 'package:wa_blast/screens/settings/business/business_edit_screen.dart';
 import 'package:wa_blast/screens/settings/business/business_settings_screen.dart';
 import 'package:wa_blast/screens/settings/thermal_printer_setting.dart';
 import 'package:wa_blast/screens/store_list_screen.dart';
@@ -137,6 +139,7 @@ class _AppShell extends StatelessWidget {
           lazy: false,
         ),
         ChangeNotifierProvider(create: (_) => RoleProvider(), lazy: true),
+        ChangeNotifierProvider(create: (_) => ReportProvider(), lazy: true),
       ],
       child: const _Bootstrapper(child: MyApp()),
     );
@@ -603,6 +606,13 @@ class MyApp extends StatelessWidget {
             return _platformRouteAnimated(
               settings,
               const BusinessSettingsScreen(),
+              android: AndroidTransition.slideUp,
+            );
+
+          case '/business/edit':
+            return _platformRouteAnimated(
+              settings,
+              const BusinessEditScreen(),
               android: AndroidTransition.slideUp,
             );
 

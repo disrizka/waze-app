@@ -1,6 +1,7 @@
 // lib/screens/home_screen.dart
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -41,16 +42,23 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _didKickRoleLoad = false;
+
   final GlobalKey<_HeaderGradientState> _headerKey =
       GlobalKey<_HeaderGradientState>();
 
   Future<void> _kickDailyFetch() async {
     final rp = context.read<ReportProvider>();
-    // pastikan daily, lalu fetch
-    if (rp.period != SalesPeriod.daily) {
-      rp.setPeriod(SalesPeriod.daily);
+
+    // Pastikan tab/kind yang dipakai adalah SALES
+    rp.setKind(ReportKind.sales, notify: false);
+
+    // Set period = daily khusus untuk SALES
+    if (rp.periodOf(ReportKind.sales) != SalesPeriod.daily) {
+      rp.setPeriod(SalesPeriod.daily, forKind: ReportKind.sales, notify: false);
     }
-    await rp.fetchSalesReport(context); // → GET .../report/sales?period=daily
+
+    // Fetch endpoint: /report/sales?period=daily
+    await rp.fetch(context, kind: ReportKind.sales);
   }
 
   @override
@@ -167,7 +175,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 24),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 20),
-                      child: _TrackingReportPanel(),
+                      child: _TrackingReportGate(),
                     ),
                     const SizedBox(height: 24),
                   ],
@@ -255,10 +263,10 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     if (changed == true && mounted) {
       // reload label/logo setelah switch
       await _loadPrefs();
-      await context.read<ReportProvider>().changePeriodAndFetch(
-        context,
-        SalesPeriod.daily,
-      );
+      final rp = context.read<ReportProvider>();
+      rp.setKind(ReportKind.sales, notify: false);
+      rp.setPeriod(SalesPeriod.daily, forKind: ReportKind.sales, notify: false);
+      await rp.fetch(context, kind: ReportKind.sales);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -921,95 +929,6 @@ class _GridMenu extends StatelessWidget {
   }
 }
 
-// class _GridMenu extends StatelessWidget {
-//   const _GridMenu();
-
-//   @override
-//   Widget build(BuildContext context) {
-//     final t = AppLocalizations.of(context)!;
-//     final role = context.watch<RoleProvider>();
-
-//     // (items) tetap sama persis seperti punyamu...
-//     final allItems = <_MenuItemData>[
-//       _MenuItemData(
-//         t.grid_hr,
-//         'assets/hr_icon.png',
-//         onTap: () => Navigator.pushNamed(context, '/hr'),
-//         pageKeys: const ['employee', 'role'],
-//         routeName: '/hr',
-//       ),
-//       _MenuItemData(
-//         t.grid_product,
-//         'assets/product_icon.png',
-//         onTap: () => Navigator.pushNamed(context, '/product'),
-//         pageKeys: const ['product'],
-//         routeName: '/product',
-//       ),
-//       _MenuItemData(
-//         t.grid_sales,
-//         'assets/sales_icon.png',
-//         onTap: () => Navigator.pushNamed(context, '/sales'),
-//         pageKeys: const ['sale'],
-//         routeName: '/sales',
-//       ),
-//       _MenuItemData(
-//         t.grid_purchase,
-//         'assets/purchase_icon.png',
-//         onTap: () => Navigator.pushNamed(context, '/purchase'),
-//         pageKeys: const ['purchase'],
-//         routeName: '/purchase',
-//       ),
-//       _MenuItemData(
-//         t.grid_report,
-//         'assets/report_icon.png',
-//         onTap: () => Navigator.pushNamed(context, '/report'),
-//         pageKeys: const ['report'],
-//         routeName: '/report',
-//       ),
-//       _MenuItemData(
-//         t.grid_setting,
-//         'assets/setting_icon.png',
-//         onTap: () => debugPrint("Setting tapped"),
-//         pageKeys: const [],
-//         routeName: null,
-//       ),
-//     ];
-
-//     final items = role.isReady
-//         ? allItems.where((it) {
-//             final allowByPage = it.pageKeys.any(role.canPage);
-//             final allowByRoute = (it.routeName != null)
-//                 ? role.can(it.routeName!)
-//                 : false;
-//             final isPublic = it.pageKeys.isEmpty && (it.routeName == null);
-//             return isPublic || allowByPage || allowByRoute;
-//           }).toList()
-//         : allItems;
-
-//     // RESPONSIF: iPhone tetap 3 kolom; iPad 4–5 kolom tergantung lebar
-//     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-//     final width = MediaQuery.of(context).size.width;
-//     final int crossAxisCount = !isTablet
-//         ? 3
-//         : (width >= 1200 ? 5 : 4); // iPad besar = 5 kolom, iPad reguler = 4
-
-//     final double spacing = isTablet ? 28 : 30; // rasa iPad sedikit lebih rapat
-
-//     return GridView.builder(
-//       shrinkWrap: true,
-//       physics: const NeverScrollableScrollPhysics(),
-//       itemCount: items.length,
-//       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-//         crossAxisCount: crossAxisCount,
-//         mainAxisSpacing: isTablet ? 24 : 19,
-//         crossAxisSpacing: spacing,
-//         childAspectRatio: isTablet ? 1.0 : 0.90, // iPad tile lebih kotak
-//       ),
-//       itemBuilder: (_, i) => _MenuTile(data: items[i]),
-//     );
-//   }
-// }
-
 class _MenuTile extends StatelessWidget {
   final _MenuItemData data;
   const _MenuTile({required this.data});
@@ -1411,6 +1330,65 @@ class _BusinessSwitcherSheetState extends State<_BusinessSwitcherSheet> {
   }
 }
 
+class _TrackingReportGate extends StatelessWidget {
+  const _TrackingReportGate();
+
+  Future<bool> _hasActiveBusiness() async {
+    final prefs = await SharedPreferences.getInstance();
+    final id = (prefs.getString('activeBizId') ?? '').trim();
+    return id.isNotEmpty;
+  }
+
+  Future<String> _getPrefsRoleName() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getString('activeBizRoleName') ?? '').trim().toLowerCase();
+  }
+
+  bool _allowByPage(RoleProvider role) {
+    if (!role.isReady) return false;
+    final canSale = role.canPage('sale');
+    final canReport = role.canPage('report');
+    return canSale || canReport; // ← pakai OR
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer2<RoleProvider, ReportProvider>(
+      builder: (context, role, _, __) {
+        return FutureBuilder(
+          future: Future.wait([_hasActiveBusiness(), _getPrefsRoleName()]),
+          builder: (context, snap) {
+            if (!snap.hasData) return const SizedBox.shrink();
+
+            final hasActiveBiz = snap.data![0] as bool;
+            final prefsRoleName = snap.data![1] as String;
+            final canSale = role.canPage('sale');
+            final canReport = role.canPage('report');
+            final isOwner = prefsRoleName == 'owner';
+
+            if (kDebugMode) {
+              debugPrint(
+                '[TrackingReportGate] prefsRoleName="$prefsRoleName", '
+                'canPage(sale)=$canSale, canPage(report)=$canReport, '
+                'hasActiveBiz=$hasActiveBiz',
+              );
+            }
+
+            // guard utama (pakai OR)
+            if (!hasActiveBiz) return const SizedBox.shrink();
+            if (!(canSale || canReport || isOwner)) {
+              return const SizedBox.shrink();
+            }
+
+            // lolos → tampilkan panel
+            return const _TrackingReportPanel();
+          },
+        );
+      },
+    );
+  }
+}
+
 class _TrackingReportPanel extends StatelessWidget {
   const _TrackingReportPanel();
 
@@ -1420,19 +1398,32 @@ class _TrackingReportPanel extends StatelessWidget {
 
     return Consumer<ReportProvider>(
       builder: (context, rp, _) {
-        final isLoading = rp.isLoading;
-        final summary = rp.summary;
-        final err = rp.lastError;
+        // BACA STATE PER-KIND: SALES
+        const kind = ReportKind.sales;
+        final isLoading = rp.isLoadingOf(kind);
+        final summary = rp.summaryOf(kind);
+        final err = rp.lastErrorOf(kind);
+
+        // Jika summary belum ada, fallback hitung dari items
+        final items = rp.itemsOf(kind);
+        final num revenueComputed = items.fold<num>(
+          0,
+          (acc, e) => acc + e.totalRevenue,
+        );
+        final int qtyComputed = items.fold<int>(
+          0,
+          (acc, e) => acc + e.totalQty,
+        );
 
         final String salesToday = isLoading
             ? '—'
             : _formatRpCompact2Digits(
-                summary?.totalRevenue ?? rp.totalRevenueComputed,
+                (summary?.totalRevenue ?? revenueComputed),
               );
 
         final String productsToday = isLoading
             ? '—'
-            : '${summary?.totalQty ?? rp.totalQtyComputed} product';
+            : '${summary?.totalQty ?? qtyComputed} product';
 
         return Container(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),

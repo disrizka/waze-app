@@ -14,8 +14,6 @@ import 'package:wa_blast/widgets/reusable_pickers.dart';
 import 'package:wa_blast/widgets/show_fancy_bar.dart';
 import 'package:wa_blast/widgets/stepper_header.dart';
 import 'package:wa_blast/widgets/sticky_totals_bar.dart';
-// NOTE: StickyTotalsBar sudah diexpose dari make_order_step (kalau mau pakai versi widgets, aktifkan import di bawah)
-// import 'package:wa_blast/widgets/sticky_totals_bar.dart';
 
 class CheckOrderStep extends StatefulWidget {
   final bool withHeader;
@@ -41,6 +39,9 @@ class CheckOrderStepState extends State<CheckOrderStep> {
 
   int _paymentMethod = 1;
 
+  // Controller untuk scroll vertikal DataTable (order table)
+  final ScrollController _tableVScrollCtrl = ScrollController();
+
   static const _methods = <_PaymentOption>[
     _PaymentOption(1, 'Cash', Icons.payments_outlined, 'Pay with cash'),
     _PaymentOption(2, 'Debit', Icons.credit_card, 'Use a debit card'),
@@ -63,10 +64,12 @@ class CheckOrderStepState extends State<CheckOrderStep> {
     _customerName = prov.customerName ?? '';
   }
 
+  @override
   void dispose() {
     _shippingC.dispose();
     _noteC.dispose();
-    _orderDiscountC.dispose(); // NEW
+    _orderDiscountC.dispose();
+    _tableVScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -129,18 +132,6 @@ class CheckOrderStepState extends State<CheckOrderStep> {
       );
       return false;
     }
-    if (_customerId == null || _customerId!.isEmpty) {
-      showFancySnackBar(
-        ctx,
-        message: 'Please select customer',
-        icon: Icons.person,
-        actionLabel: 'Select',
-        onAction: () {
-          // arahkan user ke picker lokasi store, kalau ada
-        },
-      );
-      return false;
-    }
     if (_formKey.currentState?.validate() != true) return false;
 
     final shipping = int.tryParse(_shippingC.text.trim()) ?? 0;
@@ -161,120 +152,24 @@ class CheckOrderStepState extends State<CheckOrderStep> {
   Widget build(BuildContext context) {
     // untuk men-disable tombol payment bila cart kosong
     final cartLen = context.select<SalesProvider, int>((p) => p.cartLen);
-
     final prov = context.watch<SalesProvider>();
 
     final content = Form(
       key: _formKey,
       child: Column(
         children: [
-          // // ====== ORDER SUMMARY (TABLE of selected products) ======
-          // _CardSection(
-          //   titleWidget: Row(
-          //     children: [
-          //       const Icon(
-          //         Icons.receipt_long_outlined,
-          //         size: 18,
-          //         color: UI.sub,
-          //       ),
-          //       const SizedBox(width: 8),
-          //       Text('Order summary', style: UI.tsSub),
-          //     ],
-          //   ),
-          //   child: _orderTable(cartLen, prov),
-          // ),
-          // const SizedBox(height: 12),
-
-          // _CardSection(
-          //   titleWidget: Row(
-          //     children: const [
-          //       Icon(Icons.local_offer_outlined, size: 18, color: UI.sub),
-          //       SizedBox(width: 8),
-          //       Text('Adjustments', style: UI.tsSub),
-          //     ],
-          //   ),
-          //   child: Column(
-          //     crossAxisAlignment: CrossAxisAlignment.start,
-          //     children: [
-          //       const SizedBox(height: 4),
-          //       Text('Discount (IDR)', style: UI.tsSub),
-          //       const SizedBox(height: 6),
-          //       TextFormField(
-          //         controller: _orderDiscountC,
-          //         keyboardType: TextInputType.number,
-          //         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          //         decoration: InputDecoration(
-          //           hintText: '0',
-          //           isDense: true,
-          //           border: UI.thinBorder(),
-          //           focusedBorder: UI.thinBorder(AppColors.primary),
-          //           prefixText: 'Rp ',
-          //         ),
-          //         onChanged: (v) {
-          //           final d = int.tryParse(v) ?? 0;
-          //           context.read<SalesProvider>().setOrderMeta(discount: d);
-          //           setState(() {}); // refresh total bar segera
-          //         },
-          //         validator: (v) {
-          //           final n = int.tryParse((v ?? '').trim());
-          //           if ((v ?? '').trim().isEmpty) return null;
-          //           if (n == null) return 'Invalid number';
-          //           if (n < 0) return 'Must be ≥ 0';
-          //           return null;
-          //         },
-          //       ),
-          //     ],
-          //   ),
-          // ),
-          // const SizedBox(height: 12),
           const SizedBox(height: 12),
 
-          // ====== ORDER SUMMARY (TABLE of selected products) ======
           // ====== ORDER SUMMARY (LIST kompak, sama persis MakeOrderStep) ======
           _CardSection(
             titleWidget: Row(
-              children: [
-                const Icon(
-                  Icons.receipt_long_outlined,
-                  size: 18,
-                  color: UI.sub,
-                ),
-                const SizedBox(width: 8),
+              children: const [
+                Icon(Icons.receipt_long_outlined, size: 18, color: UI.sub),
+                SizedBox(width: 8),
                 Text('Order summary', style: UI.tsSub),
               ],
             ),
-            child: _orderSummaryList(
-              prov,
-              context,
-            ), // ⬅️ pakai list, bukan DataTable
-          ),
-          const SizedBox(height: 12),
-
-          const SizedBox(height: 12),
-
-          // ====== NOTES ======
-          _CardSection(
-            titleWidget: Row(
-              children: [
-                const Icon(
-                  Icons.sticky_note_2_outlined,
-                  size: 18,
-                  color: UI.sub,
-                ),
-                const SizedBox(width: 8),
-                Text('Notes', style: UI.tsSub),
-              ],
-            ),
-            child: TextFormField(
-              controller: _noteC,
-              decoration: InputDecoration(
-                hintText: 'Optional notes',
-                isDense: true,
-                border: UI.thinBorder(),
-                focusedBorder: UI.thinBorder(AppColors.primary),
-              ),
-              maxLines: 2,
-            ),
+            child: _OrderSummaryList(prov: prov), // ← pakai widget stateful
           ),
           const SizedBox(height: 12),
         ],
@@ -359,7 +254,7 @@ class CheckOrderStepState extends State<CheckOrderStep> {
     );
   }
 
-  // ====== Compact DataTable builder (copied from MakeOrderStep; show-only selection) ======
+  // ====== Compact DataTable builder (show-only selection) ======
   Widget _orderTable(int cartLen, SalesProvider prov) {
     if (cartLen == 0) {
       return Container(
@@ -595,10 +490,15 @@ class CheckOrderStepState extends State<CheckOrderStep> {
                 child: SizedBox(
                   height: tableViewportHeight,
                   child: Scrollbar(
+                    controller:
+                        _tableVScrollCtrl, // ← pakai controller yang sama
                     thumbVisibility: true,
                     thickness: 6,
                     radius: const Radius.circular(999),
-                    child: SingleChildScrollView(child: table),
+                    child: SingleChildScrollView(
+                      controller: _tableVScrollCtrl, // ← sama
+                      child: table,
+                    ),
                   ),
                 ),
               )
@@ -648,81 +548,106 @@ class _SelectTile extends StatelessWidget {
   }
 }
 
-// ====== Order Summary — Compact List (auto height, scroll only if > 5) ======
-Widget _orderSummaryList(SalesProvider prov, BuildContext context) {
-  if (prov.cartLen == 0) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: UI.bg,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: const [
-          Icon(Icons.inventory_2_outlined, color: UI.sub),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Belum ada item. Tambahkan produk dari katalog.',
-              style: UI.tsSub,
+// ===== Order Summary — Compact List (auto height, scroll only if > 4/9) =====
+class _OrderSummaryList extends StatefulWidget {
+  final SalesProvider prov;
+  const _OrderSummaryList({Key? key, required this.prov}) : super(key: key);
+
+  @override
+  State<_OrderSummaryList> createState() => _OrderSummaryListState();
+}
+
+class _OrderSummaryListState extends State<_OrderSummaryList> {
+  final ScrollController _listCtrl = ScrollController();
+
+  @override
+  void dispose() {
+    _listCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prov = widget.prov;
+
+    if (prov.cartLen == 0) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: UI.bg,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: const [
+            Icon(Icons.inventory_2_outlined, color: UI.sub),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Belum ada item. Tambahkan produk dari katalog.',
+                style: UI.tsSub,
+              ),
             ),
+          ],
+        ),
+      );
+    }
+
+    const double _rowExtent = 86.0; // tinggi 1 baris
+    final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+    final int maxVisible = isTablet ? 9 : 4;
+    final bool needScroll = prov.cartLen > maxVisible;
+
+    final list = ListView.separated(
+      controller: needScroll
+          ? _listCtrl
+          : null, // ← pasang controller saat scroll
+      padding: EdgeInsets.zero,
+      itemCount: prov.cartItems.length,
+      shrinkWrap: !needScroll,
+      physics: needScroll
+          ? const AlwaysScrollableScrollPhysics()
+          : const NeverScrollableScrollPhysics(),
+      separatorBuilder: (_, __) => const Divider(height: 1, color: UI.line),
+      itemBuilder: (context, i) {
+        final it = prov.cartItems[i];
+        final sku = it.sku;
+
+        // hitung line total (harga efek per item × qty)
+        final itemDisc = prov.perItemDiscountOf(sku.skuId);
+        final unitAfterItem = (sku.price - itemDisc).clamp(0, 1 << 31) as int;
+        final lineTotal = unitAfterItem * it.qty;
+
+        return SizedBox(
+          height: _rowExtent,
+          child: _OrderItemTile(
+            imageUrl: sku.imageUrl,
+            productName: sku.productName,
+            skuCode: sku.skuCode,
+            qty: it.qty,
+            lineTotal: lineTotal,
+            onMinus: () => prov.removeOne(sku),
+            onPlus: () => prov.add(sku),
           ),
-        ],
+        );
+      },
+    );
+
+    if (!needScroll) return list;
+
+    // batasi tinggi sesuai device: 4 baris (mobile) / 9 baris (tablet)
+    final double maxHeight =
+        (_rowExtent * maxVisible) + (1.0 * (maxVisible - 1));
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: Scrollbar(
+        controller: _listCtrl, // ← pakai controller yang sama
+        thumbVisibility: true,
+        radius: const Radius.circular(999),
+        child: list,
       ),
     );
   }
-
-  const double _rowExtent = 86.0; // tinggi 1 baris
-  final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-  final int maxVisible = isTablet ? 9 : 4;
-
-  final bool needScroll = prov.cartLen > maxVisible;
-
-  final list = ListView.separated(
-    padding: EdgeInsets.zero,
-    itemCount: prov.cartItems.length,
-    shrinkWrap: !needScroll,
-    physics: needScroll
-        ? const AlwaysScrollableScrollPhysics()
-        : const NeverScrollableScrollPhysics(),
-    separatorBuilder: (_, __) => const Divider(height: 1, color: UI.line),
-    itemBuilder: (context, i) {
-      final it = prov.cartItems[i];
-      final sku = it.sku;
-
-      // hitung line total (harga efek per item × qty)
-      final itemDisc = prov.perItemDiscountOf(sku.skuId);
-      final unitAfterItem = (sku.price - itemDisc).clamp(0, 1 << 31) as int;
-      final lineTotal = unitAfterItem * it.qty;
-
-      return SizedBox(
-        height: _rowExtent,
-        child: _OrderItemTile(
-          imageUrl: sku.imageUrl,
-          productName: sku.productName,
-          skuCode: sku.skuCode,
-          qty: it.qty,
-          lineTotal: lineTotal,
-          onMinus: () => prov.removeOne(sku),
-          onPlus: () => prov.add(sku),
-        ),
-      );
-    },
-  );
-
-  if (!needScroll) return list;
-
-  // batasi tinggi sesuai device: 5 baris (mobile) / 9 baris (tablet)
-  final double maxHeight = (_rowExtent * maxVisible) + (1.0 * (maxVisible - 1));
-
-  return ConstrainedBox(
-    constraints: BoxConstraints(maxHeight: maxHeight),
-    child: Scrollbar(
-      thumbVisibility: true,
-      radius: const Radius.circular(999),
-      child: list,
-    ),
-  );
 }
 
 class _OrderItemTile extends StatelessWidget {
@@ -970,7 +895,7 @@ class _CardSection extends StatelessWidget {
   }
 }
 
-// ===== Compact Qty Editor used in DataTable (copy dari MakeOrderStep) =====
+// ===== Compact Qty Editor used in DataTable =====
 class _QtyEditor2 extends StatefulWidget {
   final int qty;
   final VoidCallback onMinus;

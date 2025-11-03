@@ -1,14 +1,37 @@
-// lib/providers/report_provider.dart
+// ReportProvider terpadu untuk Sales, Purchase, dan Revenue
+// - Menyimpan state per-kind (sales/purchase/revenue) agar tidak saling menimpa.
+// - Period: daily, month, year
+// - Endpoint: /waveup/{bizId}/report/{sales|purchase|revenue}?period=...
+//
+// Catatan:
+// - Bergantung pada: BizIdCache & ApiJson.getMap (sesuai project kamu)
+// - App tidak perlu punya provider terpisah; cukup satu ReportProvider ini.
+
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'package:wa_blast/core/provider_helper.dart'; // BizIdCache (juga dipakai di StoreProvider kalian)
+import 'package:wa_blast/core/provider_helper.dart'; // BizIdCache
 import 'package:wa_blast/services/api_service.dart'; // ApiJson.getMap
 
-/// ===============================================================
-/// ENUM & UTIL
-/// ===============================================================
+/// Jenis report yang ditampilkan di UI (tab).
+enum ReportKind { sales, purchase, revenue }
+
+extension ReportKindX on ReportKind {
+  String get pathSegment => switch (this) {
+    ReportKind.sales => 'sales',
+    ReportKind.purchase => 'purchase',
+    ReportKind.revenue => 'revenue',
+  };
+
+  String get label => switch (this) {
+    ReportKind.sales => 'Sales',
+    ReportKind.purchase => 'Purchase',
+    ReportKind.revenue => 'Revenue',
+  };
+}
+
+/// Period report sesuai API.
 enum SalesPeriod { daily, month, year }
 
 extension SalesPeriodX on SalesPeriod {
@@ -29,11 +52,15 @@ extension SalesPeriodX on SalesPeriod {
         return SalesPeriod.month;
     }
   }
+
+  String get label => switch (this) {
+    SalesPeriod.daily => '1 Hari',
+    SalesPeriod.month => '1 Bulan',
+    SalesPeriod.year => '1 Tahun',
+  };
 }
 
-/// ===============================================================
-/// MODELS
-/// ===============================================================
+/// ================== MODELS (bentuk respons kamu) ==================
 @immutable
 class SalesReportItem {
   final String productSku;
@@ -68,7 +95,7 @@ class SalesReportItem {
 
   @override
   String toString() =>
-      'SalesReportItem(sku: $productSku, name: $productName, qty: $totalQty, rev: $totalRevenue)';
+      'Item(sku: $productSku, name: $productName, qty: $totalQty, rev: $totalRevenue)';
 }
 
 @immutable
@@ -95,10 +122,6 @@ class SalesReportSummary {
     'total_revenue': totalRevenue,
     'total_revenue_formatted': totalRevenueFormatted,
   };
-
-  @override
-  String toString() =>
-      'Summary(qty: $totalQty, revenue: $totalRevenue, label: $totalRevenueFormatted)';
 }
 
 @immutable
@@ -111,7 +134,7 @@ class SalesReportRange {
   factory SalesReportRange.fromJson(Map<String, dynamic> j) {
     DateTime? _parse(String? s) {
       if (s == null || s.isEmpty) return null;
-      // Format sample: "2025-09-30"
+      // Format contoh: "2025-11-03"
       return DateTime.tryParse(s);
     }
 
@@ -121,209 +144,281 @@ class SalesReportRange {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+    'start_date': startDate?.toIso8601String(),
+    'end_date': endDate?.toIso8601String(),
+  };
+
   @override
   String toString() => 'Range($startDate → $endDate)';
 }
 
-/// ===============================================================
-/// PROVIDER
-/// ===============================================================
+/// State per-kind agar data tiap tab tidak saling menimpa.
+class _ReportState {
+  SalesPeriod period;
+  bool isLoading;
+  String? lastError;
+  SalesReportSummary? summary;
+  SalesReportRange? range;
+  final List<SalesReportItem> items;
+
+  _ReportState({
+    this.period = SalesPeriod.month,
+    this.isLoading = false,
+    this.lastError,
+    this.summary,
+    this.range,
+    List<SalesReportItem>? items,
+  }) : items = items ?? <SalesReportItem>[];
+
+  void clear() {
+    summary = null;
+    range = null;
+    items.clear();
+  }
+
+  Map<String, dynamic> toCompactMap(ReportKind kind) => {
+    'kind': kind.pathSegment,
+    'period': period.query,
+    'range': range?.toJson(),
+    'summary': summary?.toJson(),
+    'count': items.length,
+  };
+}
+
+/// ================== PROVIDER ==================
 class ReportProvider with ChangeNotifier {
-  ReportProvider({SalesPeriod initialPeriod = SalesPeriod.month})
-    : _period = initialPeriod;
+  ReportProvider({
+    ReportKind initialKind = ReportKind.sales,
+    SalesPeriod initialPeriod = SalesPeriod.month,
+  }) : _currentKind = initialKind {
+    // Inisialisasi 3 state
+    for (final k in ReportKind.values) {
+      _states[k] = _ReportState(
+        period: k == initialKind ? initialPeriod : SalesPeriod.month,
+      );
+    }
+  }
 
-  // ---- State
-  bool _loading = false;
-  String? _lastError;
+  // Kind aktif (tab yang sedang dilihat)
+  ReportKind _currentKind;
+  final Map<ReportKind, _ReportState> _states = {};
 
-  // ---- Data
-  SalesPeriod _period;
-  SalesReportSummary? _summary;
-  SalesReportRange? _range;
-  final List<SalesReportItem> _items = [];
+  /// ===== Getters umum untuk UI aktif (current kind) =====
+  ReportKind get currentKind => _currentKind;
 
-  // ---- Getters
-  bool get isLoading => _loading;
-  String? get lastError => _lastError;
+  SalesPeriod get period => _states[_currentKind]!.period;
+  bool get isLoading => _states[_currentKind]!.isLoading;
+  String? get lastError => _states[_currentKind]!.lastError;
+  SalesReportSummary? get summary => _states[_currentKind]!.summary;
+  SalesReportRange? get range => _states[_currentKind]!.range;
+  List<SalesReportItem> get items =>
+      List.unmodifiable(_states[_currentKind]!.items);
 
-  SalesPeriod get period => _period;
-  SalesReportSummary? get summary => _summary;
-  SalesReportRange? get range => _range;
-  List<SalesReportItem> get items => List.unmodifiable(_items);
+  // ===== Getter per-kind (kalau UI tab mau akses spesifik) =====
+  SalesPeriod periodOf(ReportKind k) => _states[k]!.period;
+  bool isLoadingOf(ReportKind k) => _states[k]!.isLoading;
+  String? lastErrorOf(ReportKind k) => _states[k]!.lastError;
+  SalesReportSummary? summaryOf(ReportKind k) => _states[k]!.summary;
+  SalesReportRange? rangeOf(ReportKind k) => _states[k]!.range;
+  List<SalesReportItem> itemsOf(ReportKind k) =>
+      List.unmodifiable(_states[k]!.items);
 
-  int get totalQtyComputed =>
-      _items.fold<int>(0, (acc, e) => acc + (e.totalQty));
-  num get totalRevenueComputed =>
-      _items.fold<num>(0, (acc, e) => acc + (e.totalRevenue));
+  /// ===== Helpers =====
+  void _setLoading(ReportKind k, bool v) {
+    _states[k]!.isLoading = v;
+    notifyListeners();
+  }
 
-  void _setLoading(bool v, {bool notify = true}) {
-    _loading = v;
-    if (notify) notifyListeners();
+  void _setError(ReportKind k, String? e) {
+    _states[k]!.lastError = e;
+    notifyListeners();
   }
 
   Future<String?> _requireBizId() async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
-      if (kDebugMode) {
-        debugPrint("[ReportProvider] ❌ Business ID null/empty");
-      }
+      _setError(_currentKind, "Business ID is not available.");
+      if (kDebugMode) debugPrint("[ReportProvider] ❌ Business ID null/empty");
       return null;
     }
     return bizId;
   }
 
-  /// Ganti period saja tanpa auto-fetch (untuk UI toggle cepat).
-  void setPeriod(SalesPeriod p, {bool notify = true}) {
-    _period = p;
+  /// ===== Mutators =====
+  /// Pindah tab/kind.
+  void setKind(ReportKind k, {bool notify = true}) {
+    _currentKind = k;
     if (notify) notifyListeners();
   }
 
-  /// Ganti period dan langsung fetch.
-  Future<bool> changePeriodAndFetch(BuildContext context, SalesPeriod p) async {
-    _period = p;
-    notifyListeners();
-    return fetchSalesReport(context);
+  /// Ganti period untuk kind tertentu (default: current).
+  void setPeriod(SalesPeriod p, {ReportKind? forKind, bool notify = true}) {
+    final k = forKind ?? _currentKind;
+    _states[k]!.period = p;
+    if (notify) notifyListeners();
   }
 
-  /// ===============================================================
-  /// FETCH SALES REPORT
-  /// GET waveup/{{idBusiness}}/report/sales?period=daily|month|year
-  /// ===============================================================
-  Future<bool> fetchSalesReport(BuildContext context) async {
+  /// Shortcut: ganti kind & langsung fetch.
+  Future<bool> changeKindAndFetch(BuildContext context, ReportKind k) async {
+    setKind(k);
+    return fetch(context, kind: k);
+  }
+
+  /// Shortcut: ganti period (untuk current) & fetch.
+  Future<bool> changePeriodAndFetch(BuildContext context, SalesPeriod p) async {
+    setPeriod(p);
+    return fetch(context);
+  }
+
+  /// ===== FETCH (inti) =====
+  /// GET /waveup/{bizId}/report/{kind}?period=daily|month|year
+  Future<bool> fetch(BuildContext context, {ReportKind? kind}) async {
+    final k = kind ?? _currentKind;
+    final state = _states[k]!;
     final bizId = await _requireBizId();
     if (bizId == null) {
-      _clearData();
+      state.clear();
       notifyListeners();
       return false;
     }
 
-    final path = '/waveup/$bizId/report/sales?period=${_period.query}';
+    final path =
+        '/waveup/$bizId/report/${k.pathSegment}?period=${state.period.query}';
     if (kDebugMode) debugPrint("[ReportProvider] 🌐 GET $path");
 
-    _setLoading(true);
+    _setLoading(k, true);
     try {
       final j = await ApiJson.getMap(context, path);
       if (j == null) {
-        _lastError = 'Null JSON response';
-        _clearData();
+        _setError(k, 'Null JSON response');
+        state.clear();
         return false;
       }
 
       final status = (j['status'] as num?)?.toInt() ?? 0;
       if (status != 200) {
-        _lastError =
+        final msg =
             j['msg']?.toString() ??
             j['message']?.toString() ??
-            'Failed to get sales report';
-        _clearData();
+            'Failed to get ${k.label.toLowerCase()} report';
+        _setError(k, msg);
+        state.clear();
         return false;
       }
 
-      // period dari server (opsional override agar sinkron)
-      _period = SalesPeriodX.fromString(j['period']?.toString());
+      // Sinkronisasi period dari server (opsional)
+      state.period = SalesPeriodX.fromString(j['period']?.toString());
 
-      // summary
-      _summary = (j['summary'] is Map<String, dynamic>)
+      // Range & Summary
+      state.summary = (j['summary'] is Map<String, dynamic>)
           ? SalesReportSummary.fromJson(j['summary'] as Map<String, dynamic>)
           : const SalesReportSummary(totalQty: 0, totalRevenue: 0);
 
-      // range
-      _range = SalesReportRange.fromJson({
+      state.range = SalesReportRange.fromJson({
         'start_date': j['start_date']?.toString(),
         'end_date': j['end_date']?.toString(),
       });
 
-      // items
-      final list = <SalesReportItem>[];
-      final rawData = j['data'];
-      if (rawData is List) {
-        for (final it in rawData) {
-          if (it is Map<String, dynamic>) {
-            list.add(SalesReportItem.fromJson(it));
+      // Items
+      state.items..clear();
+      final raw = j['data'];
+      if (raw is List) {
+        for (final e in raw) {
+          if (e is Map<String, dynamic>) {
+            state.items.add(SalesReportItem.fromJson(e));
           }
         }
       }
-      _items
-        ..clear()
-        ..addAll(list);
 
       if (kDebugMode) {
         debugPrint(
-          "[ReportProvider] ✅ items=${_items.length} summary=${_summary?.toString()} range=${_range?.toString()}",
+          "[ReportProvider] ✅ ${k.label} items=${state.items.length} "
+          "summary=${state.summary?.toJson()} range=${state.range?.toJson()}",
         );
       }
 
+      _setError(k, null);
       notifyListeners();
       return true;
     } catch (e, st) {
-      _lastError = e.toString();
+      _setError(k, e.toString());
       if (kDebugMode) {
         debugPrint("[ReportProvider] exception: $e");
         debugPrint("$st");
       }
-      _clearData();
+      _states[k]!.clear();
       return false;
     } finally {
-      _setLoading(false);
+      _setLoading(k, false);
     }
   }
 
-  /// ===============================================================
-  /// UTIL & MISC
-  /// ===============================================================
-  void _clearData() {
-    _summary = null;
-    _range = null;
-    _items.clear();
-  }
+  /// Refresh untuk current kind.
+  Future<void> refresh(BuildContext context) => fetch(context);
 
-  Future<void> refresh(BuildContext context) => fetchSalesReport(context);
-
-  /// Konsumsi error terakhir (untuk snackbar sekali pakai)
-  String? consumeLastError() {
-    final e = _lastError;
-    _lastError = null;
+  /// Ambil & reset error untuk current kind (sekali pakai).
+  String? consumeLastError({ReportKind? forKind}) {
+    final k = forKind ?? _currentKind;
+    final e = _states[k]!.lastError;
+    _states[k]!.lastError = null;
     return e;
   }
 
-  /// Sort helper (opsional bruk di UI)
+  /// Sorting helper (untuk current kind)
   void sortByRevenueDesc() {
-    _items.sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
+    _states[_currentKind]!.items.sort(
+      (a, b) => b.totalRevenue.compareTo(a.totalRevenue),
+    );
     notifyListeners();
   }
 
   void sortByQtyDesc() {
-    _items.sort((a, b) => b.totalQty.compareTo(a.totalQty));
+    _states[_currentKind]!.items.sort(
+      (a, b) => b.totalQty.compareTo(a.totalQty),
+    );
     notifyListeners();
   }
 
   void sortByNameAsc() {
-    _items.sort(
+    _states[_currentKind]!.items.sort(
       (a, b) =>
           a.productName.toLowerCase().compareTo(b.productName.toLowerCase()),
     );
     notifyListeners();
   }
 
-  /// Filter sederhana untuk UI (non-mutating, hasil baru)
-  List<SalesReportItem> filteredByQuery(String q) {
+  /// Filter non-mutating untuk current kind
+  List<SalesReportItem> filteredByQuery(String q, {ReportKind? forKind}) {
+    final k = forKind ?? _currentKind;
     final qq = q.trim().toLowerCase();
-    if (qq.isEmpty) return items;
-    return items
-        .where((e) {
-          return e.productName.toLowerCase().contains(qq) ||
-              e.productSku.toLowerCase().contains(qq);
-        })
+    if (qq.isEmpty) return List.unmodifiable(_states[k]!.items);
+    return _states[k]!.items
+        .where(
+          (e) =>
+              e.productName.toLowerCase().contains(qq) ||
+              e.productSku.toLowerCase().contains(qq),
+        )
         .toList(growable: false);
   }
 
-  /// Ekspor CSV (pakai di share/save kalau perlu)
-  String toCsv({bool includeHeader = true, String delimiter = ','}) {
+  /// Ekspor CSV (hanya summary & detail untuk kind aktif)
+  String toCsv({
+    ReportKind? forKind,
+    bool includeHeader = true,
+    String delimiter = ',',
+  }) {
+    final k = forKind ?? _currentKind;
+    final s = _states[k]!.summary;
+    final r = _states[k]!.range;
+    final items = _states[k]!.items;
+
     final b = StringBuffer();
+
     if (includeHeader) {
       b.writeln(
         [
+          'kind',
           'period',
           'start_date',
           'end_date',
@@ -334,12 +429,10 @@ class ReportProvider with ChangeNotifier {
       );
     }
 
-    final s = summary;
-    final r = range;
-
     b.writeln(
       [
-        period.query,
+        k.pathSegment,
+        _states[k]!.period.query,
         r?.startDate?.toIso8601String() ?? '',
         r?.endDate?.toIso8601String() ?? '',
         s?.totalQty ?? 0,
@@ -348,7 +441,6 @@ class ReportProvider with ChangeNotifier {
       ].join(delimiter),
     );
 
-    // Detail rows
     b.writeln();
     b.writeln(
       [
@@ -359,6 +451,7 @@ class ReportProvider with ChangeNotifier {
         'revenue_formatted',
       ].join(delimiter),
     );
+
     for (final it in items) {
       b.writeln(
         [
@@ -373,14 +466,17 @@ class ReportProvider with ChangeNotifier {
     return b.toString();
   }
 
-  /// Ekspor JSON ringkas (untuk debug/telemetry)
-  String toCompactJson() {
+  /// Debug JSON ringkas (per-kind)
+  String toCompactJson({ReportKind? forKind}) {
+    final k = forKind ?? _currentKind;
+    final state = _states[k]!;
     final map = {
-      'period': period.query,
-      'start_date': range?.startDate?.toIso8601String(),
-      'end_date': range?.endDate?.toIso8601String(),
-      'summary': summary?.toJson(),
-      'data': items.map((e) => e.toJson()).toList(),
+      'kind': k.pathSegment,
+      'period': state.period.query,
+      'start_date': state.range?.startDate?.toIso8601String(),
+      'end_date': state.range?.endDate?.toIso8601String(),
+      'summary': state.summary?.toJson(),
+      'data': state.items.map((e) => e.toJson()).toList(),
     };
     return jsonEncode(map);
   }
