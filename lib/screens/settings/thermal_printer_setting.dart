@@ -1,38 +1,18 @@
-// REPLACE FULL FILE WITH THIS
+// thermal_printer_settings_screen.dart
+// Perbaikan WRITE: kirim List<int> + chunked agar sesuai plugin & stabil.
 
-import 'dart:io'; // Platform & Socket (LAN printing)
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart' as esc;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // kDebugMode
+import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:permission_handler/permission_handler.dart';
-import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'package:wa_blast/constants/app_colors.dart';
-
-// Bluetooth transport
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 
-Future<void> _ensureBluetoothPermission() async {
-  if (Platform.isIOS) {
-    final status = await Permission.bluetooth.request();
-    if (status.isDenied) {
-      throw 'Bluetooth permission denied';
-    }
-  } else {
-    // Android 12+ pakai Bluetooth connect/scan
-    await [
-      Permission.bluetooth,
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.locationWhenInUse, // beberapa device butuh lokasi
-    ].request();
-  }
-}
+import 'package:wa_blast/constants/app_colors.dart';
 
 class ThermalPrinterSettingsScreen extends StatefulWidget {
   const ThermalPrinterSettingsScreen({super.key});
@@ -44,23 +24,30 @@ class ThermalPrinterSettingsScreen extends StatefulWidget {
 
 class _ThermalPrinterSettingsScreenState
     extends State<ThermalPrinterSettingsScreen> {
+  // ===== UI controllers
   final _ipCtrl = TextEditingController();
   final _portCtrl = TextEditingController(text: '9100');
+  final _pickedCtrl = TextEditingController();
 
-  // MAC hasil scan (readonly, tidak ketik manual)
-  final _macCtrl = TextEditingController();
-
+  // ===== State
   String _type = 'bluetooth'; // 'bluetooth' | 'network'
   int _paper = 58; // 58 | 80
+
+  String? _btId; // Android: MAC, iOS BLE: UUID
+  String? _btName; // Nama perangkat
 
   bool _loading = true;
   bool _saving = false;
   bool _testing = false;
 
+  bool get _isAndroid => Platform.isAndroid;
   bool get _isIOS => Platform.isIOS;
 
-  // ❗️Kebijakan: disable test print Bluetooth saat iOS + dev
-  bool get _btTestBlocked => _isIOS && kDebugMode && _type == 'bluetooth';
+  // ===== Android MAC regex
+  final _macRegex = RegExp(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$');
+
+  // ===== Native channel (Android) untuk ambil bonded devices (nama + MAC)
+  static const MethodChannel _btChannel = MethodChannel('bt/paired');
 
   @override
   void initState() {
@@ -68,14 +55,46 @@ class _ThermalPrinterSettingsScreenState
     _loadPrefs();
   }
 
+  @override
+  void dispose() {
+    _ipCtrl.dispose();
+    _portCtrl.dispose();
+    _pickedCtrl.dispose();
+    super.dispose();
+  }
+
+  // ================= Permissions =================
+  Future<void> _ensureBluetoothPermission() async {
+    if (_isIOS) {
+      final status = await Permission.bluetooth.request();
+      if (status.isDenied) throw 'Bluetooth permission denied';
+    } else {
+      final statuses = await [
+        Permission.bluetooth,
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.locationWhenInUse, // beberapa device lama masih minta
+      ].request();
+
+      if (statuses[Permission.bluetoothConnect]?.isDenied == true) {
+        throw 'Bluetooth Connect permission is required';
+      }
+    }
+  }
+
+  // ================= Load/Save prefs =================
   Future<void> _loadPrefs() async {
     final sp = await SharedPreferences.getInstance();
     setState(() {
       _type = sp.getString('printer.type') ?? 'bluetooth';
-      _macCtrl.text = sp.getString('printer.mac') ?? '';
+      _btId = sp.getString('printer.bt.id');
+      _btName = sp.getString('printer.bt.name');
+      _pickedCtrl.text = _formatPickedDisplay(_btName, _btId);
+
       _ipCtrl.text = sp.getString('printer.ip') ?? '';
       _portCtrl.text = (sp.getInt('printer.port') ?? 9100).toString();
       _paper = sp.getInt('printer.paper') ?? 58;
+
       _loading = false;
     });
   }
@@ -84,141 +103,195 @@ class _ThermalPrinterSettingsScreenState
     setState(() => _saving = true);
     final sp = await SharedPreferences.getInstance();
     await sp.setString('printer.type', _type);
-    await sp.setString('printer.mac', _macCtrl.text.trim());
+    await sp.setInt('printer.paper', _paper);
     await sp.setString('printer.ip', _ipCtrl.text.trim());
     await sp.setInt(
       'printer.port',
       int.tryParse(_portCtrl.text.trim()) ?? 9100,
     );
-    await sp.setInt('printer.paper', _paper);
-
+    if (_btId?.isNotEmpty == true) await sp.setString('printer.bt.id', _btId!);
+    if (_btName?.isNotEmpty == true)
+      await sp.setString('printer.bt.name', _btName!);
     if (!mounted) return;
     setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Printer settings saved'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    _snack('Printer settings saved');
   }
 
-  /// ====== BLUETOOTH SCAN (Android & iOS) ======
-  Future<void> _scanAndPickBluetooth() async {
-    try {
-      await _ensureBluetoothPermission(); // ← perbaikan: tambahkan await
-      final btOn = await PrintBluetoothThermal.bluetoothEnabled;
-      if (btOn != true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please turn on Bluetooth first'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
-      List<dynamic> devices = [];
-
-      // 1️⃣ coba ambil paired device dulu
-      try {
-        final paired = await PrintBluetoothThermal.pairedBluetooths;
-        if (paired != null) devices = List<dynamic>.from(paired);
-      } catch (_) {}
-
-      if (devices.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No Bluetooth devices found'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
-      if (!mounted) return;
-      final picked = await showModalBottomSheet<String>(
-        context: context,
-        showDragHandle: true,
-        builder: (ctx) {
-          return SafeArea(
-            child: ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemBuilder: (_, i) {
-                final d = devices[i];
-                final name = _btName(d);
-                final mac = _btMac(d);
-                return ListTile(
-                  leading: const Icon(LucideIcons.printer),
-                  title: Text(name.isEmpty ? 'Unknown' : name),
-                  subtitle: Text(mac),
-                  onTap: () => Navigator.pop(ctx, mac),
-                );
-              },
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemCount: devices.length,
-            ),
-          );
-        },
-      );
-
-      if (picked is String && picked.isNotEmpty) {
-        setState(() => _macCtrl.text = picked);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Scan failed: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+  // ================= Helpers =================
+  String _formatPickedDisplay(String? name, String? id) {
+    final n = (name ?? '').trim();
+    final i = (id ?? '').trim();
+    if (n.isEmpty && i.isEmpty) return '';
+    if (n.isNotEmpty && i.isNotEmpty) {
+      final short = i.length > 10 ? '${i.substring(0, 10)}…' : i;
+      return '$n ($short)';
     }
+    return n.isNotEmpty ? n : i;
   }
 
-  String _btName(dynamic d) {
+  String _extractName(dynamic d) {
     try {
-      // BluetoothInfo.name
       final n = (d as dynamic).name;
       if (n != null) return n.toString();
     } catch (_) {}
     try {
-      // Map['name']
       final n = (d as Map)['name'];
       if (n != null) return n.toString();
     } catch (_) {}
     return '';
   }
 
-  String _btMac(dynamic d) {
+  String _extractIdentifier(dynamic d) {
     try {
-      // BluetoothInfo.macAddress
       final m = (d as dynamic).macAddress;
-      if (m != null) return m.toString();
+      if (m != null && m.toString().isNotEmpty) return m.toString();
     } catch (_) {}
     try {
-      // Beberapa lib pakai 'address'
-      final m = (d as dynamic).address;
-      if (m != null) return m.toString();
+      final a = (d as dynamic).address;
+      if (a != null && a.toString().isNotEmpty) return a.toString();
     } catch (_) {}
     try {
-      // Map['macAddress'] / Map['address']
-      final m1 = (d as Map)['macAddress'] ?? (d as Map)['address'];
-      if (m1 != null) return m1.toString();
+      final map = d as Map;
+      for (final k in [
+        'macAddress',
+        'address',
+        'deviceAddress',
+        'btAddress',
+        'MAC',
+        'MacAddress',
+        'mac',
+        'id',
+        'uuid',
+      ]) {
+        if (map.containsKey(k) && (map[k]?.toString().isNotEmpty ?? false)) {
+          return map[k].toString();
+        }
+      }
     } catch (_) {}
     return '';
   }
 
-  /// ====== ESC/POS bytes untuk test ======
-  Future<Uint8List> _buildEscPosTestBytes() async {
+  // ================= Native bonded list (Android) =================
+  Future<List<Map<String, String>>> _getBondedFromNative() async {
+    if (!_isAndroid) return [];
+    try {
+      final res = await _btChannel.invokeMethod('getBonded');
+      final out = <Map<String, String>>[];
+      if (res is List) {
+        for (final e in res) {
+          if (e is Map) {
+            final name = (e['name'] ?? '').toString();
+            final addr = (e['address'] ?? '').toString(); // MAC
+            out.add({'name': name, 'id': addr});
+          }
+        }
+      }
+      return out;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[BT] getBonded error: $e');
+      return [];
+    }
+  }
+
+  // ================= Scan & Pick =================
+  Future<void> _scanAndPickBluetooth() async {
+    try {
+      await _ensureBluetoothPermission();
+      final btOn = await PrintBluetoothThermal.bluetoothEnabled;
+      if (btOn != true) {
+        _snack('Please turn on Bluetooth first');
+        return;
+      }
+
+      // 1) plugin
+      final pluginList = <Map<String, String>>[];
+      try {
+        final paired = await PrintBluetoothThermal.pairedBluetooths;
+        if (paired != null) {
+          for (final d in List<dynamic>.from(paired)) {
+            final name = _extractName(d);
+            final id = _extractIdentifier(d); // bisa kosong
+            pluginList.add({'name': name, 'id': id});
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('pairedBluetooths error: $e');
+      }
+
+      // 2) native
+      final nativeList = await _getBondedFromNative();
+
+      // 3) merge (utamakan yang punya MAC dari native)
+      final merged = <String, Map<String, String>>{};
+      for (final it in pluginList) {
+        final key = (it['name'] ?? '').isNotEmpty
+            ? it['name']!
+            : (it['id'] ?? '');
+        if (key.isEmpty) continue;
+        merged[key] = {'name': it['name'] ?? '', 'id': it['id'] ?? ''};
+      }
+      for (final it in nativeList) {
+        final key = (it['name'] ?? '').isNotEmpty
+            ? it['name']!
+            : (it['id'] ?? '');
+        if (key.isEmpty) continue;
+        final old = merged[key];
+        if (old == null || (old['id'] ?? '').isEmpty) {
+          merged[key] = {'name': it['name'] ?? '', 'id': it['id'] ?? ''};
+        }
+      }
+
+      final list = merged.values.toList();
+      if (list.isEmpty) {
+        _snack('No paired Bluetooth devices found');
+        return;
+      }
+
+      if (!mounted) return;
+      final picked = await showModalBottomSheet<Map<String, String>>(
+        context: context,
+        showDragHandle: true,
+        builder: (ctx) => SafeArea(
+          child: ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemBuilder: (_, i) {
+              final it = list[i];
+              final name = it['name'] ?? '';
+              final id = it['id'] ?? '';
+              return ListTile(
+                leading: const Icon(LucideIcons.printer),
+                title: Text(name.isEmpty ? 'Unknown' : name),
+                subtitle: Text(id.isEmpty ? '(no identifier)' : id),
+                onTap: () => Navigator.pop(ctx, it),
+              );
+            },
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemCount: list.length,
+          ),
+        ),
+      );
+
+      if (picked != null) {
+        setState(() {
+          _btName = picked['name'] ?? '';
+          _btId = picked['id'] ?? '';
+          _pickedCtrl.text = _formatPickedDisplay(_btName, _btId);
+        });
+      }
+    } catch (e) {
+      _snack('Scan failed: $e');
+    }
+  }
+
+  // ================= ESC/POS builder =================
+  Future<Uint8List> _buildTestBytes() async {
     final profile = await esc.CapabilityProfile.load();
     final gen = esc.Generator(
       _paper == 80 ? esc.PaperSize.mm80 : esc.PaperSize.mm58,
       profile,
     );
-    final out = <int>[];
-
-    out.addAll(
+    final b = <int>[];
+    b.addAll(
       gen.text(
         'TEST PRINT',
         styles: const esc.PosStyles(
@@ -229,198 +302,136 @@ class _ThermalPrinterSettingsScreenState
         ),
       ),
     );
-    out.addAll(gen.hr());
-    out.addAll(gen.text('Hello from WaveUp!'));
-    out.addAll(gen.text('Paper: $_paper mm'));
-    out.addAll(gen.text('Mode : ${_type.toUpperCase()}'));
-    out.addAll(gen.feed(2));
-    out.addAll(gen.cut());
-
-    return Uint8List.fromList(out);
+    b.addAll(gen.hr());
+    b.addAll(gen.text('Hello from WaveUp!'));
+    b.addAll(gen.text('Paper: $_paper mm'));
+    b.addAll(gen.text('Mode: ${_type.toUpperCase()}'));
+    b.addAll(gen.feed(2));
+    b.addAll(gen.cut());
+    return Uint8List.fromList(b);
   }
 
-  /// ====== Network RAW 9100 ======
-  Future<void> _sendTcpRaw({
-    required String host,
-    required int port,
-    required Uint8List bytes,
-  }) async {
-    Socket? socket;
-    try {
-      socket = await Socket.connect(
-        host,
-        port,
-        timeout: const Duration(seconds: 4),
-      );
-      socket.add(bytes);
-      await socket.flush();
-      await Future.delayed(const Duration(milliseconds: 200));
-    } finally {
-      await socket?.close();
+  // ================= WRITE helper (fix ClassCastException) =================
+  Future<void> _writeBluetoothBytesChunked(Uint8List data) async {
+    // plugin butuh List<int>, bukan Uint8List
+    final payload = data.toList();
+
+    // ukuran chunk aman: iOS BLE biasanya 20 bytes, Android SPP bisa besar
+    final chunkSize = _isIOS ? 20 : 512;
+    for (int offset = 0; offset < payload.length; offset += chunkSize) {
+      final end = (offset + chunkSize < payload.length)
+          ? offset + chunkSize
+          : payload.length;
+      final part = payload.sublist(offset, end);
+
+      final ok = await PrintBluetoothThermal.writeBytes(part);
+      if (kDebugMode) debugPrint('[BT] write part ${offset}..${end} => $ok');
+      if (ok != true) throw 'Write failed';
+      // jeda kecil antar chunk
+      await Future.delayed(const Duration(milliseconds: 10));
     }
   }
 
-  /// ====== Bluetooth write (Android & iOS BLE jika didukung printer) ======
-  Future<void> _sendBluetoothRaw(Uint8List bytes) async {
-    final btOn = await PrintBluetoothThermal.bluetoothEnabled;
-    if (btOn != true) throw 'Bluetooth is off';
-    final ok = await PrintBluetoothThermal.writeBytes(bytes);
-    if (ok != true) throw 'Failed to send to Bluetooth printer';
-  }
-
+  // ================= Test Print =================
   Future<void> _testPrint() async {
-    // Guard kebijakan
-    if (_btTestBlocked) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bluetooth test is disabled on iOS in Debug builds.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
     setState(() => _testing = true);
     try {
-      final data = await _buildEscPosTestBytes();
-
       if (_type == 'network') {
-        final host = _ipCtrl.text.trim();
+        // RAW 9100
+        final ip = _ipCtrl.text.trim();
+        if (ip.isEmpty) throw 'IP Address empty';
         final port = int.tryParse(_portCtrl.text.trim()) ?? 9100;
-        if (host.isEmpty) throw 'IP Address is empty';
-        await _sendTcpRaw(host: host, port: port, bytes: data);
+        final data = await _buildTestBytes();
+        final socket = await Socket.connect(
+          ip,
+          port,
+          timeout: const Duration(seconds: 4),
+        );
+        socket.add(data);
+        await socket.flush();
+        await socket.close();
       } else {
-        // === Bluetooth path ===
-        final mac = _macCtrl.text.trim();
-        if (mac.isEmpty) throw 'No device selected. Please Scan & Pick first.';
+        // Bluetooth
+        await _ensureBluetoothPermission();
 
-        // Putuskan dulu
+        final id = (_btId ?? '').trim();
+        final name = (_btName ?? '').trim();
+        if (kDebugMode) {
+          debugPrint(
+            '[BT] prepared name="$name" id="$id" (android=$_isAndroid)',
+          );
+        }
+
+        // Android HARUS MAC valid
+        if (_isAndroid && !_macRegex.hasMatch(id)) {
+          _snack(
+            'Failed to resolve MAC. Pair the printer in Android Bluetooth Settings, then try again.',
+          );
+          return;
+        }
+        if (id.isEmpty && name.isEmpty) {
+          _snack('No device selected. Please Scan & Pick first.');
+          return;
+        }
+
+        // Putus koneksi lama (best-effort)
         try {
           await PrintBluetoothThermal.disconnect;
         } catch (_) {}
 
+        // Connect
         final connected = await PrintBluetoothThermal.connect(
-          macPrinterAddress: mac,
+          macPrinterAddress: id, // iOS: UUID; Android: MAC
         );
+        if (kDebugMode) debugPrint('[BT] connect("$id") => $connected');
+
         if (connected != true) {
           throw _isIOS
-              ? 'Unable to connect. On iOS, only BLE printers with supported characteristics will work.'
-              : 'Unable to connect to $mac';
+              ? 'Unable to connect (iOS supports BLE only). Ensure printer is BLE and paired.'
+              : 'Unable to connect printer. Make sure it is paired and MAC is correct.';
         }
 
-        final status = await PrintBluetoothThermal.connectionStatus;
-        if (status != true) {
-          throw 'Bluetooth not connected';
-        }
+        final ok = await PrintBluetoothThermal.connectionStatus;
+        if (ok != true) throw 'Bluetooth not connected';
 
-        await _sendBluetoothRaw(data);
+        // Delay kecil sebelum kirim pertama (beberapa chipset perlu)
+        await Future.delayed(const Duration(milliseconds: 150));
+
+        final data = await _buildTestBytes();
+
+        // TULIS: gunakan helper chunked (List<int>)
+        try {
+          await _writeBluetoothBytesChunked(data);
+        } catch (_) {
+          // Retry sekali (beberapa device perlu "pemanasan")
+          await Future.delayed(const Duration(milliseconds: 200));
+          await _writeBluetoothBytesChunked(data);
+        }
       }
 
-      // (Opsional) Preview PDF untuk verifikasi visual
-      await Printing.layoutPdf(
-        onLayout: (_) async => _buildMiniPdfForTest(
-          mode: _type,
-          paper: _paper,
-          ip: _ipCtrl.text.trim(),
-          port: int.tryParse(_portCtrl.text.trim()) ?? 9100,
-          mac: _macCtrl.text.trim(),
-        ),
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Test print sent'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('Test print sent');
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Test failed: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('Test failed: $e');
     } finally {
       if (mounted) setState(() => _testing = false);
     }
   }
 
-  // ===== PDF fallback builder (mini) =====
-  Future<Uint8List> _buildMiniPdfForTest({
-    required String mode,
-    required int paper,
-    required String ip,
-    required int port,
-    required String mac,
-  }) async {
-    final doc = pw.Document();
-    final pageWidth = paper == 80 ? 227.0 : 164.0; // ~80mm vs 58mm
-    final pageHeight = 420.0;
-
-    final grey = PdfColor.fromHex('#6B7280');
-
-    doc.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat(pageWidth, pageHeight, marginAll: 10),
-        build: (context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-            children: [
-              pw.Text(
-                'TEST PRINT',
-                style: pw.TextStyle(
-                  fontSize: 18,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-                textAlign: pw.TextAlign.center,
-              ),
-              pw.SizedBox(height: 6),
-              pw.Divider(),
-              pw.Text('Hello from WaveUp!'),
-              pw.Text('Paper: $paper mm'),
-              pw.Text('Mode: ${mode.toUpperCase()}'),
-              if (mode == 'network') ...[
-                pw.Text('IP: $ip'),
-                pw.Text('Port: $port'),
-              ] else ...[
-                pw.Text('MAC: $mac'),
-              ],
-              pw.SizedBox(height: 10),
-              pw.Text(
-                'This is a minimal PDF test. For perfect thermal layout, use ESC/POS.',
-                style: pw.TextStyle(fontSize: 9, color: grey),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-
-    return doc.save();
-  }
-
-  @override
-  void dispose() {
-    _ipCtrl.dispose();
-    _portCtrl.dispose();
-    _macCtrl.dispose();
-    super.dispose();
-  }
-
+  // ================= UI =================
   @override
   Widget build(BuildContext context) {
-    final baseDisabled = _saving || _testing || _loading;
-    final testDisabled = baseDisabled || _btTestBlocked; // ← tombol test
+    final disabled = _saving || _testing || _loading;
+    final isBt = _type == 'bluetooth';
+    final canTest =
+        !disabled &&
+        (!isBt ||
+            (_isAndroid ? _macRegex.hasMatch((_btId ?? '').trim()) : true));
+
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
     );
 
-    // Tampilkan kedua opsi (Bluetooth & Network) di iOS & Android,
-    // dengan peringatan kecil di iOS.
     final segments = const <ButtonSegment<String>>[
       ButtonSegment(
         value: 'bluetooth',
@@ -435,23 +446,22 @@ class _ThermalPrinterSettingsScreenState
     ];
 
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text(
           'Thermal Printer',
           style: TextStyle(color: Colors.black),
         ),
         backgroundColor: Colors.white,
-        elevation: 0,
         foregroundColor: Colors.black,
       ),
+      backgroundColor: Colors.white,
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         child: Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: testDisabled ? null : _testPrint,
+                onPressed: canTest ? _testPrint : null,
                 icon: _testing
                     ? const SizedBox(
                         width: 16,
@@ -459,20 +469,13 @@ class _ThermalPrinterSettingsScreenState
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(LucideIcons.printer),
-                label: Text(
-                  _btTestBlocked
-                      ? 'Test Print (iOS Dev Disabled)'
-                      : 'Test Print',
-                ),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
+                label: const Text('Test Print'),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: ElevatedButton.icon(
-                onPressed: baseDisabled ? null : _save,
+                onPressed: disabled ? null : _save,
                 icon: _saving
                     ? const SizedBox(
                         width: 16,
@@ -491,9 +494,6 @@ class _ThermalPrinterSettingsScreenState
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
                 ),
               ),
             ),
@@ -502,292 +502,140 @@ class _ThermalPrinterSettingsScreenState
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                children: [
-                  _HeaderCard(
-                    title: 'Thermal Printer',
-                    subtitle:
-                        'Configure connection & paper size. Keep it simple.',
-                    icon: LucideIcons.printer,
-                  ),
-
-                  if (_isIOS)
-                    Container(
-                      margin: const EdgeInsets.only(top: 10),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF7ED),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFFDE68A)),
-                      ),
-                      child: Text(
-                        _btTestBlocked
-                            ? 'iOS (Debug): Bluetooth test print is disabled. Use Network (RAW 9100) or build Release to test Bluetooth.'
-                            : 'iOS notice: Many ESC/POS Bluetooth printers are not supported unless BLE with proper characteristics. Prefer Network (RAW 9100) or AirPrint.',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF92400E),
-                        ),
-                      ),
-                    ),
-
-                  _SectionCard(
-                    title: 'Connection',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SegmentedButton<String>(
-                          segments: segments,
-                          selected: {_type},
-                          onSelectionChanged: baseDisabled
-                              ? null
-                              : (s) => setState(() => _type = s.first),
-                          showSelectedIcon: false,
-                          style: ButtonStyle(
-                            side: MaterialStateProperty.all(
-                              const BorderSide(color: Color(0xFFE5E7EB)),
-                            ),
-                            shape: MaterialStateProperty.all(
-                              RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        AnimatedCrossFade(
-                          crossFadeState: _type == 'bluetooth'
-                              ? CrossFadeState.showFirst
-                              : CrossFadeState.showSecond,
-                          duration: const Duration(milliseconds: 200),
-                          firstChild: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Readonly field untuk MAC yang diisi dari Scan
-                              TextField(
-                                controller: _macCtrl,
-                                enabled: false,
-                                decoration: InputDecoration(
-                                  labelText: 'Selected Device',
-                                  hintText: 'No device selected',
-                                  prefixIcon: const Icon(LucideIcons.bluetooth),
-                                  border: border,
-                                  enabledBorder: border,
-                                  disabledBorder: border,
-                                  helperText:
-                                      'Tap "Scan & Pick" to select a Bluetooth printer.',
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              OutlinedButton.icon(
-                                onPressed: baseDisabled
-                                    ? null
-                                    : _scanAndPickBluetooth,
-                                icon: const Icon(LucideIcons.search),
-                                label: const Text('Scan & Pick'),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          secondChild: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              TextField(
-                                controller: _ipCtrl,
-                                enabled: !baseDisabled,
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  labelText: 'IP Address',
-                                  hintText: 'e.g. 192.168.1.50',
-                                  prefixIcon: const Icon(LucideIcons.network),
-                                  border: border,
-                                  enabledBorder: border,
-                                  focusedBorder: border.copyWith(
-                                    borderSide: BorderSide(
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                                  helperText:
-                                      'Make sure the printer is reachable on your LAN.',
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              TextField(
-                                controller: _portCtrl,
-                                enabled: !baseDisabled,
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  labelText: 'Port',
-                                  hintText: '9100',
-                                  prefixIcon: const Icon(LucideIcons.hash),
-                                  border: border,
-                                  enabledBorder: border,
-                                  focusedBorder: border.copyWith(
-                                    borderSide: BorderSide(
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                                  helperText:
-                                      'Most thermal printers use RAW 9100.',
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  _SectionCard(
-                    title: 'Paper',
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _PaperChip(
-                          label: '58 mm',
-                          selected: _paper == 58,
-                          onTap: baseDisabled
-                              ? null
-                              : () => setState(() => _paper = 58),
-                        ),
-                        _PaperChip(
-                          label: '80 mm',
-                          selected: _paper == 80,
-                          onTap: baseDisabled
-                              ? null
-                              : () => setState(() => _paper = 80),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  _SectionCard(
-                    title: 'Tips',
-                    child: _TipsList(
-                      tips: ['Use ESC/POS for accurate thermal layout.'],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-    );
-  }
-}
-
-/// Simple header card
-class _HeaderCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  const _HeaderCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassCard(
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: AppColors.primary, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    color: Color(0xFF111827),
+                if (_isIOS)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      border: Border.all(color: const Color(0xFFBBF7D0)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      'iOS: Many ESC/POS Bluetooth printers work only if they are BLE. Prefer Network (RAW 9100) when possible.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF166534)),
+                    ),
+                  ),
+
+                if (_isAndroid &&
+                    isBt &&
+                    !_macRegex.hasMatch((_btId ?? '').trim()))
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF7ED),
+                      border: Border.all(color: const Color(0xFFF59E0B)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      'Android requires a valid Bluetooth MAC to connect. '
+                      'Tap "Scan & Pick" (paired devices) and we will resolve MAC automatically.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF92400E)),
+                    ),
+                  ),
+
+                SegmentedButton<String>(
+                  segments: segments,
+                  selected: {_type},
+                  onSelectionChanged: disabled
+                      ? null
+                      : (s) => setState(() => _type = s.first),
+                  showSelectedIcon: false,
+                ),
+                const SizedBox(height: 12),
+
+                AnimatedCrossFade(
+                  crossFadeState: isBt
+                      ? CrossFadeState.showFirst
+                      : CrossFadeState.showSecond,
+                  duration: const Duration(milliseconds: 200),
+                  firstChild: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: _pickedCtrl,
+                        enabled: false,
+                        decoration: InputDecoration(
+                          labelText: 'Selected Device',
+                          prefixIcon: const Icon(LucideIcons.bluetooth),
+                          border: border,
+                          disabledBorder: border,
+                          helperText:
+                              'Tap "Scan & Pick" to select a paired Bluetooth printer.',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: disabled ? null : _scanAndPickBluetooth,
+                        icon: const Icon(LucideIcons.search),
+                        label: const Text('Scan & Pick'),
+                      ),
+                    ],
+                  ),
+                  secondChild: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: _ipCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'IP Address (LAN)',
+                          hintText: 'e.g. 192.168.1.50',
+                          border: border,
+                        ),
+                        enabled: !disabled,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _portCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Port',
+                          hintText: '9100',
+                          border: border,
+                        ),
+                        enabled: !disabled,
+                        keyboardType: TextInputType.number,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: Color(0xFF6B7280),
-                    fontSize: 12.5,
-                  ),
+
+                const SizedBox(height: 16),
+                Text('Paper', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _PaperChip(
+                      label: '58 mm',
+                      selected: _paper == 58,
+                      onTap: disabled
+                          ? null
+                          : () => setState(() => _paper = 58),
+                    ),
+                    _PaperChip(
+                      label: '80 mm',
+                      selected: _paper == 80,
+                      onTap: disabled
+                          ? null
+                          : () => setState(() => _paper = 80),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
-}
 
-/// Section card with title and inner content
-class _SectionCard extends StatelessWidget {
-  final String title;
-  final Widget child;
-  const _SectionCard({required this.title, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassCard(
-      margin: const EdgeInsets.only(top: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF333A46),
-            ),
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-/// Minimal soft card
-class _GlassCard extends StatelessWidget {
-  final Widget child;
-  final EdgeInsetsGeometry? margin;
-  const _GlassCard({required this.child, this.margin});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: margin ?? const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: child,
+  // ================= UI bits =================
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
     );
   }
 }
@@ -830,41 +678,6 @@ class _PaperChip extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _TipsList extends StatelessWidget {
-  final List<String> tips;
-  const _TipsList({required this.tips});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: tips
-          .map(
-            (t) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    LucideIcons.info,
-                    size: 16,
-                    color: Color(0xFF6B7280),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      t,
-                      style: const TextStyle(color: Color(0xFF4B5563)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          )
-          .toList(),
     );
   }
 }

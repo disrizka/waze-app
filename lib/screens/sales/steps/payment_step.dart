@@ -17,8 +17,9 @@ class PaymentStep extends StatefulWidget {
 }
 
 class _PaymentStepState extends State<PaymentStep> {
-  // === Discount pindahan dari MakeOrderStep ===
-  late final TextEditingController _orderDiscountC;
+  // Controllers
+  late final TextEditingController _orderDiscountC; // order-level discount
+  late final TextEditingController _noteC; // Notes (dipindah ke PaymentStep)
 
   @override
   void initState() {
@@ -27,11 +28,13 @@ class _PaymentStepState extends State<PaymentStep> {
     _orderDiscountC = TextEditingController(
       text: (prov.discount ?? 0).toString(),
     );
+    _noteC = TextEditingController(text: prov.note ?? '');
   }
 
   @override
   void dispose() {
     _orderDiscountC.dispose();
+    _noteC.dispose();
     super.dispose();
   }
 
@@ -41,7 +44,6 @@ class _PaymentStepState extends State<PaymentStep> {
     final ok = await prov.submitSales(context);
     if (!mounted) return;
 
-    // Hitung total untuk dialog
     final subtotal = prov.subtotalEffective;
     final disc = prov.discount ?? 0;
     final totalFinal = (subtotal - disc).clamp(0, 1 << 31) as int;
@@ -54,7 +56,7 @@ class _PaymentStepState extends State<PaymentStep> {
 
     final pmId = prov.paymentMethod ?? 1;
 
-    // Cash / EDC: transaksi selesai saat submit
+    // Cash / EDC: selesai saat submit
     if (pmId == 1 || pmId == 2) {
       await showOrderSuccessDialog(
         context,
@@ -65,7 +67,7 @@ class _PaymentStepState extends State<PaymentStep> {
       return;
     }
 
-    // Midtrans: cek hasil akhir yang sudah disimpan provider
+    // Midtrans
     final result = prov.lastPaymentResult;
     bool _isSuccess(String? s) {
       switch ((s ?? '').toLowerCase()) {
@@ -105,8 +107,8 @@ class _PaymentStepState extends State<PaymentStep> {
       context,
       payload: const {'reason': 'user_cancel'},
     );
-
     if (!mounted) return;
+
     if (ok) {
       await showPaymentCancelledDialog(
         context,
@@ -122,9 +124,9 @@ class _PaymentStepState extends State<PaymentStep> {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<SalesProvider>();
-    prov.ensureReferenceInitialized(); // ensure REF exists
+    prov.ensureReferenceInitialized(); // pastikan reference ada
 
-    // Subtotal efektif = Σ (price - diskon per item) * qty  (clamp ≥ 0)
+    // Subtotal efektif = Σ (price - disc per item) * qty
     final subtotal = prov.cartItems.fold<int>(0, (sum, it) {
       final d = prov.perItemDiscountOf(it.sku.skuId);
       final unitAfter = it.sku.price - d;
@@ -132,13 +134,8 @@ class _PaymentStepState extends State<PaymentStep> {
       return sum + safeUnit * it.qty;
     });
 
-    // Order-level discount (adjustment) — sekarang diedit di Payment
     final disc = prov.discount ?? 0;
-
-    // Service fee ditiadakan
     const serviceFee = 0;
-
-    // Total akhir = subtotal - adjustment  (clamp ≥ 0)
     final totalFinal = (subtotal + serviceFee - disc);
     final pmId = prov.paymentMethod ?? 1;
     final pm = _PayMethod.byId(pmId);
@@ -154,62 +151,64 @@ class _PaymentStepState extends State<PaymentStep> {
             child: ListView(
               padding: DS.p16,
               children: [
-                // ===== ADJUSTMENTS / DISCOUNT (pindahan dari MakeOrder) =====
+                // ===== 1) DETAILS (dengan subtitle) =====
                 _SectionCard(
-                  title: 'Adjustments',
-                  subtitle: 'Set order-level discount. (Optional)',
+                  title: 'Details',
+                  subtitle:
+                      'Store & customer information.', // <-- kembalikan deskripsi
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SizedBox(height: 4),
-                      Text('Discount (IDR)', style: DS.tsPrice),
-                      const SizedBox(height: 6),
-                      TextFormField(
-                        controller: _orderDiscountC,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        decoration: InputDecoration(
-                          hintText: '0',
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: AppColors.divider,
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          prefixText: 'Rp ',
-                        ),
-                        onChanged: (v) {
-                          final d = int.tryParse(v) ?? 0;
-                          // simpan ke provider
-                          context.read<SalesProvider>().setOrderMeta(
-                            discount: d,
-                          );
-                          setState(() {}); // supaya summary update realtime
-                        },
-                        validator: (v) {
-                          final n = int.tryParse((v ?? '').trim());
-                          if ((v ?? '').trim().isEmpty) return null;
-                          if (n == null) return 'Invalid number';
-                          if (n < 0) return 'Must be ≥ 0';
-                          return null;
-                        },
-                      ),
+                      if ((prov.storeLocationName ?? '').isNotEmpty)
+                        _RowText('Store', prov.storeLocationName!),
+                      if ((prov.customerName ?? '').isNotEmpty)
+                        _RowText('Customer', prov.customerName!),
                     ],
                   ),
                 ),
                 const SizedBox(height: 14),
-                // ===== SUMMARY =====
+
+                // ===== 3) ADJUSTMENT DISCOUNT (tanpa subtitle / deskripsi) =====
+                _SectionCard(
+                  title: 'Discount',
+                  // subtitle: null, // <-- dihapus sesuai permintaan
+                  child: TextFormField(
+                    controller: _orderDiscountC,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      hintText: '0',
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: AppColors.divider),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: AppColors.primary),
+                      ),
+                      prefixText: 'Rp ',
+                    ),
+                    onChanged: (v) {
+                      final d = int.tryParse(v) ?? 0;
+                      context.read<SalesProvider>().setOrderMeta(discount: d);
+                      setState(() {}); // update summary realtime
+                    },
+                    validator: (v) {
+                      final n = int.tryParse((v ?? '').trim());
+                      if ((v ?? '').trim().isEmpty) return null;
+                      if (n == null) return 'Invalid number';
+                      if (n < 0) return 'Must be ≥ 0';
+                      return null;
+                    },
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // ===== 2) PAYMENT SUMMARY (dengan subtitle) =====
                 _SectionCard(
                   title: 'Payment Summary',
+                  subtitle:
+                      'Review subtotal, discount, and total.', // <-- kembalikan deskripsi
                   trailing: _MethodBadge(method: pm),
                   child: Column(
                     children: [
@@ -232,29 +231,7 @@ class _PaymentStepState extends State<PaymentStep> {
                 ),
                 const SizedBox(height: 14),
 
-                // ===== DETAILS (opsional) =====
-                if ((prov.storeLocationName ?? '').isNotEmpty ||
-                    (prov.customerName ?? '').isNotEmpty ||
-                    (prov.note ?? '').isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 14),
-                    child: _SectionCard(
-                      title: 'Details',
-                      child: Column(
-                        children: [
-                          if ((prov.storeLocationName ?? '').isNotEmpty)
-                            _RowText('Store', prov.storeLocationName!),
-                          if ((prov.customerName ?? '').isNotEmpty)
-                            _RowText('Customer', prov.customerName!),
-                          if ((prov.note ?? '').isNotEmpty)
-                            _RowText('Note', prov.note!),
-                        ],
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 14),
-
-                // ===== PAYMENT METHOD =====
+                // ===== 5) PAYMENT METHOD (tetap ada subtitle) =====
                 _SectionCard(
                   title: 'Payment Method',
                   subtitle:
@@ -300,8 +277,7 @@ class _PaymentStepState extends State<PaymentStep> {
                         : Text('Pay with ${pm.label}'),
                   ),
                 ),
-
-                // Jika ingin tombol Cancel saat submitting, aktifkan blok di bawah:
+                // Jika ingin tombol Cancel ketika submitting, aktifkan:
                 // if (prov.submitting) ...[
                 //   const SizedBox(height: 10),
                 //   SizedBox(
@@ -331,7 +307,7 @@ class _PaymentStepState extends State<PaymentStep> {
 
 class _SectionCard extends StatelessWidget {
   final String title;
-  final String? subtitle;
+  final String? subtitle; // boleh null untuk “tanpa deskripsi”
   final Widget child;
   final Widget? trailing;
   const _SectionCard({
@@ -396,7 +372,7 @@ class _RowKV extends StatelessWidget {
   final String label;
   final int value;
   final bool bold;
-  final Color? forceColor; // allow override color (e.g., discount green)
+  final Color? forceColor;
   const _RowKV({
     required this.label,
     required this.value,
@@ -485,13 +461,7 @@ class _RefRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          TextButton(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: reference));
-              onCopy();
-            },
-            child: const Text('Copy'),
-          ),
+          TextButton(onPressed: onCopy, child: const Text('Copy')),
         ],
       ),
     );
@@ -663,12 +633,10 @@ Future<void> showOrderSuccessDialog(
         opacity: curved,
         child: Stack(
           children: [
-            // blur background
             BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
               child: Container(color: Colors.transparent),
             ),
-            // content card
             Center(
               child: ScaleTransition(
                 scale: Tween<double>(begin: 0.94, end: 1.0).animate(curved),
@@ -731,11 +699,10 @@ class _SuccessCardState extends State<_SuccessCard>
   }
 
   void _onClose() {
-    Navigator.of(context).pop(); // close dialog first
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      '/sales/list',
-      (route) => false, // clear all routes
-    );
+    Navigator.of(context).pop();
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil('/sales/list', (route) => false);
   }
 
   @override
@@ -759,7 +726,7 @@ class _SuccessCardState extends State<_SuccessCard>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // header gradient + animation
+            // Header
             Container(
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
@@ -846,7 +813,7 @@ class _SuccessCardState extends State<_SuccessCard>
               ),
             ),
 
-            // body content
+            // Body
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
               child: Column(
@@ -1006,7 +973,7 @@ class _CancelledCardState extends State<_CancelledCard>
   }
 
   void _onClose() {
-    Navigator.of(context).pop(); // tutup dialog
+    Navigator.of(context).pop();
     Navigator.of(
       context,
     ).pushNamedAndRemoveUntil('/sales/list', (route) => false);
@@ -1014,8 +981,7 @@ class _CancelledCardState extends State<_CancelledCard>
 
   @override
   Widget build(BuildContext context) {
-    const red = Color(0xFFDC2626); // red-600
-
+    const red = Color(0xFFDC2626);
     return Material(
       color: Colors.transparent,
       child: Container(
@@ -1035,13 +1001,13 @@ class _CancelledCardState extends State<_CancelledCard>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // header gradient merah
+            // Header merah
             Container(
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [red, Color(0xFFE11D48)], // red-600 to rose-600
+                  colors: [red, Color(0xFFE11D48)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -1118,7 +1084,7 @@ class _CancelledCardState extends State<_CancelledCard>
               ),
             ),
 
-            // body
+            // Body
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
               child: Column(

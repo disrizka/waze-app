@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -25,11 +24,8 @@ import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 // import 'check_order_step.dart'; // berisi class CheckOrderStep & CheckOrderStepState
 
 // Expose helper agar bisa dipanggil dari AppBar di wrapper
-// Expose helper agar bisa dipanggil dari AppBar di wrapper
 Future<bool?> openAddProductSheet(BuildContext context) async {
   final parentSp = context.read<SalesProvider>();
-
-  // 3) Init paging + pasang filter store ke ProductProvider
 
   return showModalBottomSheet<bool>(
     context: context,
@@ -47,7 +43,7 @@ Future<bool?> openAddProductSheet(BuildContext context) async {
 }
 
 // ===============================
-// MAKE ORDER STEP (minimal look)
+// MAKE ORDER STEP (customer OPTIONAL)
 // ===============================
 
 class MakeOrderStep extends StatefulWidget {
@@ -60,6 +56,7 @@ class MakeOrderStep extends StatefulWidget {
 
 class _MakeOrderStepState extends State<MakeOrderStep> {
   final _discountC = TextEditingController();
+  final _notesC = TextEditingController();
 
   String? _customerId;
   String? _customerName;
@@ -80,7 +77,7 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
     final prodProv = context.read<ProductProvider>();
     await prodProv.setInfiniteStoreAndRefresh(context, picked.id);
 
-    setState(() {}); // hanya untuk repaint UI
+    setState(() {}); // repaint UI
   }
 
   @override
@@ -88,8 +85,9 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
     super.initState();
     final prov = context.read<SalesProvider>();
     _discountC.text = (prov.discount ?? 0).toString();
+    _notesC.text = prov.note ?? '';
 
-    // ⬇️ NEW: prefill customer dari provider
+    // Prefill customer dari provider (boleh null)
     _customerId = prov.customerId;
     _customerName = prov.customerName ?? '';
 
@@ -102,6 +100,7 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
   @override
   void dispose() {
     _discountC.dispose();
+    _notesC.dispose();
     super.dispose();
   }
 
@@ -131,7 +130,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
     return (sub, fee, grand);
   }
 
-  // ⬇️ NEW
   Future<void> _pickCustomer() async {
     final picked = await showCustomerPickerSheet(
       context,
@@ -148,6 +146,17 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
     context.read<SalesProvider>().setOrderMeta(
       customerId: picked.id,
       customerName: picked.label,
+    );
+  }
+
+  void _clearCustomer() {
+    setState(() {
+      _customerId = null;
+      _customerName = '';
+    });
+    context.read<SalesProvider>().setOrderMeta(
+      customerId: null,
+      customerName: null,
     );
   }
 
@@ -193,14 +202,14 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
                 _Section(
                   titleWidget: Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.store_mall_directory_outlined,
                         size: 18,
                         color: UI.sub,
                       ),
-                      SizedBox(width: 8),
-                      Text('Store Location', style: UI.tsSub),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
+                      const Text('Store Location', style: UI.tsSub),
+                      const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
@@ -224,13 +233,13 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
                   ),
                   child: SelectFieldTile(
                     label: 'Choose a store',
-                    valueText: storeName, // ← dari provider
+                    valueText: storeName, // dari provider
                     emptyHint: 'Select store…',
                     onTap: _pickStore,
                   ),
                 ),
 
-                // ============ CUSTOMER (REQUIRED) ============
+                // ============ CUSTOMER (OPTIONAL) ============
                 const SizedBox(height: 12),
                 _Section(
                   titleWidget: Row(
@@ -239,57 +248,78 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
                       const SizedBox(width: 8),
                       const Text('Customer', style: UI.tsSub),
                       const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.background,
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: AppColors.blueAccent),
-                        ),
-                        child: const Text(
-                          'Required',
-                          style: TextStyle(
-                            color: AppColors.blue,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 11,
+                      const Spacer(),
+                      if ((_customerId ?? '').isNotEmpty)
+                        TextButton.icon(
+                          onPressed: _clearCustomer,
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            foregroundColor: AppColors.textSecondary,
                           ),
+                          icon: const Icon(Icons.backspace_outlined, size: 16),
+                          label: const Text(
+                            'Clear',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SelectFieldTile(
+                          label: 'Choose customer',
+                          valueText: _customerName?.isNotEmpty == true
+                              ? _customerName
+                              : null,
+                          emptyHint: 'Select customer...',
+                          onTap: _pickCustomer,
                         ),
                       ),
                     ],
                   ),
-                  child: SelectFieldTile(
-                    label: 'Choose customer',
-                    valueText: _customerName,
-                    emptyHint: 'Select customer…',
-                    onTap: _pickCustomer,
+                ),
+
+                // ============ NOTES (OPTIONAL) ============
+                const SizedBox(height: 12),
+                _Section(
+                  titleWidget: Row(
+                    children: const [
+                      Icon(Icons.note_alt_outlined, size: 18, color: UI.sub),
+                      SizedBox(width: 8),
+                      Text('Notes', style: UI.tsSub),
+                    ],
+                  ),
+                  child: TextFormField(
+                    controller: _notesC,
+                    decoration: InputDecoration(
+                      hintText: 'Optional notes for this order...',
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: UI.line),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: AppColors.primary),
+                      ),
+                    ),
+                    maxLines: 2,
+                    onChanged: (t) => context
+                        .read<SalesProvider>()
+                        .setOrderMeta(note: t.trim()),
                   ),
                 ),
               ],
             ),
           ),
 
-          // // Totals bar: disable jika belum pilih store atau cart kosong
-          // StickyTotalsBar(
-          //   subtotal: sub,
-          //   serviceFeeLabel: '',
-          //   serviceFee: 0,
-          //   adjustment: adjustment,
-          //   total: grand,
-          //   enabled: !storeNotSelected && cartLen > 0,
-          //   onNext: (!storeNotSelected && cartLen > 0)
-          //       ? () {
-          //           context.read<SalesProvider>().setOrderMeta(
-          //             discount: adjustment,
-          //           );
-          //           context.read<SalesProvider>().goTo(1);
-          //         }
-          //       : null,
-          // ),
-
-          // CTA minimal (opsional)
+          // CTA minimal
           SafeArea(
             minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: SizedBox(
@@ -297,16 +327,18 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
               child: FilledButton(
                 onPressed: (!storeNotSelected)
                     ? () {
-                        if (_customerId == null || _customerId!.isEmpty) {
-                          showFancySnackBar(
-                            context,
-                            message: 'Please select customer',
-                            icon: Icons.person_outline,
-                          );
-                          return;
-                        }
                         final d = int.tryParse(_discountC.text.trim()) ?? 0;
-                        context.read<SalesProvider>().setOrderMeta(discount: d);
+                        // kirim discount, customer, dan notes
+                        context.read<SalesProvider>().setOrderMeta(
+                          discount: d,
+                          note: _notesC.text.trim(),
+                          customerId: (_customerId?.isNotEmpty == true)
+                              ? _customerId
+                              : null,
+                          customerName: (_customerId?.isNotEmpty == true)
+                              ? _customerName
+                              : null,
+                        );
                         context.read<SalesProvider>().goTo(1);
                       }
                     : null,
@@ -331,8 +363,7 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
 }
 
 // ====== Order Summary — Compact List (auto height, scroll only if > 5) ======
-// ====== Order Summary — Compact List (auto height, scroll only if > 5) ======
-Widget _orderSummaryList(SalesProvider prov, context) {
+Widget _orderSummaryList(SalesProvider prov, BuildContext context) {
   if (prov.cartLen == 0) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -360,8 +391,10 @@ Widget _orderSummaryList(SalesProvider prov, context) {
   final int maxVisible = isTablet ? 9 : 4;
 
   final bool needScroll = prov.cartLen > maxVisible;
+  final controller = ScrollController();
 
   final list = ListView.separated(
+    controller: needScroll ? controller : null,
     padding: EdgeInsets.zero,
     itemCount: prov.cartItems.length,
     shrinkWrap: !needScroll,
@@ -401,6 +434,7 @@ Widget _orderSummaryList(SalesProvider prov, context) {
   return ConstrainedBox(
     constraints: BoxConstraints(maxHeight: maxHeight),
     child: Scrollbar(
+      controller: controller,
       thumbVisibility: true,
       radius: const Radius.circular(999),
       child: list,
@@ -623,7 +657,7 @@ Widget _orderTable(int cartLen, SalesProvider prov) {
                 for (var i = 0; i < it.qty; i++) {
                   prov.removeOne(sku);
                 }
-                // Tidak perlu hapus diskon lokal: provider sudah bereskan saat remove
+                // Provider membersihkan diskon terkait SKU ketika remove
               },
             ),
           ),
@@ -714,7 +748,7 @@ class _OrderItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.decimalPattern('id_ID'); // ⬅️ untuk format Rp
+    final money = NumberFormat.decimalPattern('id_ID'); // format Rp
     return SizedBox(
       height: 86, // sinkron dengan _rowExtent
       child: Row(
@@ -826,9 +860,8 @@ class _OrderItemTile extends StatelessWidget {
 
 class StickyTotalsBar extends StatelessWidget {
   final int subtotal; // ← dipertahankan demi kompat, TIDAK ditampilkan
-  final String
-  serviceFeeLabel; // ← dipertahankan demi kompat, TIDAK ditampilkan
-  final int serviceFee; // ← dipertahankan demi kompat, TIDAK ditampilkan
+  final String serviceFeeLabel; // ← dipertahankan demi kompat
+  final int serviceFee; // ← dipertahankan demi kompat
   final int adjustment;
   final int total;
   final bool enabled;
@@ -858,7 +891,6 @@ class StickyTotalsBar extends StatelessWidget {
         minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
         child: Column(
           children: [
-            // ⬇️ Subtotal & Service Fee dihilangkan dari tampilan
             if (adjustment > 0) ...[
               _kv(
                 'Discount',
@@ -1015,44 +1047,6 @@ class _EditReferenceDialogState extends State<_EditReferenceDialog> {
           child: const Text('Save'),
         ),
       ],
-    );
-  }
-}
-
-class _QtyPill extends StatelessWidget {
-  final int qty;
-  final VoidCallback onMinus;
-  final VoidCallback onPlus;
-  const _QtyPill({
-    required this.qty,
-    required this.onMinus,
-    required this.onPlus,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 36,
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.divider),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            onPressed: onMinus,
-            icon: const Icon(Icons.remove),
-          ),
-          Text('$qty', style: const TextStyle(fontWeight: FontWeight.w700)),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            onPressed: onPlus,
-            icon: const Icon(Icons.add),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1310,7 +1304,6 @@ class AddProductSheetState extends State<AddProductSheet> {
 
     // Pakai data provider, bukan state.itemList
     final firstPageEmptyAndDone = productProv.isFirstPageDoneEmpty;
-    debugPrint(firstPageEmptyAndDone.toString());
     final reachedEnd = productProv.reachedEnd;
 
     final pm = productProv.pageProducts;
@@ -2478,7 +2471,7 @@ class _SalesProductCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: Text('Choose'),
+                child: const Text('Choose'),
               ),
             ),
           ],
