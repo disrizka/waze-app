@@ -25,11 +25,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isPasswordVisible = false;
   bool _isRequestingPermissions = false;
 
-  // Status permission (opsional, bisa dipakai untuk logging/telemetri)
+  // Status permission (opsional)
   PermissionStatus? _notifStatus;
   PermissionStatus? _cameraStatus;
-  PermissionStatus? _photosStatus;
-  PermissionStatus? _storageStatus;
+  PermissionStatus? _photosStatus; // iOS only
 
   @override
   void initState() {
@@ -37,7 +36,10 @@ class _LoginScreenState extends State<LoginScreen> {
     _requestInitialPermissions();
   }
 
-  /// Minta izin: Notification, Camera, Photos/Media, Storage
+  /// === PERMISSIONS ===
+  /// Sesuai kebijakan Play Store:
+  /// - ANDROID: Jangan minta Photos/Storage → gunakan Android Photo Picker.
+  /// - iOS: Boleh minta Photos.
   Future<void> _requestInitialPermissions() async {
     if (!mounted || _isRequestingPermissions) return;
     setState(() => _isRequestingPermissions = true);
@@ -62,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ? PermissionStatus.granted
               : PermissionStatus.denied;
         }
-        // Android 13+ dan juga fallback umum
+        // Android 13+; di versi lama akan diabaikan oleh OS/plugin
         final notif = await Permission.notification.request();
         _notifStatus = notif;
       } catch (_) {}
@@ -74,28 +76,16 @@ class _LoginScreenState extends State<LoginScreen> {
         _cameraStatus = PermissionStatus.denied;
       }
 
-      // === Photos / Media Library ===
-      // iOS: Photos; Android 13+: READ_MEDIA_IMAGES dipetakan ke Permission.photos oleh plugin
-      try {
-        _photosStatus = await Permission.photos.request();
-      } catch (_) {
-        _photosStatus = PermissionStatus.denied;
-      }
-
-      // === Storage (Android <= 12) ===
-      if (Platform.isAndroid) {
+      // === Photos (iOS saja) ===
+      if (Platform.isIOS) {
         try {
-          _storageStatus = await Permission.storage.request();
+          _photosStatus = await Permission.photos.request();
         } catch (_) {
-          _storageStatus = PermissionStatus.denied;
+          _photosStatus = PermissionStatus.denied;
         }
-        // Jika butuh akses luas (opsional), bisa minta ini:
-        // if (_storageStatus?.isDenied ?? true) {
-        //   final mng = await Permission.manageExternalStorage.request();
-        //   _storageStatus = mng;
-        // }
       } else {
-        _storageStatus = PermissionStatus.granted; // tidak relevan di iOS
+        // ANDROID → JANGAN minta photos/storage. Gunakan Android Photo Picker saat memilih gambar.
+        _photosStatus = PermissionStatus.granted;
       }
     } finally {
       if (mounted) setState(() => _isRequestingPermissions = false);
@@ -271,7 +261,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       alignment: Alignment.centerLeft,
                       child: GestureDetector(
                         onTap: () {
-                          /* TODO: Forgot password */
+                          Navigator.pushNamed(context, '/password/forgot');
                         },
                         child: Text(
                           t.login_forgot_password, // "Forgot password?"

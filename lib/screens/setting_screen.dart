@@ -385,6 +385,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               },
             ),
             _MenuTile(
+              title: 'Change Password',
+              icon: LucideIcons.key,
+              subtitle: null,
+              onTap: () async {
+                Navigator.pushReplacementNamed(context, '/password/change');
+              },
+            ),
+            _MenuTile(
               title: t.profile_menu_help,
               icon: LucideIcons.helpCircle,
               onTap: () {

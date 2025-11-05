@@ -13,11 +13,14 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/env.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
+import 'package:wa_blast/providers/change_password_provider.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
+import 'package:wa_blast/screens/change_password_screen.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
+import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
 import 'package:wa_blast/screens/manage_report_screen.dart';
@@ -127,6 +130,10 @@ class _AppShell extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ChatDetailProvider(), lazy: true),
         ChangeNotifierProvider(create: (_) => ProductProvider(), lazy: true),
         ChangeNotifierProvider(create: (_) => PurchaseProvider(), lazy: true),
+        ChangeNotifierProvider(
+          create: (_) => ChangePasswordProvider(),
+          lazy: true,
+        ),
         ChangeNotifierProvider(
           create: (_) => EditProfileProvider(),
           lazy: true,
@@ -509,6 +516,20 @@ class MyApp extends StatelessWidget {
             return _platformRouteAnimated(
               settings,
               const EditProfileScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/password/change':
+            return _platformRouteAnimated(
+              settings,
+              const ChangePasswordScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/password/forgot':
+            return _platformRouteAnimated(
+              settings,
+              const ForgotPasswordWrapperScreen(),
               android: AndroidTransition.slideRight,
             );
 
