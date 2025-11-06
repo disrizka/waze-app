@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:dotted_border/dotted_border.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -18,7 +19,12 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
   final _firstC = TextEditingController();
   final _lastC = TextEditingController();
   final _orgC = TextEditingController();
+
   File? _logo;
+  XFile? _logoX;
+  final _picker = ImagePicker();
+
+  static const int _maxBytes = 10 * 1024 * 1024; // 10 MB
 
   @override
   void dispose() {
@@ -28,7 +34,7 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
     super.dispose();
   }
 
-  // ---- STYLE TOKENS (match desain) ----
+  // ---- STYLE TOKENS ----
   static const _borderGray = Color(0xFFE5E7EB);
   static const _hintGray = Color(0xFF9CA3AF);
   static const _textGray = Color(0xFF111827);
@@ -52,51 +58,75 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
   );
 
   // ===== Permission helpers =====
-  Future<bool> _ensureGalleryPermission() async {
-    if (Platform.isIOS) {
-      final status = await Permission.photos.request();
-      return status.isGranted;
-    } else {
-      final status = await Permission.storage.request();
-      return status.isGranted;
-    }
-  }
-
   Future<bool> _ensureCameraPermission() async {
-    final status = await Permission.camera.request();
-    return status.isGranted;
+    try {
+      final st = await Permission.camera.status;
+      if (st.isGranted) return true;
+      if (st.isPermanentlyDenied) {
+        if (!mounted) return false;
+        await openAppSettings();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Camera permission permanently denied. Enable it in Settings.',
+            ),
+          ),
+        );
+        return false;
+      }
+      final req = await Permission.camera.request();
+      return req.isGranted;
+    } catch (_) {
+      return false;
+    }
   }
 
-  Future<void> _pickFromGallery() async {
-    final ok = await _ensureGalleryPermission();
-    if (!ok) {
+  Future<void> _pick(ImageSource src) async {
+    if (src == ImageSource.camera) {
+      final ok = await _ensureCameraPermission();
+      if (!ok) return;
+    }
+
+    try {
+      final x = await _picker.pickImage(
+        source: src,
+        imageQuality: 88,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        preferredCameraDevice: CameraDevice.rear,
+      );
+      if (x == null) return;
+
+      if (!kIsWeb) {
+        final f = File(x.path);
+        final len = await f.length();
+        if (len > _maxBytes) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Ukuran gambar terlalu besar (${_fmtBytes(len)}). Maksimal ${_fmtBytes(_maxBytes)}.',
+              ),
+            ),
+          );
+          return;
+        }
+        setState(() {
+          _logo = f;
+          _logoX = x;
+        });
+      } else {
+        setState(() {
+          _logo = null;
+          _logoX = x;
+        });
+      }
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Izin galeri ditolak')));
-      return;
+      ).showSnackBar(SnackBar(content: Text('Gagal memilih gambar: $e')));
     }
-    final x = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
-    );
-    if (x != null) setState(() => _logo = File(x.path));
-  }
-
-  Future<void> _pickFromCamera() async {
-    final ok = await _ensureCameraPermission();
-    if (!ok) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Izin kamera ditolak')));
-      return;
-    }
-    final x = await ImagePicker().pickImage(
-      source: ImageSource.camera,
-      imageQuality: 85,
-    );
-    if (x != null) setState(() => _logo = File(x.path));
   }
 
   Future<void> _chooseLogoSource() async {
@@ -113,9 +143,10 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
               title: const Text('Pilih dari Galeri'),
+              subtitle: const Text('Tidak perlu izin tambahan'),
               onTap: () async {
                 Navigator.pop(context);
-                await _pickFromGallery();
+                await _pick(ImageSource.gallery);
               },
             ),
             ListTile(
@@ -123,7 +154,7 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
               title: const Text('Ambil dari Kamera'),
               onTap: () async {
                 Navigator.pop(context);
-                await _pickFromCamera();
+                await _pick(ImageSource.camera);
               },
             ),
           ],
@@ -132,12 +163,19 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
     );
   }
 
+  void _removeLogo() {
+    setState(() {
+      _logo = null;
+      _logoX = null;
+    });
+  }
+
   Future<void> _onCreate() async {
     if (!_formKey.currentState!.validate()) return;
     final auth = context.read<AuthProvider>();
 
     final ok = await auth.registerStep2(
-      context: context, // provider-mu yang handle redirect ke /splash
+      context: context,
       firstName: _firstC.text.trim(),
       lastName: _lastC.text.trim(),
       organisationName: _orgC.text.trim(),
@@ -150,7 +188,6 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
         SnackBar(content: Text(auth.error ?? 'Register Step 2 gagal')),
       );
     }
-    // Jika ok, provider sudah navigasi ke /splash.
   }
 
   @override
@@ -160,10 +197,8 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
     return Form(
       key: _formKey,
       child: Column(
-        key: const ValueKey('content-step2'),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ===== First Name =====
           const Text(
             'First Name',
             style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
@@ -177,7 +212,6 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           ),
           const SizedBox(height: 16),
 
-          // ===== Last Name =====
           const Text(
             'Last Name',
             style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
@@ -191,7 +225,6 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           ),
           const SizedBox(height: 16),
 
-          // ===== Organisation Name =====
           const Text(
             'Organisation Name',
             style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
@@ -205,7 +238,6 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           ),
           const SizedBox(height: 16),
 
-          // ===== Organisation Logo =====
           const Text(
             'Organisation Logo',
             style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
@@ -215,10 +247,9 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           GestureDetector(
             onTap: _chooseLogoSource,
             child: DottedBorder(
-              // dotted_border: ^3.1.0
               options: RoundedRectDottedBorderOptions(
                 color: _blue,
-                dashPattern: const <double>[8, 6],
+                dashPattern: const [8, 6],
                 strokeWidth: 2,
                 radius: const Radius.circular(12),
                 padding: const EdgeInsets.all(0),
@@ -233,7 +264,6 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    // preview / icon tile
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
@@ -250,14 +280,11 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                       ),
                     ),
                     const SizedBox(width: 12),
-
-                    // Texts
                     Expanded(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // "Add your logo Business*"
                           RichText(
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -270,7 +297,7 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                                 TextSpan(
                                   text: _logo == null
                                       ? 'Add your organisation logo'
-                                      : 'Selected: ${_logo!.path.split('/').last}',
+                                      : 'Selected: ${_logoX?.name ?? _logo!.path.split('/').last}',
                                 ),
                                 const TextSpan(
                                   text: ' *',
@@ -281,24 +308,35 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                           ),
                           const SizedBox(height: 4),
                           const Text(
-                            'Format JPG, PNG (maks 5–10MB)',
+                            'Format JPG, PNG (maks 10MB)',
                             style: TextStyle(fontSize: 12, color: _hintGray),
                           ),
                         ],
                       ),
                     ),
-
                     const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: _chooseLogoSource,
-                      child: const Text(
-                        'Upload',
-                        style: TextStyle(
-                          color: _blue,
-                          fontWeight: FontWeight.w600,
+                    if (_logo != null)
+                      TextButton(
+                        onPressed: _removeLogo,
+                        child: const Text(
+                          'Remove',
+                          style: TextStyle(
+                            color: _blue,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      )
+                    else
+                      TextButton(
+                        onPressed: _chooseLogoSource,
+                        child: const Text(
+                          'Upload',
+                          style: TextStyle(
+                            color: _blue,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -306,8 +344,6 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           ),
 
           const SizedBox(height: 22),
-
-          // ===== Create button =====
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -341,5 +377,16 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
         ],
       ),
     );
+  }
+
+  String _fmtBytes(int b) {
+    const units = ['B', 'KB', 'MB', 'GB'];
+    double size = b.toDouble();
+    var i = 0;
+    while (size >= 1024 && i < units.length - 1) {
+      size /= 1024;
+      i++;
+    }
+    return '${size.toStringAsFixed(size < 10 && i > 0 ? 1 : 0)} ${units[i]}';
   }
 }

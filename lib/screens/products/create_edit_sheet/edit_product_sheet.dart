@@ -7,8 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart'; // ⬅ izin kamera on-demand
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
+
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
@@ -66,10 +68,10 @@ class _EditProductSheetState extends State<_EditProductSheet> {
   // ====== IMAGE PICKER ======
   final ImagePicker _picker = ImagePicker();
 
-  /// Kita simpan 5 slot.
+  /// Simpan 5 slot:
   /// - existingFilename: dari API (jika ada)
   /// - existingUrl: untuk preview Network
-  /// - picked: jika user memilih file baru (override existing saat submit)
+  /// - picked: jika user memilih file baru
   final List<_ImageSlot> _slots = List<_ImageSlot>.generate(
     5,
     (i) => _ImageSlot(position: i + 1),
@@ -81,9 +83,9 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
   // ====== INITIAL VARIANTS SEED (untuk VariantsSectionDynamic) ======
   List<Map<String, dynamic>>?
-  _initialGroups; // [{"name":"Color","values":["Blue","White"]}, ...]
+  _initialGroups; // [{"name":"Color","values":[...]}]
   List<Map<String, dynamic>>?
-  _initialSkus; // [{"code":"..","price":..,"attributes":[{"name":"Color","value":"Blue"},...]}]
+  _initialSkus; // [{"code":..,"price":..,"attributes":[...]}]
 
   // ====== HELPERS ======
   int _toInt(String s) {
@@ -156,6 +158,43 @@ class _EditProductSheetState extends State<_EditProductSheet> {
     return true;
   }
 
+  // ========= PERMISSIONS/PICK HELPERS =========
+  Future<bool> _ensureCameraPermission() async {
+    try {
+      final st = await Permission.camera.status;
+      if (st.isGranted) return true;
+      if (st.isPermanentlyDenied) {
+        if (!mounted) return false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Camera permission is permanently denied. Enable it in Settings.',
+            ),
+          ),
+        );
+        return false;
+      }
+      final req = await Permission.camera.request();
+      return req.isGranted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<XFile?> _pickOne(ImageSource src) async {
+    if (src == ImageSource.camera) {
+      final ok = await _ensureCameraPermission();
+      if (!ok) return null;
+    }
+    return _picker.pickImage(
+      source: src,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 88,
+      preferredCameraDevice: CameraDevice.rear,
+    );
+  }
+
   // ====== IMAGE HANDLERS ======
   Future<void> _chooseImageFor(int idx) async {
     final src = await showModalBottomSheet<ImageSource>(
@@ -180,6 +219,7 @@ class _EditProductSheetState extends State<_EditProductSheet> {
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
               title: const Text('Pick from Gallery'),
+              subtitle: const Text('Android uses Photo Picker (no permission)'),
               onTap: () => Navigator.pop(ctx, ImageSource.gallery),
             ),
             ListTile(
@@ -195,16 +235,10 @@ class _EditProductSheetState extends State<_EditProductSheet> {
     if (src == null) return;
 
     try {
-      final picked = await _picker.pickImage(
-        source: src,
-        maxWidth: 1600,
-        maxHeight: 1600,
-        imageQuality: 88,
-      );
+      final picked = await _pickOne(src);
       if (picked != null) {
         setState(() {
           _slots[idx].picked = picked;
-          // enable next slot if needed (we allow any order; order enforced on submit by position)
         });
       }
     } catch (e) {
@@ -217,12 +251,11 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
   void _removeAt(int idx) {
     setState(() {
-      // removing means clear both picked & existing
       _slots[idx]
         ..picked = null
         ..existingFilename = null
         ..existingUrl = null;
-      // Optional compact: shift next existing into empty slot to keep order nice
+      // Compact order agar tidak ada gap
       for (int i = 0; i < _slots.length - 1; i++) {
         if (_slots[i].isEmpty && !_slots[i + 1].isEmpty) {
           _slots[i].copyFrom(_slots[i + 1]);
@@ -264,7 +297,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
       return;
     }
 
-    // Prefill 1x
     if (!_hydratedFromDetail) {
       _nameC.text = p.name;
       _descC.text = p.description;
@@ -304,7 +336,7 @@ class _EditProductSheetState extends State<_EditProductSheet> {
             .map((e) => {'name': e.key, 'values': e.value.toList()..sort()})
             .toList();
 
-        // Build initial skus (attributes as List<Map>)
+        // Build initial skus
         _initialSkus = skus
             .map(
               (s) => {
@@ -376,9 +408,8 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
     if (!baseOk) return false;
 
-    if (_useMultiPrice && _prices.where((e) => e.isFilled).isEmpty) {
+    if (_useMultiPrice && _prices.where((e) => e.isFilled).isEmpty)
       return false;
-    }
     if (_useMultiPrice && !_allTierPricesValid) return false;
 
     if (_useVariants) {
@@ -440,8 +471,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
         if (filename != null) {
           imagesJson.add(NewImage(filename: filename, position: i + 1));
-        } else {
-          // skip empty slot
         }
       }
 
@@ -1050,9 +1079,8 @@ class _EditProductSheetState extends State<_EditProductSheet> {
                                                 return 'Enter base SKU price first';
                                               }
                                               final tier = _toInt(v);
-                                              if (tier <= 0) {
+                                              if (tier <= 0)
                                                 return 'Must be > 0';
-                                              }
                                               if (tier >= base) {
                                                 return 'Must be < base SKU price';
                                               }

@@ -4,24 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// ===== Guard agar tidak dipanggil berkali-kali di satu sesi app
 bool _askingInProgress = false;
 bool _askedOnceThisRun = false;
-
-/// Fast cache agar tidak harus buka SharedPreferences sebelum UI tampil
 bool? _dialogShownCache;
 
-/// Cek dukungan notifikasi (Android < 13 tidak perlu minta permission notifikasi)
 bool get _shouldAskNotification {
-  if (Platform.isAndroid) {
-    // Android 13+ perlu POST_NOTIFICATIONS
-    return true; // permission_handler akan no-op di versi lama
-  }
-  // iOS/iPadOS perlu izin notifikasi
+  if (Platform.isAndroid) return true; // Android 13+ pakai POST_NOTIFICATIONS
   return Platform.isIOS;
 }
 
-/// Cek semua izin penting, dijalankan paralel + timeout agar tidak blok
+/// Cek izin inti — tanpa izin foto/video untuk Android
 Future<bool> _areCorePermissionsGrantedFast({
   Duration timeout = const Duration(milliseconds: 800),
 }) async {
@@ -38,47 +30,34 @@ Future<bool> _areCorePermissionsGrantedFast({
   if (_shouldAskNotification) futures.add(safeStatus(Permission.notification));
   futures.add(safeStatus(Permission.camera));
 
-  if (Platform.isIOS) {
-    futures.add(safeStatus(Permission.photos));
-  } else {
-    futures.add(safeStatus(Permission.photos)); // Android 13+
-    futures.add(safeStatus(Permission.storage)); // Android ≤12
-  }
+  // hanya iOS yang cek photos
+  if (Platform.isIOS) futures.add(safeStatus(Permission.photos));
 
   List results;
   try {
     results = await Future.wait(futures).timeout(timeout);
   } on TimeoutException {
-    // Kalau timeout, anggap belum lengkap agar kita bisa lanjut tanpa hang
     return false;
   }
 
   int i = 0;
-  PermissionStatus? notif, cam, photos, storage;
+  PermissionStatus? notif, cam, photos;
 
-  if (_shouldAskNotification) {
-    notif = results[i++] as PermissionStatus;
-  }
+  if (_shouldAskNotification) notif = results[i++] as PermissionStatus;
   cam = results[i++] as PermissionStatus;
-  if (Platform.isIOS) {
-    photos = results[i++] as PermissionStatus;
-  } else {
-    photos = results[i++] as PermissionStatus; // Android 13+
-    storage = results[i++] as PermissionStatus; // Android ≤12
-  }
+  if (Platform.isIOS) photos = results[i++] as PermissionStatus;
 
-  final notiOK =
+  final notifOK =
       !_shouldAskNotification || (notif!.isGranted || notif.isLimited);
   final camOK = cam!.isGranted;
-  final galOK = Platform.isIOS
+  final photosOK = Platform.isIOS
       ? (photos!.isGranted || photos.isLimited)
-      : ((photos!.isGranted || photos.isLimited) ||
-            (storage?.isGranted ?? false));
+      : true; // Android otomatis true karena pakai photo picker
 
-  return notiOK && camOK && galOK;
+  return notifOK && camOK && photosOK;
 }
 
-/// Minta izin satu per satu dengan jeda kecil, tapi beri watchdog agar tidak macet
+/// Minta izin — tanpa photos/storage di Android
 Future<void> _requestAllCorePermissionsLight({
   Duration gap = const Duration(milliseconds: 250),
   Duration watchdog = const Duration(seconds: 6),
@@ -91,47 +70,29 @@ Future<void> _requestAllCorePermissionsLight({
       await Permission.notification.request();
       await pause();
     }
+
     if (!await Permission.camera.isPermanentlyDenied) {
       await Permission.camera.request();
       await pause();
     }
 
+    // hanya iOS yang minta photos
     if (Platform.isIOS) {
       if (!await Permission.photos.isPermanentlyDenied) {
         await Permission.photos.request();
         await pause();
       }
-    } else {
-      if (!await Permission.photos.isPermanentlyDenied) {
-        await Permission.photos.request();
-        await pause();
-      }
-      if (!await Permission.storage.isPermanentlyDenied) {
-        await Permission.storage.request();
-        await pause();
-      }
     }
   }
 
-  // Watchdog supaya tidak menggantung kalau OS sheet/flow bermasalah
   await Future.any([doRequests(), Future.delayed(watchdog)]);
 }
 
-/// Panggil INI dari screen awal, tapi TIDAK langsung await di initState.
-/// Ini akan menunggu first frame dulu → kecilkan risiko “stuck splash”.
-///
-/// Contoh pemakaian:
-///   @override
-///   void initState() {
-///     super.initState();
-///     scheduleAskCorePermissions(context);
-///   }
 void scheduleAskCorePermissions(BuildContext context) {
   if (_askedOnceThisRun || _askingInProgress) return;
   _askingInProgress = true;
 
   WidgetsBinding.instance.addPostFrameCallback((_) async {
-    // Delay kecil memberi waktu layout/hero/anim memulai → UI terasa ringan
     await Future.delayed(const Duration(milliseconds: 300));
     if (!context.mounted) {
       _askingInProgress = false;
@@ -139,37 +100,30 @@ void scheduleAskCorePermissions(BuildContext context) {
     }
 
     try {
-      // Ambil flag dialogShown TANPA memblokir UI
       _dialogShownCache ??= await _readDialogShownFlagSafe();
 
-      // Kalau semua izin sudah OK, tidak usah apa-apa
       if (await _areCorePermissionsGrantedFast()) {
         _askedOnceThisRun = true;
         _askingInProgress = false;
         return;
       }
 
-      // Hanya tampilkan dialog sekali per instalasi (persisten), dan sekali per sesi
       if ((_dialogShownCache ?? false) == false) {
         final ok = await showCorePermissionsDialog(context);
-        // Tulis preferensi TANPA menunggu (tidak memblokir)
         unawaited(_writeDialogShownFlagSafe(true));
 
         if (ok == true) {
-          // Tunggu animasi dialog tuntas
           await WidgetsBinding.instance.endOfFrame;
           await Future.delayed(const Duration(milliseconds: 80));
-
           await _requestAllCorePermissionsLight();
 
-          // Bila masih belum granted dan context masih hidup → arahkan ke Settings
           if (!await _areCorePermissionsGrantedFast() && context.mounted) {
             await showOpenSettingsSheet(context);
           }
         }
       }
     } catch (_) {
-      // Jika ada error, jangan sampai mengganggu UI; biarkan lewat
+      // abaikan error
     } finally {
       _askedOnceThisRun = true;
       _askingInProgress = false;
@@ -177,7 +131,6 @@ void scheduleAskCorePermissions(BuildContext context) {
   });
 }
 
-/// ==== I/O helpers (non-blocking jalur UI) ====
 Future<bool?> _readDialogShownFlagSafe() async {
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -191,12 +144,9 @@ Future<void> _writeDialogShownFlagSafe(bool v) async {
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('corePermDialogShown', v);
-  } catch (_) {
-    // abaikan
-  }
+  } catch (_) {}
 }
 
-/// ==== DIALOG TEMA BIRU (seperti versi sebelumnya) ====
 Future<bool?> showCorePermissionsDialog(BuildContext context) {
   const brandBlue = Color(0xFF4069E6);
   const brandBlueSoft = Color(0xFFEFF4FF);
@@ -246,8 +196,7 @@ Future<bool?> showCorePermissionsDialog(BuildContext context) {
 
   return showDialog<bool>(
     context: context,
-    barrierDismissible: true, // boleh ditutup di luar
-    useRootNavigator: true, // konsisten dengan pop
+    barrierDismissible: true,
     builder: (ctx) {
       return Dialog(
         backgroundColor: Colors.white,
@@ -258,7 +207,6 @@ Future<bool?> showCorePermissionsDialog(BuildContext context) {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Pakai logo/ilustrasi kamu kalau ada
               Image.asset(
                 'assets/wave_up_logo.png',
                 height: 20,
@@ -288,19 +236,13 @@ Future<bool?> showCorePermissionsDialog(BuildContext context) {
               point(
                 Icons.notifications_active_rounded,
                 'Notifications',
-                'Receive updates and important messages.',
+                'Receive updates and messages.',
               ),
               const SizedBox(height: 10),
               point(
                 Icons.photo_camera_rounded,
                 'Camera',
-                'Take photos directly for your logo/check-in.',
-              ),
-              const SizedBox(height: 10),
-              point(
-                Icons.photo_library_rounded,
-                'Gallery/Photos',
-                'Choose or save images from your device.',
+                'Take photos directly for logo/check-in.',
               ),
               const SizedBox(height: 22),
               Row(
@@ -331,7 +273,6 @@ Future<bool?> showCorePermissionsDialog(BuildContext context) {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: brandBlue,
                         foregroundColor: Colors.white,
-                        elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -353,7 +294,6 @@ Future<bool?> showCorePermissionsDialog(BuildContext context) {
   );
 }
 
-/// Bottom sheet untuk arahkan user buka Settings jika ada izin yang ditolak permanen.
 Future<void> showOpenSettingsSheet(BuildContext context) {
   const brandBlue = Color(0xFF4069E6);
 
@@ -385,7 +325,7 @@ Future<void> showOpenSettingsSheet(BuildContext context) {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Buka Pengaturan untuk mengizinkan akses Notifikasi, Kamera, atau Galeri.',
+              'Buka Pengaturan untuk mengizinkan akses Notifikasi atau Kamera.',
               style: TextStyle(fontSize: 13),
               textAlign: TextAlign.center,
             ),

@@ -417,6 +417,10 @@ class _ProductScreenState extends State<ProductScreen> {
                                 final priceLabel = _formatRp(_priceOf(p));
                                 final img =
                                     p.primaryImageUrl ?? 'assets/empty_box.png';
+
+                                final int stockQty = p.totalStockQty;
+                                final bool isOut = stockQty <= 0;
+
                                 return Padding(
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 6,
@@ -424,6 +428,8 @@ class _ProductScreenState extends State<ProductScreen> {
                                   child: _ProductTile(
                                     title: p.name,
                                     priceLabel: priceLabel,
+                                    stockQty: stockQty,
+                                    isOutOfStock: isOut,
                                     image: img,
                                     onTap: () {
                                       Navigator.pushNamed(
@@ -748,7 +754,9 @@ class _ProductTile extends StatelessWidget {
     required this.title,
     required this.priceLabel,
     required this.image,
-    this.onTap, // <— tambah
+    required this.stockQty, // ⬅️ NEW
+    required this.isOutOfStock, // ⬅️ NEW
+    this.onTap,
     this.onEdit,
     this.onDelete,
   });
@@ -756,39 +764,71 @@ class _ProductTile extends StatelessWidget {
   final String title;
   final String priceLabel;
   final String image;
-  final VoidCallback? onTap; // <— tambah
+  final int stockQty; // ⬅️ NEW
+  final bool isOutOfStock; // ⬅️ NEW
+  final VoidCallback? onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
+    final Color bg = isOutOfStock ? const Color(0xFFF3F4F6) : Colors.white;
+    final Color border = isOutOfStock
+        ? const Color(0xFFE5E7EB)
+        : const Color(0xFFE5E7EB);
+
     return InkWell(
-      onTap: onTap, // <— tambahkan
+      onTap: onTap, // tetap clickable walau OOS
       borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Container(
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: border),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _SquareImage(image: image),
+            _SquareImage(image: image, dimmed: isOutOfStock), // ⬅️ NEW
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Title
                   Text(
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF111827),
+                      color: isOutOfStock
+                          ? const Color(0xFF6B7280)
+                          : const Color(0xFF111827),
                     ),
                   ),
                   const SizedBox(height: 4),
+                  // Price
                   Text(
                     priceLabel,
-                    style: const TextStyle(color: Color(0xFF6B7280)),
+                    style: TextStyle(
+                      color: isOutOfStock
+                          ? const Color(0xFF9CA3AF)
+                          : const Color(0xFF6B7280),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  // Stock line
+                  Text(
+                    isOutOfStock ? 'Out of stock' : 'Stock: $stockQty',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isOutOfStock
+                          ? const Color(0xFFEF4444)
+                          : const Color(0xFF16A34A),
+                    ),
                   ),
                 ],
               ),
@@ -803,8 +843,9 @@ class _ProductTile extends StatelessWidget {
 }
 
 class _SquareImage extends StatelessWidget {
-  const _SquareImage({required this.image});
+  const _SquareImage({required this.image, this.dimmed = false}); // ⬅️ NEW
   final String image;
+  final bool dimmed; // ⬅️ NEW
 
   @override
   Widget build(BuildContext context) {
@@ -813,7 +854,7 @@ class _SquareImage extends StatelessWidget {
         (image.startsWith('http://') || image.startsWith('https://'));
     Widget _fallback() => const _ImageErrorPlaceholder();
 
-    final Widget child = isNetwork
+    final Widget raw = isNetwork
         ? Image.network(
             image,
             fit: BoxFit.cover,
@@ -835,6 +876,35 @@ class _SquareImage extends StatelessWidget {
                   errorBuilder: (ctx, err, stack) => _fallback(),
                 )
               : _fallback());
+
+    // ⬅️ NEW: desaturate jika OOS
+    final Widget child = dimmed
+        ? ColorFiltered(
+            colorFilter: const ColorFilter.matrix(<double>[
+              0.2126,
+              0.7152,
+              0.0722,
+              0,
+              0,
+              0.2126,
+              0.7152,
+              0.0722,
+              0,
+              0,
+              0.2126,
+              0.7152,
+              0.0722,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+            ]),
+            child: raw,
+          )
+        : raw;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),

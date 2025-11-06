@@ -8,6 +8,7 @@ import 'package:flutter/material.dart' as vmath;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart'; // ⬅️ tambah: untuk cek izin kamera on-demand
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/constants/app_colors.dart';
@@ -23,7 +24,7 @@ Future<void> showAddProductSheet(BuildContext context) {
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: Colors.transparent, // ⬅️ penting
+    backgroundColor: Colors.transparent,
     builder: (_) => _ResponsiveSheet(child: const _AddProductSheet()),
   );
 }
@@ -38,16 +39,11 @@ class _ResponsiveSheet extends StatelessWidget {
     final w = mq.size.width;
     final h = mq.size.height;
 
-    // Lebar hampir penuh di ponsel, sedikit menyempit di tablet/desktop
     final double widthFactor = w < 600 ? 1.0 : 0.96;
-
-    // Batas keras untuk layar super lebar
     const double hardMaxWidth = 1100;
-
-    // ⬇️ BATAS TINGGI: maksimal 88% tinggi layar ATAU 720px (mana yang lebih kecil)
     final double hardMaxHeight = [
-      h * 0.88, // relatif layar
-      720.0, // agar di tablet pun tidak kepanjangan defaultnya
+      h * 0.88,
+      720.0,
     ].reduce((a, b) => a < b ? a : b);
 
     return Align(
@@ -57,7 +53,7 @@ class _ResponsiveSheet extends StatelessWidget {
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: hardMaxWidth,
-            maxHeight: hardMaxHeight, // ⬅️ penting supaya tidak menjulang
+            maxHeight: hardMaxHeight,
           ),
           child: Material(
             color: Colors.white,
@@ -87,8 +83,8 @@ class _AddProductSheetState extends State<_AddProductSheet> {
   final _formKey = GlobalKey<FormState>();
   final _nameC = TextEditingController();
   final _descC = TextEditingController();
-  final _priceC = TextEditingController(); // (not used on submit)
-  final _stockC = TextEditingController(); // (not used on submit)
+  final _priceC = TextEditingController();
+  final _stockC = TextEditingController();
 
   bool _available = true; // optional (not used by API yet)
   bool _attemptedSubmit = false;
@@ -96,7 +92,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
   bool _useVariants = false;
 
   // ====== MULTIPLE PRICE (WHOLESALE) ======
-  bool _useMultiPrice = false; // new toggle
+  bool _useMultiPrice = false;
 
   // ====== SINGLE SKU (when variants OFF) ======
   final TextEditingController _singleSkuNameC = TextEditingController();
@@ -114,22 +110,61 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     growable: false,
   );
 
+  // ========= PERMISSIONS/PICK HELPERS =========
+
+  /// Minta izin kamera **hanya saat** user memilih "Take a Photo".
+  Future<bool> _ensureCameraPermission() async {
+    try {
+      final st = await Permission.camera.status;
+      if (st.isGranted) return true;
+      if (st.isPermanentlyDenied) {
+        // Ajak buka settings
+        if (!mounted) return false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Camera permission is permanently denied. Please enable it in Settings.',
+            ),
+          ),
+        );
+        return false;
+      }
+      final req = await Permission.camera.request();
+      return req.isGranted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Pick image sesuai kebijakan:
+  /// - Android (Gallery): langsung pakai picker (Android Photo Picker otomatis di Android 13+) → **tanpa izin**.
+  /// - Android (Camera): pastikan izin kamera dulu.
+  /// - iOS: gallery pakai PHPicker (tanpa izin), camera akan trigger izin kamera dari sistem / permission_handler.
+  Future<XFile?> _pickOne(ImageSource src) async {
+    if (src == ImageSource.camera) {
+      final ok = await _ensureCameraPermission();
+      if (!ok) return null;
+    }
+    return await _picker.pickImage(
+      source: src,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 88,
+      preferredCameraDevice: CameraDevice.rear,
+    );
+  }
+
   // Tambah di dalam _AddProductSheetState
   List<String> _whyDisabled() {
     final reasons = <String>[];
-
-    // 1) Form basic
     final formOk = (_formKey.currentState?.validate() ?? false);
     if (!formOk) reasons.add('Form belum valid (Name/Description).');
     if (_selectedBrandId == null) reasons.add('Brand belum dipilih.');
     if (_selectedCategoryId == null) reasons.add('Category belum dipilih.');
-
-    // 2) Mode variants/single
     if (_useVariants) {
       final st = variantsKey.currentState;
-      if (st == null || !st.hasAtLeastOneRow) {
+      if (st == null || !st.hasAtLeastOneRow)
         reasons.add('Belum ada SKU di Variants.');
-      }
       if (_useMultiPrice && !_variantPricesUniform) {
         reasons.add('Harga semua SKU harus identik untuk Multi Price.');
       }
@@ -141,13 +176,10 @@ class _AddProductSheetState extends State<_AddProductSheet> {
         reasons.add('SKU Price harus > 0.');
       }
     }
-
-    // 3) Multi price rules
     if (_useMultiPrice) {
       final anyTier = _prices.any((e) => e.isFilled);
-      if (!anyTier) {
+      if (!anyTier)
         reasons.add('Minimal 1 tier harga (Min Qty & Price) harus diisi.');
-      }
       if (!_allTierPricesValid) {
         final base = _skuBasePrice;
         if (base == null) {
@@ -157,7 +189,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
         }
       }
     }
-
     return reasons;
   }
 
@@ -185,6 +216,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
               title: const Text('Pick from Gallery'),
+              subtitle: const Text('Android uses Photo Picker (no permission)'),
               onTap: () => Navigator.pop(ctx, ImageSource.gallery),
             ),
             ListTile(
@@ -200,12 +232,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     if (src == null) return;
 
     try {
-      final picked = await _picker.pickImage(
-        source: src,
-        maxWidth: 1600,
-        maxHeight: 1600,
-        imageQuality: 88,
-      );
+      final picked = await _pickOne(src);
       if (picked != null) setState(() => _pickedList[idx] = picked);
     } catch (e) {
       if (!mounted) return;
@@ -218,7 +245,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
   void _removeImageAt(int idx) {
     setState(() {
       _pickedList[idx] = null;
-      // Optional: compact order so there are no gaps in the middle
       for (int i = 0; i < _pickedList.length - 1; i++) {
         if (_pickedList[i] == null && _pickedList[i + 1] != null) {
           _pickedList[i] = _pickedList[i + 1];
@@ -230,7 +256,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
 
   bool _slotEnabled(int idx) {
     if (idx == 0) return true;
-    return _pickedList[idx - 1] != null; // enabled only if previous slot filled
+    return _pickedList[idx - 1] != null;
   }
 
   bool get _hasAnyImage => _pickedList.any((x) => x != null);
@@ -238,7 +264,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
   // ====== DYNAMIC PRICES (for wholesale tiers) ======
   final List<_PriceRow> _prices = [_PriceRow()];
 
-  // Active SKU price (single-SKU or uniform price from Variants). Null if invalid.
   int? get _skuBasePrice {
     if (_useVariants) {
       final st = variantsKey.currentState;
@@ -248,7 +273,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
           .where((s) => s.code.trim().isNotEmpty && s.price > 0)
           .toList();
       if (skus.isEmpty) return null;
-      // ensure uniform (required to enable multi price)
       final p0 = skus.first.price;
       for (final s in skus) {
         if (s.price != p0) return null;
@@ -260,11 +284,10 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     }
   }
 
-  // All wholesale tier prices must be filled & strictly less than base SKU price
   bool get _allTierPricesValid {
     if (!_useMultiPrice) return true;
     final base = _skuBasePrice;
-    if (base == null) return false; // base SKU price not valid yet
+    if (base == null) return false;
     final filled = _prices.where((e) => e.isFilled).toList();
     if (filled.isEmpty) return false;
     for (final r in filled) {
@@ -281,11 +304,9 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     prov.fetchProductBrands(context);
     prov.fetchProductCategories(context);
 
-    // Prefill default store untuk kemudahan user
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final id = await prov.ensureDefaultStoreLocation(context);
       if (!mounted) return;
-
       final sp = context.read<StoreProvider>();
       if (sp.stores.isEmpty && !sp.loadingList) {
         await sp.fetchStoreLocations(context);
@@ -308,7 +329,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     super.dispose();
   }
 
-  // ====== OVERALL VALIDATION ======
   bool get _isValid {
     final baseOk =
         (_formKey.currentState?.validate() ?? false) &&
@@ -317,9 +337,8 @@ class _AddProductSheetState extends State<_AddProductSheet> {
 
     if (!baseOk) return false;
 
-    if (_useMultiPrice && _prices.where((e) => e.isFilled).isEmpty) {
+    if (_useMultiPrice && _prices.where((e) => e.isFilled).isEmpty)
       return false;
-    }
     if (_useMultiPrice && !_allTierPricesValid) return false;
 
     if (_useVariants) {
@@ -334,7 +353,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     }
   }
 
-  // ====== CHECK: are all variant SKU prices uniform? ======
   bool get _variantPricesUniform {
     final st = variantsKey.currentState;
     if (st == null) return false;
@@ -350,11 +368,9 @@ class _AddProductSheetState extends State<_AddProductSheet> {
     return true;
   }
 
-  // ====== IMAGE SLOT #0 SHORTCUT ======
   Future<void> _chooseImageSource() => _chooseImageFor(0);
   void _removeImage() => _removeImageAt(0);
 
-  // ====== HELPERS ======
   int _toInt(String s) {
     final digits = s.replaceAll('.', '').replaceAll(',', '').trim();
     return int.tryParse(digits) ?? 0;
@@ -416,7 +432,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
 
       // 2) SKUs JSON based on mode
       late final List<Map<String, dynamic>> skusJson;
-
       if (_useVariants) {
         final st = variantsKey.currentState;
         if (st == null) {
@@ -767,7 +782,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
                         ),
                         const SizedBox(height: 12),
 
-                        // ====== VARIANT CONTENT / SINGLE SKU ======
                         if (_useVariants) ...[
                           VariantsSectionDynamic(key: variantsKey),
                           const SizedBox(height: 16),
@@ -839,7 +853,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
                           const SizedBox(height: 16),
                         ],
 
-                        // ====== MULTIPLE PRICE TOGGLE (+ description) ======
+                        // ====== MULTI PRICE TOGGLE ======
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
@@ -924,7 +938,6 @@ class _AddProductSheetState extends State<_AddProductSheet> {
 
                         const SizedBox(height: 12),
 
-                        // ====== PRICES (dynamic) — only when Multiple Price ON ======
                         if (_useMultiPrice) ...[
                           const Text(
                             'Prices',
@@ -978,9 +991,8 @@ class _AddProductSheetState extends State<_AddProductSheet> {
                                         }
                                         final tier = _toInt(v);
                                         if (tier <= 0) return 'Must be > 0';
-                                        if (tier >= base) {
+                                        if (tier >= base)
                                           return 'Must be < base SKU price';
-                                        }
                                         return null;
                                       },
                                       onChanged: (t) {
@@ -1002,7 +1014,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
                                             baseOffset: newText.length,
                                             extentOffset: newText.length,
                                           );
-                                        setState(() {}); // refresh error text
+                                        setState(() {});
                                       },
                                     ),
                                   ),
@@ -1043,10 +1055,10 @@ class _AddProductSheetState extends State<_AddProductSheet> {
                   width: double.infinity,
                   child: _isSubmitting
                       ? Shimmer.fromColors(
-                          baseColor: const Color(0xFF9CA3AF), // Gray 400
-                          highlightColor: const Color(0xFF6B7280), // Gray 500
+                          baseColor: const Color(0xFF9CA3AF),
+                          highlightColor: const Color(0xFF6B7280),
                           child: ElevatedButton(
-                            onPressed: null, // disabled
+                            onPressed: null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF9CA3AF),
                               foregroundColor: Colors.white,
@@ -1414,13 +1426,11 @@ Future<String?> showListPicker({
       final viewInsets = MediaQuery.of(ctx).viewInsets.bottom;
 
       return Padding(
-        // ⬇️ Supaya saat keyboard naik, konten ikut naik dan tidak kepotong
         padding: EdgeInsets.only(bottom: viewInsets),
         child: _ResponsiveSheet(
           child: SafeArea(
             top: false,
             child: DraggableScrollableSheet(
-              // ⬇️ Default lebih pendek (sekitar 60% layar), bisa didrag hingga 86%
               initialChildSize: 0.60,
               minChildSize: 0.40,
               maxChildSize: 0.86,
@@ -1535,7 +1545,6 @@ Future<String?> showListPicker({
                                     filtered.insert(0, created);
                                     selectedId = created.id;
                                   });
-                                  // ignore: use_build_context_synchronously
                                   Navigator.pop(ctx, created.id);
                                 }
                               },

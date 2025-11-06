@@ -54,8 +54,8 @@ class _RegisterWrapperState extends State<RegisterWrapper> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Image.asset(
-                      'assets/wave_up_logo.png',
-                      height: 28,
+                      'assets/wave_up_logo_2.png',
+                      height: 50,
                       errorBuilder: (_, __, ___) => const Icon(
                         Icons.waves,
                         size: 28,

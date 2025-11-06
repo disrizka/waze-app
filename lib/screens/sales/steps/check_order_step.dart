@@ -11,7 +11,7 @@ import 'package:wa_blast/providers/sales_provider.dart';
 import 'package:wa_blast/screens/sales/steps/make_order_step.dart'
     show UI; // gunakan UI tokens
 import 'package:wa_blast/widgets/reusable_pickers.dart';
-import 'package:wa_blast/widgets/show_fancy_bar.dart';
+import 'package:wa_blast/widgets/show_fancy_snack_bar.dart';
 import 'package:wa_blast/widgets/stepper_header.dart';
 import 'package:wa_blast/widgets/sticky_totals_bar.dart';
 

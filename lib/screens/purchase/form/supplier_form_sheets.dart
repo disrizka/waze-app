@@ -1,10 +1,13 @@
+// lib/screens/suppliers/supplier_form_sheet.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart'; // ⬅️ izin kamera on-demand
 import 'package:provider/provider.dart';
+
 import 'package:wa_blast/constants/app_colors.dart';
-import 'package:wa_blast/providers/purchase_provider.dart';
 import 'package:wa_blast/models/supplier_model.dart';
+import 'package:wa_blast/providers/purchase_provider.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 
 /// ------------------------------
@@ -106,8 +109,7 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
       // Prefill city (jika ada)
       _cityId = s.city?.id;
       _cityName = s.city?.name;
-      // sesuaikan properti provinceName di model supplier kamu:
-      _provinceName = s.city?.province.name;
+      _provinceName = s.city?.province.name; // sesuaikan model
     }
   }
 
@@ -120,6 +122,7 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
     super.dispose();
   }
 
+  // ====== CITY PICKER ======
   Future<void> _pickCity() async {
     final picked = await showCityPickerSheet(
       context,
@@ -132,6 +135,44 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
         _provinceName = picked.data?.province.name; // Province.name
       });
     }
+  }
+
+  // ====== CAMERA PERMISSION (on-demand) ======
+  Future<bool> _ensureCameraPermission() async {
+    try {
+      final st = await Permission.camera.status;
+      if (st.isGranted) return true;
+      if (st.isPermanentlyDenied) {
+        if (!mounted) return false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Camera permission is permanently denied. Enable it in Settings.',
+            ),
+          ),
+        );
+        return false;
+      }
+      final req = await Permission.camera.request();
+      return req.isGranted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ====== IMAGE PICK (gallery/camera) ======
+  Future<XFile?> _pickOne(ImageSource source) async {
+    if (source == ImageSource.camera) {
+      final ok = await _ensureCameraPermission();
+      if (!ok) return null;
+    }
+    return _picker.pickImage(
+      source: source,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 88,
+      preferredCameraDevice: CameraDevice.rear,
+    );
   }
 
   Future<void> _chooseImage() async {
@@ -157,6 +198,7 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
               title: const Text('Choose from Gallery'),
+              subtitle: const Text('No extra permission needed'),
               onTap: () => Navigator.pop(ctx, ImageSource.gallery),
             ),
             ListTile(
@@ -172,17 +214,11 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
     if (source == null) return;
 
     try {
-      final picked = await _picker.pickImage(
-        source: source,
-        maxWidth: 1600,
-        maxHeight: 1600,
-        imageQuality: 88,
-      );
+      final picked = await _pickOne(source);
       if (picked != null) {
         setState(() {
           _picked = picked;
           _existingLogoUrl = null; // stop preview lama
-          // jangan kirim filename lama
         });
       }
     } catch (e) {
@@ -204,6 +240,7 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
     });
   }
 
+  // ====== SUBMIT ======
   Future<void> _onSubmit() async {
     if (_submitting) return;
     if (!_formKey.currentState!.validate()) return;
@@ -228,11 +265,10 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
       }
 
       bool ok = false;
+      File? logoFile;
+      if (_picked != null) logoFile = File(_picked!.path);
 
       if (widget.mode == _FormMode.add) {
-        File? logoFile;
-        if (_picked != null) logoFile = File(_picked!.path);
-
         ok = await prov.addSupplier(
           context: context,
           name: name,
@@ -243,9 +279,6 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
           address: address,
         );
       } else {
-        File? logoFile;
-        if (_picked != null) logoFile = File(_picked!.path);
-
         if (prov.respondsToUpdateSupplier) {
           ok = await prov.updateSupplier(
             context: context,
@@ -307,6 +340,7 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
         ? 'Add Supplier'
         : 'Edit Supplier';
 
+    // tombol aktif kalau nama terisi; field lain optional/validasi lewat Form
     final isValid = _nameC.text.trim().isNotEmpty;
 
     return Padding(
@@ -484,18 +518,15 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
                             onTap: () async {
                               final picked = await showCityPickerSheet(
                                 context,
-                                selectedId: _cityId, // String
+                                selectedId: _cityId,
                               );
                               if (picked != null && mounted) {
                                 setState(() {
-                                  _cityId = picked.id; // String
+                                  _cityId = picked.id;
                                   _cityName = picked.label;
-                                  _provinceName = picked
-                                      .data
-                                      ?.province
-                                      .name; // Province.name
+                                  _provinceName = picked.data?.province.name;
                                 });
-                                ff.didChange(_cityId); // beritahu FormField
+                                ff.didChange(_cityId);
                               }
                             },
                           ),
@@ -571,7 +602,7 @@ class _SupplierFormSheetState extends State<_SupplierFormSheet> {
   String? _resolveLogoUrl(String? logoPath) {
     if (logoPath == null || logoPath.isEmpty) return null;
     if (logoPath.startsWith('http')) return logoPath;
-    const baseCdn = 'https://wave-cdn.eon.id'; // sesuaikan
+    const baseCdn = 'https://wave-cdn.eon.id'; // TODO: sesuaikan base CDN kamu
     return '$baseCdn${logoPath.startsWith('/') ? '' : '/'}$logoPath';
   }
 }
