@@ -27,6 +27,7 @@ import 'package:wa_blast/screens/manage_report_screen.dart';
 import 'package:wa_blast/screens/products/product_stock_inventory.dart';
 import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
+import 'package:wa_blast/screens/register/business_register_screen.dart';
 import 'package:wa_blast/screens/sales/costumer_screen.dart';
 import 'package:wa_blast/screens/sales/manage_sales_screen.dart';
 import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
@@ -306,6 +307,13 @@ class MyApp extends StatelessWidget {
             return _platformRouteAnimated(
               settings,
               const RegisterWrapper(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/register/business':
+            return _platformRouteAnimated(
+              settings,
+              const BusinessRegisterScreen(),
               android: AndroidTransition.slideRight,
             );
 

@@ -69,7 +69,7 @@ class ChangePasswordProvider extends SafeChangeNotifier {
       return false;
     }
 
-    const path = 'user/edit/password';
+    const path = '/user/edit/password';
     final payload = {
       'password_old': oldPassword,
       'password_new': newPassword,

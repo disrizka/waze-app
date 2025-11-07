@@ -7,22 +7,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:midtrans_sdk/midtrans_sdk.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
-import 'package:wa_blast/core/provider_helper.dart'; // BizIdCache, ApiJson, FetchHelper, PageMeta
+import 'package:wa_blast/core/provider_helper.dart';
 import 'package:wa_blast/providers/product_provider.dart' as catalog;
 import 'package:wa_blast/models/product_model.dart' as model;
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/utils/safe_change_notifier.dart';
 
-/// =========================
-/// CART SKU (ringan)
-/// =========================
-
 // =========================
 // SALES DETAIL MODELS (NEW)
 // =========================
+
 @immutable
 class StoreProvince {
   final String id;
@@ -655,6 +650,123 @@ class SalesProvider extends SafeChangeNotifier {
     return id.isEmpty ? null : id;
   }
 
+  // ================= MERGE PROOF CART =================
+
+  // Normalisasi key: pakai skuId kalau ada; kalau kosong pakai productId__SKUCODE
+  String _normalizedCompositeKey(
+    String productId,
+    String skuCode,
+    String skuId,
+  ) {
+    final sid = skuId.trim();
+    if (sid.isNotEmpty) return sid; // id asli menang
+    return '${productId.trim()}__${skuCode.trim().toUpperCase()}';
+  }
+
+  // Selalu panggil ini untuk bikin key
+  String _keyFor(PosSku s) =>
+      _normalizedCompositeKey(s.productId, s.skuCode, s.skuId);
+
+  // Cari baris existing: by skuId OR by (productId+skuCode) (case-insensitive)
+  String? _findExistingKey(PosSku s) {
+    final exact = _keyFor(s);
+    if (_cart.containsKey(exact)) return exact;
+
+    final pid = s.productId.trim();
+    final code = s.skuCode.trim().toUpperCase();
+    for (final e in _cart.entries) {
+      final it = e.value.sku;
+      if (it.productId.trim() == pid &&
+          it.skuCode.trim().toUpperCase() == code) {
+        return e.key;
+      }
+    }
+    return null;
+  }
+
+  /// Tambah qty sambil merge (PAKAI INI dari semua UI add)
+  void addQuantity(PosSku s, int qty) {
+    if (qty <= 0) return;
+    final k = _findExistingKey(s);
+    if (k != null) {
+      _cart[k]!.qty += qty; // ← merge qty, tidak bikin baris baru
+      notifyListeners();
+      return;
+    }
+    final newKey = _keyFor(s);
+    _cart[newKey] = CartItem(sku: s, qty: qty);
+    notifyListeners();
+  }
+
+  // Kompat lama (tambah 1)
+  void add(PosSku s) => addQuantity(s, 1);
+
+  // add by ref juga merge
+  void addByRef({
+    required String productId,
+    required String productName,
+    required String skuId,
+    required String skuCode,
+    required int price,
+    String imageUrl = '',
+    bool inStock = true,
+  }) {
+    addQuantity(
+      PosSku(
+        skuId: skuId,
+        skuCode: skuCode,
+        price: price,
+        productId: productId,
+        productName: productName,
+        imageUrl: imageUrl,
+        inStock: inStock,
+      ),
+      1,
+    );
+  }
+
+  /// Rapikan cart kalau sudah terlanjur dobel (panggil sekali saat open screen/sheet)
+  void normalizeCart() {
+    if (_cart.isEmpty) return;
+
+    final Map<String, CartItem> merged = {};
+    final Map<String, int> newDiscount = {};
+
+    for (final item in _cart.values) {
+      final newKey = _normalizedCompositeKey(
+        item.sku.productId,
+        item.sku.skuCode,
+        item.sku.skuId,
+      );
+
+      if (!merged.containsKey(newKey)) {
+        merged[newKey] = CartItem(sku: item.sku, qty: item.qty);
+        final d = _itemDiscount[item.sku.skuId] ?? 0;
+        if (d > 0) newDiscount[item.sku.skuId] = d;
+      } else {
+        merged[newKey]!.qty += item.qty;
+        // pilih diskon per item yang lebih besar
+        final dOld = newDiscount[merged[newKey]!.sku.skuId] ?? 0;
+        final dNew = _itemDiscount[item.sku.skuId] ?? 0;
+        newDiscount[merged[newKey]!.sku.skuId] = dOld > dNew ? dOld : dNew;
+      }
+    }
+
+    _cart
+      ..clear()
+      ..addAll(merged);
+
+    _itemDiscount
+      ..clear()
+      ..addAll(newDiscount);
+
+    notifyListeners();
+  }
+
+  // import 'dart:math' as math; // sudah ada
+
+  // ==== di dalam class SalesProvider ====
+
   String? _extractTxNumber(Map<String, dynamic> j) {
     final m =
         (j['data'] as Map?)?.cast<String, dynamic>() ??
@@ -864,7 +976,7 @@ class SalesProvider extends SafeChangeNotifier {
     for (final it in prov.cartItems) {
       final sku = it.sku;
       final perItemDisc = prov.perItemDiscountOf(sku.skuId);
-      final unitAfterItem = (sku.price - perItemDisc).clamp(0, 1 << 31) as int;
+      final unitAfterItem = (sku.price - perItemDisc).clamp(0, 1 << 31);
       sum += unitAfterItem * it.qty;
     }
     return sum;
@@ -1702,41 +1814,6 @@ class SalesProvider extends SafeChangeNotifier {
     var sum = 0;
     for (final it in _cart.values) sum += it.qty;
     return sum;
-  }
-
-  String _keyFor(PosSku s) =>
-      s.skuId.isNotEmpty ? s.skuId : '${s.productId}_${s.skuCode}';
-
-  void add(PosSku s) {
-    final key = _keyFor(s);
-    if (kDebugMode) debugPrint('[Cart] add $key (${s.productName})');
-    if (!_cart.containsKey(key)) {
-      _cart[key] = CartItem(sku: s, qty: 1);
-    } else {
-      _cart[key]!.qty += 1;
-    }
-    notifyListeners();
-  }
-
-  void addByRef({
-    required String productId,
-    required String productName,
-    required String skuId,
-    required String skuCode,
-    required int price,
-    String imageUrl = '',
-    bool inStock = true,
-  }) {
-    final s = PosSku(
-      skuId: skuId,
-      skuCode: skuCode,
-      price: price,
-      productId: productId,
-      productName: productName,
-      imageUrl: imageUrl,
-      inStock: inStock,
-    );
-    add(s);
   }
 
   void removeOne(PosSku s) {

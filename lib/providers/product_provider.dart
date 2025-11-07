@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/core/provider_helper.dart';
 import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/providers/sales_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/services/api_service.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
@@ -324,7 +325,11 @@ class ProductProvider with ChangeNotifier {
     if (notify) notifyListeners();
   }
 
-  void initInfinitePaging(BuildContext context, {String? initialSearch}) {
+  void initInfinitePaging(
+    BuildContext context, {
+    String? initialSearch,
+    bool autoFetchFirstPage = false, // ✅ baru
+  }) {
     _pagingController?.dispose();
     _pagingController = null;
 
@@ -333,59 +338,40 @@ class ProductProvider with ChangeNotifier {
     _lastBatchCount = 0;
     _pageProducts = null;
     _productError = null;
-    _reachedEnd = false; // 🔧 penting: reset end flag
+    _reachedEnd = false; // reset end flag
 
     _pagingController = PagingController<int, Product>(
       getNextPageKey: (state) {
-        // ✅ 1) Utamakan meta dari backend
-        final pm =
-            _pageProducts; // selalu di-update di fetchPage setelah respon
-        final current = pm?.currentPage; // map dari "current_page"
-        final total = pm?.totalPages; // map dari "total_pages"
-
-        debugPrint(
-          '[META] after fetch: cur=${_pageProducts?.currentPage} '
-          'tot=${_pageProducts?.totalPages} lastFetched=$_lastFetchedPage '
-          'lastBatch=$_lastBatchCount',
-        );
-
-        debugPrint(
-          '[NEXT] decide: cur=${_pageProducts?.currentPage} '
-          'tot=${_pageProducts?.totalPages}',
-        );
+        // 1) Utamakan meta dari backend
+        final current = _pageProducts?.currentPage;
+        final total = _pageProducts?.totalPages;
 
         if (current != null && total != null) {
-          // kalau sudah di halaman terakhir → hentikan
           return (current >= total) ? null : (current + 1);
         }
 
-        // ✅ 2) Fallback kalau meta kosong
+        // 2) Fallback
         if (_lastFetchedPage == 0) return 1;
-        if (_lastBatchCount < _pageSize) {
-          return null; // batch terakhir < pageSize → habis
-        }
+        if (_lastBatchCount < _pageSize) return null;
         return _lastFetchedPage + 1;
       },
 
       fetchPage: (pageKey) async {
         try {
-          // Ambil snapshot filter saat ini
           final rawSearch = _currentSearch;
           String? expectedStore = _currentStoreLocationId;
 
-          // --- NORMALISASI SEARCH ---
-          // Hilangkan awalan "q:" kalau ada, dan trim spasi
-          String search = rawSearch.trim();
-          if (search.toLowerCase().startsWith('q:')) {
-            search = search.substring(2).trim();
+          // Pastikan ada store default jika belum
+          if (expectedStore == null || expectedStore.isEmpty) {
+            try {
+              expectedStore = await ensureDefaultStoreLocation(context);
+            } catch (_) {}
           }
 
-          final filters = <String, String>{
-            if (search.isNotEmpty) 'search': search,
-            if (expectedStore != null && expectedStore.isNotEmpty)
-              'store_location_id':
-                  expectedStore, //store location id tuh untuk stock per toko atau cabangnya
-          };
+          final filters = _composeFiltersFromSearchString(
+            rawSearch: rawSearch,
+            storeId: expectedStore,
+          );
 
           final res = await FetchHelper.fetchListByFilter<Product>(
             context: context,
@@ -402,6 +388,8 @@ class ProductProvider with ChangeNotifier {
             _lastFetchedPage = pageKey;
             _lastBatchCount = 0;
             _pageProducts = null;
+            // ❗ batch 0 = akhir
+            _reachedEnd = true;
             notifyListeners();
             return const <Product>[];
           }
@@ -412,6 +400,17 @@ class ProductProvider with ChangeNotifier {
           _lastFetchedPage = pageKey;
           _lastBatchCount = items.length;
 
+          // ✅ set end-flag dari meta atau dari ukuran batch
+          final hasMeta =
+              _pageProducts?.currentPage != null &&
+              _pageProducts?.totalPages != null;
+          if (hasMeta) {
+            _reachedEnd =
+                _pageProducts!.currentPage! >= _pageProducts!.totalPages!;
+          } else {
+            _reachedEnd = items.length < _pageSize;
+          }
+
           if (pageKey == 1) {
             _products
               ..clear()
@@ -420,20 +419,30 @@ class ProductProvider with ChangeNotifier {
             _products.addAll(items);
           }
 
-          // Simpan filter yang dipakai request ini (pakai yang sudah dinormalisasi)
-          _currentSearch = search;
-          _currentStoreLocationId = search.isEmpty ? expectedStore : null;
+          _currentSearch = rawSearch;
+          _currentStoreLocationId = expectedStore;
 
           notifyListeners();
           return items;
         } catch (e) {
           _pageProducts = null;
           _productError = e.toString();
+          _reachedEnd = true; // anggap stop agar UI tidak nyoba terus
           notifyListeners();
           rethrow;
         }
       },
     );
+
+    // ✅ auto-trigger page pertama bila diminta
+    if (autoFetchFirstPage) {
+      // Kosongkan meta dulu supaya getNextPageKey balik ke 1
+      _pageProducts = null;
+      _lastFetchedPage = 0;
+      _lastBatchCount = 0;
+      _reachedEnd = false;
+      _pagingController!.refresh();
+    }
   }
 
   // ===== Infinite Paging: setter store (filter) =====
@@ -459,6 +468,38 @@ class ProductProvider with ChangeNotifier {
       (BuildContext ctx, String? id) {
         _currentStoreLocationId = (id == null || id.isEmpty) ? null : id;
       };
+
+  // === PATCH: ProductProvider ===
+  // Tambahkan di dalam class ProductProvider
+
+  /// Dipanggil saat sheet product dibuka.
+  /// - Inisialisasi paging (reset meta, dll)
+  /// - Set store (jika tersedia dari SalesProvider)
+  /// - Trigger refresh supaya page 1 langsung di-load.
+  Future<void> ensureProductsForPickerOnOpen(
+    BuildContext context, {
+    String? initialSearch,
+  }) async {
+    // 1) Inisialisasi paging
+    initInfinitePaging(context, initialSearch: initialSearch);
+
+    // 2) Usahakan set store lebih spesifik dari SalesProvider (kalau ada)
+    try {
+      final sales = context.read<SalesProvider>();
+      final useStoreId = sales.storeLocationId;
+      if (useStoreId != null && useStoreId.isNotEmpty) {
+        await setInfiniteStore(context, useStoreId);
+      } else {
+        // kalau belum ada, ensure default (ambil dari StoreProvider)
+        await ensureDefaultStoreLocation(context);
+      }
+    } catch (_) {
+      // ignore; fallback di fetchPage juga handle ensure default
+    }
+
+    // 3) Trigger fetch page-1
+    await refreshInfinite(context);
+  }
 
   /// Kombinasi: set store lalu refresh langsung (praktis untuk first open sheet)
   Future<void> setInfiniteStoreAndRefresh(
@@ -515,23 +556,20 @@ class ProductProvider with ChangeNotifier {
     }
   }
 
+  // ==== sentuh sedikit untuk akurasi empty-state ====
   Future<void> refreshInfinite(BuildContext context) async {
     debugPrint(
       '[ProductProvider] refreshInfinite() called '
       '(search="$_currentSearch", store="$_currentStoreLocationId")',
     );
 
-    // 🔧 WAJIB: kosongkan meta supaya getNextPageKey balik ke page 1
     _pageProducts = null;
-
     _lastFetchedPage = 0;
     _lastBatchCount = 0;
-    _reachedEnd = false;
+    _reachedEnd = false; // ✅ reset end-flag
     _productError = null;
 
-    // opsional: beri tahu listener agar PagedListView re-build state loading
     notifyListeners();
-
     _pagingController?.refresh();
   }
 
@@ -664,22 +702,23 @@ class ProductProvider with ChangeNotifier {
     _setLoading(products: true);
 
     try {
-      // simpan filter aktif (kalau parameter null, pakai yang sudah tersimpan)
       final effectiveSearch = search ?? _currentSearch;
       var effectiveStore = storeLocationId ?? _currentStoreLocationId;
       if (effectiveStore == null || effectiveStore.isEmpty) {
         effectiveStore = await ensureDefaultStoreLocation(context);
       }
 
+      // 💡 gunakan parser token yang sama
+      final filters = _composeFiltersFromSearchString(
+        rawSearch: effectiveSearch,
+        storeId: effectiveStore,
+      );
+
       final result = await FetchHelper.fetchListByFilter<Product>(
         context: context,
         basePath: '/waveup/{{idBusiness}}/product',
         parser: Product.fromJson,
-        filters: {
-          'search': effectiveSearch,
-          if (effectiveStore != null && effectiveStore.isNotEmpty)
-            'store_location_id': effectiveStore,
-        },
+        filters: filters,
         page: page,
         limit: limit, // 40 by default
         injectBizId: true,
@@ -743,6 +782,83 @@ class ProductProvider with ChangeNotifier {
       limit: limit,
       append: false,
     );
+  }
+
+  /// --- Tambahan: parser search-string dari UI (_ProductFilters.toSearchString)
+  /// Mengubah "q:abc brand:ID cat:ID min:1000 max:5000 date_from:2025-10-01 date_to:2025-10-15"
+  /// menjadi map filter untuk backend.
+  Map<String, String> _composeFiltersFromSearchString({
+    required String rawSearch,
+    String? storeId,
+  }) {
+    String searchOnly = '';
+    String? idBrand;
+    String? idCategory;
+    String? dateFrom;
+    String? dateTo;
+    String? min;
+    String? max;
+
+    // pecah by spasi
+    final parts = rawSearch.trim().split(RegExp(r'\s+'));
+    for (final token in parts) {
+      final t = token.trim();
+      if (t.isEmpty) continue;
+
+      // pasangan k:v
+      final colon = t.indexOf(':');
+      if (colon > 0) {
+        final key = t.substring(0, colon).toLowerCase();
+        final val = t.substring(colon + 1);
+        switch (key) {
+          case 'q':
+            searchOnly = val;
+            break;
+          case 'brand':
+            idBrand = val;
+            break;
+          case 'cat':
+            idCategory = val;
+            break;
+          case 'date_from':
+            dateFrom = val;
+            break;
+          case 'date_to':
+            dateTo = val;
+            break;
+          case 'min':
+            min = val;
+            break;
+          case 'max':
+            max = val;
+            break;
+          default:
+            // abaikan token tidak dikenal
+            break;
+        }
+      } else {
+        // jika tidak ada "k:v", treat sebagai free-text query
+        // (tapi kita pakai 'q:' di UI, jadi case ini jarang dipakai)
+        if (searchOnly.isEmpty) {
+          searchOnly = t;
+        } else {
+          searchOnly = ('$searchOnly $t').trim();
+        }
+      }
+    }
+
+    final map = <String, String>{
+      if (searchOnly.isNotEmpty) 'search': searchOnly,
+      if ((storeId ?? '').isNotEmpty) 'store_location_id': storeId!,
+      if ((idBrand ?? '').isNotEmpty) 'id_brand': idBrand!,
+      if ((idCategory ?? '').isNotEmpty) 'id_category': idCategory!,
+      if ((dateFrom ?? '').isNotEmpty) 'date_from': dateFrom!,
+      if ((dateTo ?? '').isNotEmpty) 'date_to': dateTo!,
+      if ((min ?? '').isNotEmpty) 'min': min!,
+      if ((max ?? '').isNotEmpty) 'max': max!,
+    };
+
+    return map;
   }
 
   Future<void> initPaginated(

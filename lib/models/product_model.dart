@@ -89,24 +89,34 @@ class ProductSku {
   final String code;
   final int price;
   final List<SkuAttribute> attributes;
+  final int? stockQty;
 
   const ProductSku({
     required this.idProductSku,
     required this.code,
     required this.price,
     this.attributes = const [],
+    this.stockQty,
   });
 
   factory ProductSku.fromJson(Map<String, dynamic> j) => ProductSku(
     idProductSku: j['idProductSku']?.toString() ?? '',
     code: j['code']?.toString() ?? '',
     price: (j['price'] is num) ? (j['price'] as num).toInt() : 0,
+
+    // ⬇️ stok dari API: "qty" (fallback: "stock_qty"), tangani juga string/num
+    stockQty: (j['qty'] is num)
+        ? (j['qty'] as num).toInt()
+        : (j['stock_qty'] is num)
+        ? (j['stock_qty'] as num).toInt()
+        : int.tryParse('${j['qty'] ?? j['stock_qty'] ?? 0}') ?? 0,
+
     attributes: (j['attributes'] is List)
         ? (j['attributes'] as List)
               .whereType<Map<String, dynamic>>()
               .map(SkuAttribute.fromJson)
               .toList(growable: false)
-        : List<SkuAttribute>.empty(growable: false),
+        : const <SkuAttribute>[],
   );
 }
 
@@ -268,6 +278,17 @@ class Product {
     );
   }
 
+  int get totalStockQty {
+    if (productSkus.isEmpty) return 0;
+    int total = 0;
+    for (final sku in productSkus) {
+      total += sku.stockQty ?? 0;
+    }
+    return total;
+  }
+
+  bool get isOutOfStock => totalStockQty <= 0;
+
   String? get primaryImageUrl {
     if (productImages.isEmpty) return null;
     final sorted = [...productImages]
@@ -276,7 +297,10 @@ class Product {
   }
 
   int? get basePrice {
-    if (productSkus.isNotEmpty) return productSkus.first.price;
+    if (productSkus.isNotEmpty) {
+      final prices = productSkus.map((s) => s.price).toList()..sort();
+      return prices.first;
+    }
     if (productPrices.isNotEmpty) {
       final sorted = [...productPrices]
         ..sort((a, b) => a.minQty.compareTo(b.minQty));

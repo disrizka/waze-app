@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/app_nav.dart';
@@ -80,8 +79,9 @@ extension _NotifyLater on ChangeNotifier {
       try {
         if (hasListeners) {
           notifyListeners();
-          if (tag != null)
+          if (tag != null) {
             _log(tag, '🔄 notifyListeners() executed (post-frame)');
+          }
         } else {
           if (tag != null) _log(tag, '⚠️ skipped notify (no listeners)');
         }
@@ -258,6 +258,211 @@ class AuthProvider with ChangeNotifier {
     );
   }
 
+  Future<bool> createBusiness({
+    required BuildContext context,
+    required String name,
+    required String username,
+    String? category,
+    File? logoFile,
+  }) async {
+    const tag = '🏢 [CreateBusiness]';
+    final sw = Stopwatch()..start();
+
+    _log(tag, '🚀 Start create business (name="$name", username="$username")');
+    _isLoading = true;
+    _error = null;
+    notifyLater(tag: tag);
+
+    try {
+      // ===== VALIDASI WAJIB =====
+      if (name.trim().isEmpty || username.trim().isEmpty) {
+        _error = 'Name dan username wajib diisi';
+        _log(tag, '❌ $_error');
+        await _snackLater(
+          context,
+          tag: tag,
+          bg: Colors.red.shade600,
+          content: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Please fill in both name and username.',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+        _isLoading = false;
+        notifyLater(tag: tag);
+        return false;
+      }
+
+      // ===== CEK TOKEN =====
+      final prefs = await SharedPreferences.getInstance();
+      final token = _accessToken?.isNotEmpty == true
+          ? _accessToken!
+          : (prefs.getString('accessToken') ?? '');
+      if (token.isEmpty) {
+        _error = 'Access token tidak tersedia. Silakan login dulu.';
+        _log(tag, '❗ $_error');
+        await _snackLater(
+          context,
+          tag: tag,
+          bg: Colors.red.shade600,
+          content: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Access token tidak tersedia. Silakan login dulu.',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+        _isLoading = false;
+        notifyLater(tag: tag);
+        return false;
+      }
+
+      // ===== 1. Upload logo jika ada =====
+      String logoField = '';
+      if (logoFile != null) {
+        _log(tag, '📤 Upload logo: ${logoFile.path}');
+        final uploaded = await _uploadLogoAndGetFilename(logoFile);
+        if (uploaded == null || uploaded.isEmpty) {
+          _log(tag, '⚠️ Upload logo gagal, lanjut tanpa logo');
+        } else {
+          logoField = uploaded;
+        }
+      }
+
+      // ===== 2. Siapkan payload =====
+      final payload = <String, dynamic>{
+        "name": name,
+        "username": username,
+        "category": category ?? '',
+        "logo": logoField,
+      };
+      _log(tag, '📦 Payload:\n${_prettyJson(payload)}');
+
+      // ===== 3. POST ke /business =====
+      final res = await ApiService.postJson(
+        '/business',
+        payload,
+        withAccessToken: true,
+      );
+
+      sw.stop();
+      final raw = res.body;
+      _log(tag, '◀︎ status=${res.statusCode} (${sw.elapsedMilliseconds} ms)');
+      _log(
+        tag,
+        '🧾 body:\n${raw.length > 1200 ? raw.substring(0, 1200) + '…' : raw}',
+      );
+
+      Map<String, dynamic> j = {};
+      try {
+        j = (jsonDecode(raw) as Map).cast<String, dynamic>();
+      } catch (_) {}
+
+      final appOk = _isAppLevelSuccess(httpStatus: res.statusCode, body: j);
+      final msg = _pickMsgCompat(j, fallback: 'Create business failed');
+
+      if (!appOk) {
+        _error = msg;
+        _log(tag, '❌ FAIL: $_error');
+        await _snackLater(
+          context,
+          tag: tag,
+          bg: Colors.red.shade600,
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _error!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+        _isLoading = false;
+        notifyLater(tag: tag);
+        return false;
+      }
+
+      // ===== 4. Ambil ID business dari response (opsional) =====
+      String? newBizId;
+      try {
+        final data = (j['data'] ?? j) as Map<String, dynamic>;
+        newBizId = (data['idBusiness'] ?? data['id'] ?? '').toString().trim();
+      } catch (_) {}
+
+      // ===== 5. Refresh data user & business =====
+      final okRefresh = await refreshCurrentUser(context);
+      _log(tag, '🔄 refreshCurrentUser = $okRefresh');
+
+      if (newBizId != null && newBizId.isNotEmpty) {
+        _log(tag, '⭐ Active business switched to $newBizId');
+        await switchActiveBusiness(newBizId);
+      }
+
+      _isLoading = false;
+      _error = null;
+      notifyLater(tag: tag);
+      _log(tag, '✅ Done (success=true)');
+      return true;
+    } catch (e, st) {
+      sw.stop();
+      _error = 'Error creating business: $e';
+      _log(tag, '❌ Exception after ${sw.elapsedMilliseconds} ms: $e');
+      _log(tag, '🧵 $st');
+
+      await _snackLater(
+        context,
+        tag: tag,
+        bg: Colors.red.shade600,
+        content: const Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.white),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Failed to create business.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      _isLoading = false;
+      notifyLater(tag: tag);
+      _log(tag, '🧯 Done (exception, success=false)');
+      return false;
+    }
+  }
+
   // === Helper: ambil RB (role business) dari roleMap argumen atau prefs ===
   Map<String, dynamic>? _resolveRBForBusiness(
     String idBusiness,
@@ -305,7 +510,18 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  // ========= LOGIN (UPDATED: simpan role per business + active role)
+  // Tambahkan HELPER ini di dalam class AuthProvider
+  Future<void> _clearActiveBusinessPrefs(SharedPreferences prefs) async {
+    await prefs.remove('activeBizId');
+    await prefs.remove('activeBizName');
+    await prefs.remove('activeBizUsername');
+    await prefs.remove('activeBizLogoPath');
+    await prefs.remove(kActiveBizRoleIdKey);
+    await prefs.remove(kActiveBizRoleNameKey);
+    await prefs.remove(kActiveBizRoleIsPrimaryKey);
+  }
+
+  // Ganti seluruh method login(...) dengan versi ini
   Future<bool> login({
     required BuildContext context,
     required String email,
@@ -387,19 +603,7 @@ class AuthProvider with ChangeNotifier {
         final username = (userObj['username'] ?? '') as String;
         final photoPath = (userObj['photoPath'] ?? '') as String;
 
-        // pilih active business = item pertama (fallback kosong)
-        final Map<String, dynamic>? firstBiz = bizList.isNotEmpty
-            ? bizList.first
-            : null;
-        final String activeBizId = (firstBiz?['idBusiness'] ?? '').toString();
-        final String activeBizName = (firstBiz?['name'] ?? '').toString();
-        final String activeBizUsername = (firstBiz?['username'] ?? '')
-            .toString();
-        final String activeBizLogoPath =
-            (firstBiz?['logoPath'] ?? firstBiz?['logo'] ?? '').toString();
-
-        // === Build role map dari LOGIN response
-        // { "<idBusiness>": { "idAdminRole": roleId, "name": userRoleName, "isPrimary": false } }
+        // Build role map dari LOGIN response
         final Map<String, dynamic> roleMap = {};
         for (final b in bizList) {
           final idBiz = (b['idBusiness'] ?? '').toString();
@@ -409,27 +613,29 @@ class AuthProvider with ChangeNotifier {
           roleMap[idBiz] = {
             'idAdminRole': roleId,
             'name': roleName,
-            'isPrimary': false, // response login tidak menyediakan
+            'isPrimary': false,
           };
         }
 
-        // === set state
+        // set state
         _accessToken = accessToken;
         _refreshToken = refreshToken;
         _name = fullName.isNotEmpty ? fullName : null;
         _email = serverEmail;
         _isActivated = true;
 
-        // === persist
+        // persist basic
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('login_raw', rawBody);
         await prefs.setString('token', jsonEncode(tokenObj));
         await prefs.setString('user', jsonEncode(userObj));
-        await prefs.setString('business', jsonEncode(bizList));
+        await prefs.setString(
+          'business',
+          jsonEncode(bizList),
+        ); // simpan list (bisa kosong)
         await prefs.setString('accessToken', _accessToken!);
-        if (_refreshToken != null) {
+        if (_refreshToken != null)
           await prefs.setString('refreshToken', _refreshToken!);
-        }
         if (_name != null) await prefs.setString('name', _name!);
         await prefs.setString('email', _email!);
         await prefs.setBool('isActivated', _isActivated);
@@ -445,19 +651,91 @@ class AuthProvider with ChangeNotifier {
           'userRoleName',
           (userObj['userRoleName'] ?? '').toString(),
         );
-
-        // simpan role map (global)
         await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
 
-        // set default active business + active role SEKALIGUS (wajib)
-        await _applyActiveBusinessAndRole(
-          prefs: prefs,
-          idBusiness: activeBizId,
-          name: activeBizName,
-          username: activeBizUsername,
-          logoPath: activeBizLogoPath,
-          roleMap: roleMap,
-        );
+        // === Branch A: business KOSONG → arahkan ke /register/business
+        if (bizList.isEmpty) {
+          await _clearActiveBusinessPrefs(prefs);
+
+          // snapshot akun (tanpa activeBusiness)
+          final accountSnapshot = {
+            'token': tokenObj,
+            'user': userObj,
+            'business': bizList, // []
+            'accessToken': _accessToken,
+            'refreshToken': _refreshToken,
+            'name': _name,
+            'email': _email,
+            'username': username,
+            'photoPath': photoPath,
+            'isActivated': _isActivated,
+            'businessRoles': roleMap,
+          };
+          await prefs.setString(
+            'account_${_email!}',
+            jsonEncode(accountSnapshot),
+          );
+
+          final accounts = prefs.getStringList(kAccountsKey) ?? [];
+          if (!accounts.contains(_email)) {
+            accounts.add(_email!);
+            await prefs.setStringList(kAccountsKey, accounts);
+          }
+          await prefs.setString(kActiveAccountKey, _email!);
+
+          // Info + navigasi
+          await _snackLater(
+            context,
+            bg: Colors.blue.shade700,
+            content: const Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.white),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Hold up! You need to create your first business account before using WaveUp.',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 4),
+          );
+
+          nav?.pushNamedAndRemoveUntil('/register/business', (r) => false);
+
+          _isLoading = false;
+          notifyListeners();
+          return true;
+        }
+
+        // === Branch B: ADA business → set active + ARAHKAN KE /splash
+        final Map<String, dynamic>? firstBiz = bizList.isNotEmpty
+            ? bizList.first
+            : null;
+        final String activeBizId = (firstBiz?['idBusiness'] ?? '').toString();
+        final String activeBizName = (firstBiz?['name'] ?? '').toString();
+        final String activeBizUsername = (firstBiz?['username'] ?? '')
+            .toString();
+        final String activeBizLogoPath =
+            (firstBiz?['logoPath'] ?? firstBiz?['logo'] ?? '').toString();
+
+        if (activeBizId.isNotEmpty) {
+          await _applyActiveBusinessAndRole(
+            prefs: prefs,
+            idBusiness: activeBizId,
+            name: activeBizName,
+            username: activeBizUsername,
+            logoPath: activeBizLogoPath,
+            roleMap: roleMap,
+          );
+        } else {
+          // data anomali: ada list tapi id kosong → bersihkan pointer
+          await _clearActiveBusinessPrefs(prefs);
+        }
 
         // snapshot akun
         final rbSnap = _resolveRBForBusiness(
@@ -476,12 +754,13 @@ class AuthProvider with ChangeNotifier {
           'username': username,
           'photoPath': photoPath,
           'isActivated': _isActivated,
-          'activeBusiness': {
-            'idBusiness': activeBizId,
-            'name': activeBizName,
-            'username': activeBizUsername,
-            'logoPath': activeBizLogoPath,
-          },
+          if (activeBizId.isNotEmpty)
+            'activeBusiness': {
+              'idBusiness': activeBizId,
+              'name': activeBizName,
+              'username': activeBizUsername,
+              'logoPath': activeBizLogoPath,
+            },
           'businessRoles': roleMap,
           if ((rbSnap?['idAdminRole'] ?? '').toString().isNotEmpty)
             'activeBusinessRole': {
@@ -501,6 +780,17 @@ class AuthProvider with ChangeNotifier {
           await prefs.setStringList(kAccountsKey, accounts);
         }
         await prefs.setString(kActiveAccountKey, _email!);
+
+        // ⤵️ Tambahkan blok navigasi yang kamu minta
+        if (activeBizId.isNotEmpty) {
+          final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
+          sp?.resetNavigationGuards();
+          sp?.abortDeepLink();
+          appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+            '/splash',
+            (r) => false,
+          );
+        }
 
         debugPrint("LOGIN ✅ success for $_email");
         _isLoading = false;
@@ -1549,10 +1839,6 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
     return true;
   }
-
-  /// =========================
-  /// Deactivate & Delete Account
-  /// =========================
 
   /// =========================
   /// Deactivate & Delete Account

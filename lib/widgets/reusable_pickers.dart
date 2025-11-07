@@ -1,14 +1,12 @@
-// lib/widgets/reusable_pickers.dart
-// Reusable bottom-sheet pickers: City, Product, Supplier
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/models/city_model.dart';
 import 'package:wa_blast/models/supplier_model.dart';
 import 'package:wa_blast/providers/purchase_provider.dart';
 import 'package:wa_blast/providers/product_provider.dart';
-import 'package:wa_blast/models/product_model.dart';
-import 'package:wa_blast/providers/sales_provider.dart';
+import 'package:wa_blast/models/product_model.dart' hide City, StoreLocation;
 import 'package:wa_blast/providers/store_provider.dart' hide City;
+import 'package:wa_blast/providers/sales_provider.dart';
 
 /// ------------------------------------------------------------------
 /// GENERIC CORE
@@ -617,6 +615,7 @@ Future<PickerResult<ProductSku>?> showSkuPickerSheet(
 }
 
 /// Store Location
+/// Store Location
 Future<PickerResult<StoreLocation>?> showStorePickerSheet(
   BuildContext context, {
   String? selectedId, // highlight store terpilih
@@ -630,12 +629,10 @@ Future<PickerResult<StoreLocation>?> showStorePickerSheet(
 
   String _subtitle(StoreLocation s) {
     final parts = <String>[];
-    if ((s.business?.name ?? '').isNotEmpty) parts.add(s.business!.name);
     if ((s.city?.name ?? '').isNotEmpty) {
-      // Jika ada province di modelmu: tampilkan "City, Province"
       final prov = s.city?.province?.name;
       parts.add(
-        prov != null && prov.isNotEmpty
+        (prov != null && prov.isNotEmpty)
             ? '${s.city!.name}, $prov'
             : s.city!.name,
       );
@@ -650,14 +647,17 @@ Future<PickerResult<StoreLocation>?> showStorePickerSheet(
     emptyMessage: 'Store list is empty',
     selectedId: selectedId,
     loadItems: () async {
-      final list = context.read<StoreProvider>().stores;
+      final list = context
+          .read<StoreProvider>()
+          .stores; // List<st.StoreLocation>
       return list
           .map(
             (s) => PickerResult<StoreLocation>(
               id: s.idStoreLocation,
               label: s.name,
               subtitle: _subtitle(s),
-              data: s,
+              data:
+                  s, // <- tipe: st.StoreLocation (non-null) cocok untuk parameter T? data
             ),
           )
           .toList(growable: false);
