@@ -381,7 +381,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               icon: LucideIcons.user,
               subtitle: null,
               onTap: () async {
-                Navigator.pushReplacementNamed(context, '/edit-profile');
+                Navigator.pushNamed(context, '/edit-profile');
               },
             ),
             _MenuTile(
@@ -389,14 +389,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
               icon: LucideIcons.key,
               subtitle: null,
               onTap: () async {
-                Navigator.pushReplacementNamed(context, '/password/change');
+                Navigator.pushNamed(context, '/password/change');
               },
             ),
             _MenuTile(
               title: t.profile_menu_help,
               icon: LucideIcons.helpCircle,
               onTap: () {
-                Navigator.pushNamed(context, '/help'); // ganti rute bila perlu
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    settings: const RouteSettings(name: '/web/help'),
+                    builder: (_) => const SimpleWebView(
+                      title: 'Help',
+                      initialUrl: 'https://wave.id/help',
+                    ),
+                  ),
+                );
               },
             ),
             _MenuTile(

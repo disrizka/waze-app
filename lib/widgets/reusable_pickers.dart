@@ -615,10 +615,10 @@ Future<PickerResult<ProductSku>?> showSkuPickerSheet(
 }
 
 /// Store Location
-/// Store Location
 Future<PickerResult<StoreLocation>?> showStorePickerSheet(
   BuildContext context, {
   String? selectedId, // highlight store terpilih
+  bool autoSelectWhenSingle = true, // NEW: auto pilih kalau cuma 1
 }) async {
   final sp = context.read<StoreProvider>();
 
@@ -640,6 +640,20 @@ Future<PickerResult<StoreLocation>?> showStorePickerSheet(
     return parts.join(' • ');
   }
 
+  // ====== AUTO-SELECT ketika hanya ada 1 store ======
+  final stores = context.read<StoreProvider>().stores;
+  if (autoSelectWhenSingle && stores.length == 1) {
+    final s = stores.first;
+    return PickerResult<StoreLocation>(
+      id: s.idStoreLocation,
+      label: s.name,
+      subtitle: _subtitle(s),
+      data: s,
+    );
+  }
+  // ===================================================
+
+  // > 1 store atau auto-select dimatikan -> buka picker biasa
   return showPickerSheet<StoreLocation>(
     context,
     title: 'Select Store Location',
@@ -647,17 +661,14 @@ Future<PickerResult<StoreLocation>?> showStorePickerSheet(
     emptyMessage: 'Store list is empty',
     selectedId: selectedId,
     loadItems: () async {
-      final list = context
-          .read<StoreProvider>()
-          .stores; // List<st.StoreLocation>
+      final list = context.read<StoreProvider>().stores;
       return list
           .map(
             (s) => PickerResult<StoreLocation>(
               id: s.idStoreLocation,
               label: s.name,
               subtitle: _subtitle(s),
-              data:
-                  s, // <- tipe: st.StoreLocation (non-null) cocok untuk parameter T? data
+              data: s,
             ),
           )
           .toList(growable: false);

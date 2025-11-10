@@ -24,6 +24,7 @@ import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
 import 'package:wa_blast/screens/manage_report_screen.dart';
+import 'package:wa_blast/screens/products/create_edit_screen/add_product_screen.dart';
 import 'package:wa_blast/screens/products/product_stock_inventory.dart';
 import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
@@ -336,6 +337,20 @@ class MyApp extends StatelessWidget {
             return _platformRouteAnimated(
               settings,
               const ProductScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/product/add':
+            return _platformRouteAnimated(
+              settings,
+              const AddProductScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/product/edit':
+            return _platformRouteAnimated(
+              settings,
+              const AddProductScreen(),
               android: AndroidTransition.slideRight,
             );
 

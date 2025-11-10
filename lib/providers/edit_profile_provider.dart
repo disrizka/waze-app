@@ -10,6 +10,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wa_blast/services/api_service.dart';
 
+// ⬇️ Tambahan import untuk kompresi
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
 enum _UsernameCheck { available, taken, error }
 
 class EditProfileProvider with ChangeNotifier {
@@ -19,8 +24,8 @@ class EditProfileProvider with ChangeNotifier {
   final lastNameC = TextEditingController();
   final usernameC = TextEditingController();
 
-  File? pickedLogoFile;
-  String? existingLogoPath;
+  File? pickedPhotoFile;
+  String? existingPhotoPath;
 
   bool _loading = false;
   bool _saving = false;
@@ -42,24 +47,22 @@ class EditProfileProvider with ChangeNotifier {
       String first = '';
       String last = '';
       String username = '';
+      String userPhoto = '';
       if (userRaw != null && userRaw.isNotEmpty) {
         try {
           final Map<String, dynamic> user = jsonDecode(userRaw);
           first = (user['firstname'] ?? '').toString();
           last = (user['lastname'] ?? '').toString();
           username = (user['username'] ?? '').toString();
+          userPhoto = user['photoPath'] ?? '';
         } catch (_) {}
       }
-
-      final bizLogo = prefs.getString('activeBizLogoPath');
 
       emailC.text = email;
       firstNameC.text = first;
       lastNameC.text = last;
       usernameC.text = username;
-      existingLogoPath = (bizLogo != null && bizLogo.isNotEmpty)
-          ? bizLogo
-          : null;
+      existingPhotoPath = (userPhoto.isNotEmpty) ? userPhoto : null;
     } finally {
       _loading = false;
       notifyListeners();
@@ -124,21 +127,97 @@ class EditProfileProvider with ChangeNotifier {
     return (http != null) ? '$fallback ($http)' : fallback;
   }
 
+  // ===================== IMAGE COMPRESS HELPERS =====================
+  /// Kompres gambar ke JPEG/PNG sesuai ekstensi.
+  /// - Target ukuran default 1200x1200 (max sisi), kualitas 80.
+  /// - HEIC/HEIF otomatis dikonversi ke JPEG.
+  /// - Mengembalikan file hasil kompres, atau file asli jika gagal.
+  Future<File> _compressImageFile(
+    File input, {
+    int maxWidth = 1200,
+    int maxHeight = 1200,
+    int quality = 80,
+  }) async {
+    try {
+      final tmpDir = await getTemporaryDirectory();
+      final ext = p.extension(input.path).toLowerCase();
+
+      final isHeic = ext == '.heic' || ext == '.heif';
+      final isPng = ext == '.png';
+      // Gunakan JPEG untuk kebanyakan foto / HEIC
+      final fmt = (isPng && !isHeic) ? CompressFormat.png : CompressFormat.jpeg;
+
+      final outPath = p.join(
+        tmpDir.path,
+        'cmp_${DateTime.now().millisecondsSinceEpoch}'
+        '${fmt == CompressFormat.png ? '.png' : '.jpg'}',
+      );
+
+      final out = await FlutterImageCompress.compressAndGetFile(
+        input.path, // ✅ fix: jangan pakai input.absolute.path
+        outPath,
+        quality: quality.clamp(1, 100),
+        minWidth: maxWidth,
+        minHeight: maxHeight,
+        format: fmt,
+        autoCorrectionAngle: true,
+        keepExif: true,
+      );
+
+      if (out == null) return input;
+
+      // Jika masih terlalu besar (> 2.5MB), coba kompres lagi dengan kualitas lebih rendah.
+      final tooBig = await out.length() > 2_500_000;
+      if (tooBig) {
+        final outPath2 = p.join(
+          tmpDir.path,
+          'cmp2_${DateTime.now().millisecondsSinceEpoch}'
+          '${fmt == CompressFormat.png ? '.png' : '.jpg'}',
+        );
+        final out2 = await FlutterImageCompress.compressAndGetFile(
+          out.path,
+          outPath2,
+          quality: 65,
+          minWidth: (maxWidth * 0.9).round(),
+          minHeight: (maxHeight * 0.9).round(),
+          format: fmt,
+          autoCorrectionAngle: true,
+          keepExif: true,
+        );
+        if (out2 != null) return File(out2.path);
+      }
+
+      return File(out.path);
+    } catch (e, st) {
+      debugPrint('[_compressImageFile] ❌ $e\n$st');
+      return input; // fallback ke file asli jika gagal
+    }
+  }
+
   // ===================== MEDIA =====================
   Future<void> pickLogo() async {
     final picker = ImagePicker();
     final XFile? x = await picker.pickImage(
       source: ImageSource.gallery,
-      imageQuality: 85,
+      // biarkan kualitas asli, kita kompres manual agar konsisten
+      imageQuality: null,
     );
     if (x != null) {
-      pickedLogoFile = File(x.path);
+      final rawFile = File(x.path);
+      // Kompres setelah pilih
+      final compressed = await _compressImageFile(
+        rawFile,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        quality: 80,
+      );
+      pickedPhotoFile = compressed;
       notifyListeners();
     }
   }
 
   void removePickedLogo() {
-    pickedLogoFile = null;
+    pickedPhotoFile = null;
     notifyListeners();
   }
 
@@ -233,14 +312,22 @@ class EditProfileProvider with ChangeNotifier {
         }
       }
 
-      // 2) Update photo
-      final File? photo = pickedLogoFile;
+      // 2) Update photo (KOMPRES DULU)
+      final File? photo = pickedPhotoFile;
       if (photo != null) {
         didAnything = true;
 
+        // Kompres sebelum upload
+        final fileToUpload = await _compressImageFile(
+          photo,
+          maxWidth: 1200,
+          maxHeight: 1200,
+          quality: 80,
+        );
+
         String? uploadedFilename;
         try {
-          final uploadRes = await ApiService.uploadFile(photo.path);
+          final uploadRes = await ApiService.uploadFile(fileToUpload.path);
           if (uploadRes != null) {
             final data =
                 (uploadRes['data'] as Map?)?.cast<String, dynamic>() ??
@@ -339,8 +426,8 @@ class EditProfileProvider with ChangeNotifier {
   }
 
   /// Submit edit business (semua parameter boleh null).
-  /// - Jika [organisationLogoFile] != null → upload dulu (mengikuti pola submitEditProfile),
-  ///   ambil `uploadedFilename`, lalu masukkan ke payload `organisation_logo`.
+  /// - Jika [organisationLogoFile] != null → **kompres dulu**, upload, ambil `uploadedFilename`,
+  ///   lalu masukkan ke payload `organisation_logo`.
   /// - Jika [organisationLogoFile] == null → tidak kirim field `organisation_logo`.
   ///
   /// Return: (ok, uploadedFilename)
@@ -366,12 +453,18 @@ class EditProfileProvider with ChangeNotifier {
       // 1) Upload organisation logo (jika ada)
       if (organisationLogoFile != null) {
         didAnything = true;
-        debugPrint('📤 [1] Uploading organisation logo...');
+        debugPrint('📤 [1] Compressing & Uploading organisation logo...');
+
+        // ⬇️ Kompres sebelum upload (logo biasanya kecil, tapi tetap dibatasi)
+        final logoToUpload = await _compressImageFile(
+          organisationLogoFile,
+          maxWidth: 1200,
+          maxHeight: 1200,
+          quality: 80,
+        );
 
         try {
-          final uploadRes = await ApiService.uploadFile(
-            organisationLogoFile.path,
-          );
+          final uploadRes = await ApiService.uploadFile(logoToUpload.path);
           debugPrint('📦 Upload result: $uploadRes');
 
           if (uploadRes != null) {
@@ -396,7 +489,7 @@ class EditProfileProvider with ChangeNotifier {
       final payload = <String, dynamic>{};
 
       if (name != null && name.trim().isNotEmpty) {
-        payload['business_name'] = name.trim(); // 🔄 FIX: pakai business_name
+        payload['business_name'] = name.trim(); // 🔄 pakai business_name
         debugPrint(
           '🧩 Payload add: business_name="${payload['business_name']}"',
         );

@@ -41,11 +41,7 @@ class _EditProfileView extends StatelessWidget {
             Icons.arrow_back_ios_new_rounded,
             color: AppColors.black,
           ),
-          onPressed: () => Navigator.pushReplacementNamed(
-            context,
-            '/home',
-            arguments: {'tab': 'settings'},
-          ),
+          onPressed: () => Navigator.pop(context, {'tab': 'settings'}),
         ),
         title: const Text(
           'Account',
@@ -139,7 +135,11 @@ class _EditProfileView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Email (read-only / disabled)
+                    // ====== NEW: Avatar Picker Circle (gaya sosmed) ======
+                    const _AvatarPickerCircle(),
+                    const SizedBox(height: 16),
+
+                    // Email (read-only / disabled) — diletakkan setelah avatar
                     AccountField(
                       label: 'Email',
                       controller: p.emailC,
@@ -165,11 +165,9 @@ class _EditProfileView extends StatelessWidget {
                       controller: p.lastNameC,
                       hint: 'Your Last Name',
                     ),
-                    const SizedBox(height: 8),
-                    const _LogoPicker(),
                     const SizedBox(height: 28),
 
-                    // === Danger zone (baru, lebih menarik) ===
+                    // === Danger zone (menarik) ===
                     const Divider(height: 32),
                     _DangerZoneCard(
                       onTap: () {
@@ -181,6 +179,206 @@ class _EditProfileView extends StatelessWidget {
                 ),
               ),
             ),
+    );
+  }
+}
+
+/// =============================================================
+/// AVATAR PICKER CIRCLE — dengan fallback icon manusia saat 404
+/// =============================================================
+class _AvatarPickerCircle extends StatelessWidget {
+  const _AvatarPickerCircle();
+
+  static const double _size = 108;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.watch<EditProfileProvider>();
+    final hasLocal = p.pickedPhotoFile != null;
+    final url = (p.existingPhotoPath ?? '').trim();
+    final hasUrl = url.isNotEmpty;
+
+    Widget avatarContent;
+
+    if (hasLocal) {
+      // Foto lokal dipastikan ada
+      avatarContent = Image.file(
+        p.pickedPhotoFile!,
+        fit: BoxFit.cover,
+        width: _size,
+        height: _size,
+      );
+    } else if (hasUrl) {
+      // Foto dari server + fallback bila 404/invalid
+      avatarContent = Image.network(
+        url,
+        fit: BoxFit.cover,
+        width: _size,
+        height: _size,
+        // tampilkan placeholder icon jika gagal (mis. 404)
+        errorBuilder: (ctx, err, st) => _placeholderIcon(),
+        // optional: loading indicator halus
+        loadingBuilder: (ctx, child, progress) {
+          if (progress == null) return child;
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              _placeholderIcon(),
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  value: progress.expectedTotalBytes != null
+                      ? progress.cumulativeBytesLoaded /
+                            (progress.expectedTotalBytes ?? 1)
+                      : null,
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    } else {
+      // Tidak ada foto sama sekali
+      avatarContent = _placeholderIcon();
+    }
+
+    return Center(
+      child: Column(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // Lingkaran dengan border tipis
+              Container(
+                width: _size,
+                height: _size,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.greyBackground, width: 2),
+                ),
+                child: ClipOval(child: avatarContent),
+              ),
+              // Tombol edit kecil
+              Positioned(
+                bottom: -2,
+                right: -2,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => _showAvatarActionSheet(context),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppColors.blueButton,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.blueButton.withOpacity(0.3),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.edit_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextButton(
+            onPressed: () => _showAvatarActionSheet(context),
+            child: const Text(
+              'Change photo',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.blueButton,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Placeholder icon manusia bergaya sosmed
+  Widget _placeholderIcon() {
+    return Container(
+      color: AppColors.greyBackground,
+      width: _size,
+      height: _size,
+      alignment: Alignment.center,
+      child: const Icon(Icons.person_rounded, size: 42, color: AppColors.grey),
+    );
+  }
+
+  void _showAvatarActionSheet(BuildContext context) {
+    final p = context.read<EditProfileProvider>();
+    final hasImage =
+        p.pickedPhotoFile != null || (p.existingPhotoPath ?? '').isNotEmpty;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.white,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded),
+                title: const Text(
+                  'Choose photo',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: const Text('Pick from gallery or files'),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await p.pickLogo(); // provider kamu
+                },
+              ),
+              if (hasImage)
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_rounded,
+                    color: AppColors.red,
+                  ),
+                  title: const Text(
+                    'Remove photo',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.red,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    if (p.pickedPhotoFile != null) {
+                      p.removePickedLogo();
+                    } else {
+                      p.existingPhotoPath = null;
+                      p.notifyListeners();
+                    }
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -198,12 +396,12 @@ class _DangerZoneCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              const Color(0xFFFFE9EC), // soft red-rose
-              const Color(0xFFFFF7F8), // very light
+              Color(0xFFFFE9EC), // soft red-rose
+              Color(0xFFFFF7F8), // very light
             ],
           ),
           border: Border.all(color: AppColors.red.withOpacity(0.18), width: 1),
@@ -302,14 +500,16 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
+/// ====== (Legacy) Komponen lama — tidak lagi dipakai ======
+/// Disisakan untuk referensi / jika nanti ingin pakai kembali.
 class _LogoPicker extends StatelessWidget {
   const _LogoPicker();
 
   @override
   Widget build(BuildContext context) {
     final p = context.watch<EditProfileProvider>();
-    final hasFile = p.pickedLogoFile != null;
-    final hasUrl = (p.existingLogoPath ?? '').isNotEmpty;
+    final hasFile = p.pickedPhotoFile != null;
+    final hasUrl = (p.existingPhotoPath ?? '').isNotEmpty;
 
     const double boxHeight = 110;
     const Radius boxRadius = Radius.circular(12);
@@ -319,14 +519,14 @@ class _LogoPicker extends StatelessWidget {
       Widget image;
       if (hasFile) {
         image = Image.file(
-          p.pickedLogoFile!,
+          p.pickedPhotoFile!,
           width: double.infinity,
           height: boxHeight,
           fit: BoxFit.cover,
         );
       } else {
         image = Image.network(
-          p.existingLogoPath!,
+          p.existingPhotoPath!,
           width: double.infinity,
           height: boxHeight,
           fit: BoxFit.cover,
@@ -367,7 +567,7 @@ class _LogoPicker extends StatelessWidget {
                   if (hasFile) {
                     prov.removePickedLogo();
                   } else {
-                    prov.existingLogoPath = null;
+                    prov.existingPhotoPath = null;
                     prov.notifyListeners();
                   }
                 },
@@ -432,7 +632,7 @@ class _LogoPicker extends StatelessWidget {
                   children: [
                     Text.rich(
                       TextSpan(
-                        text: 'Add your logo Business',
+                        text: 'Add your profile picture',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           color: AppColors.textPrimary,

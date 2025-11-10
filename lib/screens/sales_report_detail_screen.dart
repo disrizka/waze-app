@@ -1,8 +1,5 @@
 import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:dotted_border/dotted_border.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -19,6 +16,7 @@ import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'package:wa_blast/providers/sales_provider.dart';
+import 'package:wa_blast/services/ios_ble_printer_services.dart';
 
 class SalesReportDetailScreen extends StatefulWidget {
   final String idTransaction;
@@ -38,6 +36,7 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
   bool get _isAndroid => Platform.isAndroid;
   bool get _isIOS => Platform.isIOS;
   final _macRegex = RegExp(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$');
+  final IosBlePrinterService _iosBle = IosBlePrinterService();
 
   @override
   void initState() {
@@ -972,115 +971,59 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
   /// - printer.ip: IP printer
   /// - printer.port: port (default 9100)
   /// - printer.paper: 58 | 80
-  Future<void> _printThermal(dynamic d) async {
-    final sp = await SharedPreferences.getInstance();
-
-    final type = sp.getString('printer.type') ?? 'bluetooth';
-    // fallback ke 'printer.mac' bila setting lama
-    final btId =
-        (sp.getString('printer.bt.id') ?? sp.getString('printer.mac') ?? '')
-            .trim();
-    final ip = (sp.getString('printer.ip') ?? '').trim();
-    final port = sp.getInt('printer.port') ?? 9100;
-    final paper = sp.getInt('printer.paper') ?? 58;
-
-    // Siapkan data ESC/POS
-    final bytes = await _buildEscPosBytes(d, paper: paper);
-
-    if (type == 'network') {
-      if (ip.isEmpty) {
-        throw 'IP Address is empty (atur di Settings > Thermal Printer)';
-      }
-      await _sendTcpRaw(host: ip, port: port, bytes: bytes);
-      return;
-    }
-
-    // ===== Bluetooth path =====
-    if (btId.isEmpty) {
-      throw 'Bluetooth device not selected. Buka Settings > Thermal Printer lalu "Scan & Pick".';
-    }
-
-    // iOS: minta izin BLE (best effort)
-    await _ensureBluetoothPermission();
-
-    // Pastikan bluetooth ON
-    final btOn = await PrintBluetoothThermal.bluetoothEnabled;
-    if (btOn != true) {
-      throw 'Bluetooth is OFF. Nyalakan Bluetooth terlebih dahulu.';
-    }
-
-    // Android harus MAC valid (format XX:XX:XX:XX:XX:XX)
-    if (_isAndroid && !_macRegex.hasMatch(btId)) {
-      throw 'Invalid Bluetooth MAC. Pair di Settings Android & pilih ulang di app.';
-    }
-
-    // Putuskan koneksi lama (best effort)
-    try {
-      await PrintBluetoothThermal.disconnect;
-    } catch (_) {}
-
-    // Coba connect (dengan 1x retry ringan)
-    bool connected = await PrintBluetoothThermal.connect(
-      macPrinterAddress: btId,
-    );
-    if (!connected) {
-      await Future.delayed(const Duration(milliseconds: 250));
-      connected = await PrintBluetoothThermal.connect(macPrinterAddress: btId);
-    }
-    if (!connected) {
-      throw 'Unable to connect to printer ($btId).';
-    }
-
-    final status = await PrintBluetoothThermal.connectionStatus;
-    if (status != true) {
-      throw 'Bluetooth not connected.';
-    }
-
-    // Delay kecil sebelum tulis pertama (beberapa chipset butuh warm-up)
-    await Future.delayed(const Duration(milliseconds: 120));
-
-    // Kirim data: WAJIB List<int> + CHUNKED supaya stabil
-    await _writeBluetoothBytesChunked(bytes);
-
-    // (opsional) tunggu sebentar agar buffer kirim selesai sebelum user close
-    await Future.delayed(const Duration(milliseconds: 150));
-  }
-
-  /// Kirim dalam chunk agar stabil & menghindari ClassCastException
-  /// iOS BLE umumnya 20 bytes; Android SPP relatif besar.
-  Future<void> _writeBluetoothBytesChunked(Uint8List data) async {
-    final payload = data.toList(); // konversi ke List<int> (bukan Uint8List)
-    final chunkSize = _isIOS ? 20 : 512;
-
-    for (int offset = 0; offset < payload.length; offset += chunkSize) {
-      final end = (offset + chunkSize < payload.length)
-          ? offset + chunkSize
-          : payload.length;
-      final part = payload.sublist(offset, end);
-
-      final ok = await PrintBluetoothThermal.writeBytes(part);
-      if (kDebugMode) {
-        debugPrint('[BT] write part $offset..$end => $ok');
-      }
-      if (ok != true) throw 'Write failed at $offset..$end';
-      await Future.delayed(const Duration(milliseconds: 10));
-    }
-  }
-
+  ///
   Future<void> _ensureBluetoothPermission() async {
-    if (_isIOS) {
+    // iOS: minta izin BLE
+    if (Platform.isIOS) {
       final status = await Permission.bluetooth.request();
       if (status.isDenied) throw 'Bluetooth permission denied';
     } else {
+      // Android: tidak kita ubah, tapi jaga2 bila dipakai dari sini
       final statuses = await [
         Permission.bluetooth,
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
       ].request();
-
       if (statuses[Permission.bluetoothConnect]?.isDenied == true) {
         throw 'Bluetooth Connect permission is required';
       }
+    }
+  }
+
+  Future<void> _sendTcpRaw({
+    required String host,
+    required int port,
+    required Uint8List bytes,
+  }) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        host,
+        port,
+        timeout: const Duration(seconds: 4),
+      );
+      socket.add(bytes);
+      await socket.flush();
+      await Future.delayed(const Duration(milliseconds: 200));
+    } finally {
+      await socket?.close();
+    }
+  }
+
+  /// Android: kirim List<int> per chunk supaya stabil.
+  /// iOS tidak memakai ini karena pakai service BLE sendiri.
+  Future<void> _writeBluetoothBytesChunkedAndroid(Uint8List data) async {
+    final payload = data.toList(); // WAJIB List<int> utk plugin
+    const chunkSize = 512; // SPP besar, 512 aman
+    for (int offset = 0; offset < payload.length; offset += chunkSize) {
+      final end = (offset + chunkSize < payload.length)
+          ? offset + chunkSize
+          : payload.length;
+      final ok = await PrintBluetoothThermal.writeBytes(
+        payload.sublist(offset, end),
+      );
+      if (ok != true) throw 'Write failed at $offset..$end';
+      await Future.delayed(const Duration(milliseconds: 8));
     }
   }
 
@@ -1132,9 +1075,9 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
         ),
       );
     }
-    out.addAll(_hrThin(gen));
+    out.addAll(gen.hr(ch: '-'));
 
-    // DAFTAR ITEM
+    // ITEMS
     for (final it in d.items) {
       final title = it.product?.name ?? it.productSkuId;
       final lineSubtotal = it.qtyOut * it.price;
@@ -1158,44 +1101,43 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
       final attrs = (it.productSku?.attributes ?? [])
           .map<String>((a) => '${a['name']}:${a['value']}')
           .join(', ');
-      final metaParts = <String>[];
-      if (skuCode.isNotEmpty) metaParts.add(skuCode);
-      if (attrs.isNotEmpty) metaParts.add(attrs);
-      if (metaParts.isNotEmpty) {
-        out.addAll(
-          gen.text(
-            metaParts.join(' • '),
-            styles: const esc.PosStyles(
-              height: esc.PosTextSize.size1,
-              width: esc.PosTextSize.size1,
-            ),
-          ),
-        );
+      final meta = [skuCode, attrs].where((e) => e.isNotEmpty).join(' • ');
+      if (meta.isNotEmpty) {
+        out.addAll(gen.text(meta));
       }
 
       final discNote = it.discount > 0
           ? ' (disc ${fMoney.format(it.discount)}/item)'
           : '';
-      out.addAll(
-        gen.text(
-          '  ${it.qtyOut} × ${money(it.price)}$discNote',
-          styles: const esc.PosStyles(),
-        ),
-      );
-
-      out.addAll(_hrDots(gen));
+      out.addAll(gen.text('  ${it.qtyOut} × ${money(it.price)}$discNote'));
+      out.addAll(gen.hr(ch: '.'));
     }
 
-    // TOTALS
     final calc = d.calculation;
     if (calc != null) {
-      out.addAll(_kv(gen, 'Subtotal', money(calc.subtotal)));
+      out.addAll(
+        gen.row([
+          esc.PosColumn(width: 8, text: 'Subtotal'),
+          esc.PosColumn(
+            width: 4,
+            text: money(calc.subtotal),
+            styles: const esc.PosStyles(align: esc.PosAlign.right),
+          ),
+        ]),
+      );
       if (calc.discount != 0) {
-        out.addAll(_kv(gen, 'Diskon', '- ${money(calc.discount)}'));
+        out.addAll(
+          gen.row([
+            esc.PosColumn(width: 8, text: 'Diskon'),
+            esc.PosColumn(
+              width: 4,
+              text: '- ${money(calc.discount)}',
+              styles: const esc.PosStyles(align: esc.PosAlign.right),
+            ),
+          ]),
+        );
       }
-
-      out.addAll(_hrThick(gen));
-
+      out.addAll(gen.hr());
       out.addAll(
         gen.row([
           esc.PosColumn(
@@ -1204,7 +1146,6 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
             styles: const esc.PosStyles(
               bold: true,
               height: esc.PosTextSize.size2,
-              width: esc.PosTextSize.size1,
             ),
           ),
           esc.PosColumn(
@@ -1214,13 +1155,12 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
               align: esc.PosAlign.right,
               bold: true,
               height: esc.PosTextSize.size2,
-              width: esc.PosTextSize.size1,
             ),
           ),
         ]),
       );
     } else {
-      out.addAll(_hrThick(gen));
+      out.addAll(gen.hr());
       out.addAll(
         gen.row([
           esc.PosColumn(
@@ -1244,15 +1184,10 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
       );
     }
 
-    out.addAll(_hrThin(gen));
-
+    out.addAll(gen.hr(ch: '-'));
     out.addAll(gen.text('Pembayaran: ${_paymentLabel(d.paymentMethod)}'));
-    if (d.reference.isNotEmpty) {
-      out.addAll(gen.text('Ref: ${d.reference}'));
-    }
-    if (d.note.isNotEmpty) {
-      out.addAll(gen.text('Catatan: ${d.note}'));
-    }
+    if (d.reference.isNotEmpty) out.addAll(gen.text('Ref: ${d.reference}'));
+    if (d.note.isNotEmpty) out.addAll(gen.text('Catatan: ${d.note}'));
 
     out.addAll(gen.feed(1));
     out.addAll(
@@ -1269,46 +1204,87 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
         ),
       );
     }
-
     out.addAll(gen.feed(2));
     out.addAll(gen.cut());
+
     return Uint8List.fromList(out);
   }
 
-  // Helpers struk
-  List<int> _kv(esc.Generator gen, String k, String v) {
-    return gen.row([
-      esc.PosColumn(width: 8, text: k),
-      esc.PosColumn(
-        width: 4,
-        text: v,
-        styles: const esc.PosStyles(align: esc.PosAlign.right),
-      ),
-    ]);
-  }
+  Future<void> _printThermal(dynamic d) async {
+    final sp = await SharedPreferences.getInstance();
 
-  List<int> _hrThin(esc.Generator gen) => gen.hr(ch: '-');
-  List<int> _hrThick(esc.Generator gen) => gen.hr();
-  List<int> _hrDots(esc.Generator gen) => gen.hr(ch: '.');
+    final type = sp.getString('printer.type') ?? 'bluetooth';
+    final btId =
+        (sp.getString('printer.bt.id') ?? sp.getString('printer.mac') ?? '')
+            .trim();
+    final ip = (sp.getString('printer.ip') ?? '').trim();
+    final port = sp.getInt('printer.port') ?? 9100;
+    final paper = sp.getInt('printer.paper') ?? 58;
 
-  Future<void> _sendTcpRaw({
-    required String host,
-    required int port,
-    required Uint8List bytes,
-  }) async {
-    Socket? socket;
-    try {
-      socket = await Socket.connect(
-        host,
-        port,
-        timeout: const Duration(seconds: 4),
-      );
-      socket.add(bytes);
-      await socket.flush();
-      await Future.delayed(const Duration(milliseconds: 200));
-    } finally {
-      await socket?.close();
+    // Siapkan ESC/POS bytes untuk dicetak
+    final bytes = await _buildEscPosBytes(d, paper: paper);
+
+    // ==== MODE NETWORK (RAW 9100) – tidak diubah ====
+    if (type == 'network') {
+      if (ip.isEmpty) {
+        throw 'IP Address is empty (atur di Settings > Thermal Printer)';
+      }
+      await _sendTcpRaw(host: ip, port: port, bytes: bytes);
+      return;
     }
+
+    // ==== MODE BLUETOOTH ====
+    if (btId.isEmpty) {
+      throw 'Bluetooth device not selected. Buka Settings > Thermal Printer → "Scan & Pick".';
+    }
+
+    // iOS → pakai BLE service khusus
+    if (Platform.isIOS) {
+      await _ensureBluetoothPermission();
+
+      // Koneksi → kirim → putus (selalu pastikan disconnect)
+      try {
+        await _iosBle.connect(btId); // btId = UUID
+        await _iosBle.write(bytes); // service akan chunking MTU 20/WRITE_TYPE
+      } finally {
+        await _iosBle.disconnect();
+      }
+      return;
+    }
+
+    // ANDROID → tetap seperti sebelumnya (plugin SPP Classic)
+    // Pastikan BT ON
+    final btOn = await PrintBluetoothThermal.bluetoothEnabled;
+    if (btOn != true) {
+      throw 'Bluetooth is OFF. Nyalakan Bluetooth terlebih dahulu.';
+    }
+
+    // Validasi MAC
+    if (!_macRegex.hasMatch(btId)) {
+      throw 'Invalid Bluetooth MAC. Pair di Settings Android & pilih ulang di app.';
+    }
+
+    // Putus koneksi lama (best effort)
+    try {
+      await PrintBluetoothThermal.disconnect;
+    } catch (_) {}
+
+    // Connect (1x retry ringan)
+    bool connected = await PrintBluetoothThermal.connect(
+      macPrinterAddress: btId,
+    );
+    if (!connected) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      connected = await PrintBluetoothThermal.connect(macPrinterAddress: btId);
+    }
+    if (!connected) throw 'Unable to connect to printer ($btId).';
+
+    final status = await PrintBluetoothThermal.connectionStatus;
+    if (status != true) throw 'Bluetooth not connected.';
+
+    await Future.delayed(const Duration(milliseconds: 120)); // warm-up
+    await _writeBluetoothBytesChunkedAndroid(bytes);
+    await Future.delayed(const Duration(milliseconds: 120));
   }
 
   // =======================

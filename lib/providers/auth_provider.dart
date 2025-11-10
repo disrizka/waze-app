@@ -4,11 +4,13 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/services/api_service.dart';
+import 'package:path/path.dart' as p;
 
 /// =========================
 /// Model ringan untuk UI
@@ -1144,7 +1146,16 @@ class AuthProvider with ChangeNotifier {
 
       String? uploadedFilename;
       if (organisationLogo != null) {
-        uploadedFilename = await _uploadLogoAndGetFilename(organisationLogo);
+        // 1) Kompres dulu
+        final compressed = await _maybeCompressImage(
+          organisationLogo,
+          maxWidth: 1280,
+          maxHeight: 1280,
+          quality: 80,
+        );
+
+        // 2) Upload file hasil kompres (atau asli jika kompres gagal)
+        uploadedFilename = await _uploadLogoAndGetFilename(compressed);
         if (uploadedFilename == null || uploadedFilename.isEmpty) {
           _error = 'Failed to upload logo. Please try again.';
           return false;
@@ -1172,13 +1183,6 @@ class AuthProvider with ChangeNotifier {
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final j = jsonDecode(raw) as Map<String, dynamic>;
-        final idBusiness = (j['idBusiness'] ?? '').toString();
-        if (idBusiness.isEmpty) {
-          _error = 'Register step 2 succeeded, but idBusiness is empty';
-          return false;
-        }
-
-        await _saveActiveBusinessId(idBusiness);
         _isActivated = true;
         await prefs.setBool('isActivated', true);
 
@@ -1193,7 +1197,7 @@ class AuthProvider with ChangeNotifier {
         }
 
         debugPrint(
-          'REGISTER STEP2 ✅ idBusiness=$idBusiness (logo=${uploadedFilename ?? '-'}) → refreshed user → /splash',
+          'REGISTER STEP2 (logo=${uploadedFilename ?? '-'}) → refreshed user → /splash',
         );
         await refreshCurrentUser(context);
         return true;
@@ -1710,71 +1714,229 @@ class AuthProvider with ChangeNotifier {
   Future<bool> refreshCurrentUser(BuildContext context) async {
     debugPrint('refreshCurrentUser ▶︎ start');
 
-    final prefs = await SharedPreferences.getInstance();
-
-    // 1) Kunci pilihan user saat ini
-    final String? lockedActiveId = prefs.getString('activeBizId');
-
-    // 2) Tarik data business & roles terbaru
-    bool okBiz = false;
     try {
-      okBiz = await fetchAndPersistUserBusiness(context);
-      debugPrint('refreshCurrentUser ▶︎ fetchAndPersistUserBusiness = $okBiz');
-    } catch (e, st) {
-      debugPrint('refreshCurrentUser ❌ userBusiness error: $e\n$st');
-    }
+      // =========================================================
+      // 1) Ambil data terbaru dari /user
+      //    Struktur: { status, data: {...user}, business: [ {...}, ... ] }
+      // =========================================================
+      final res = await ApiService.get(context, '/user', withAccessToken: true);
+      final raw = res.body;
+      debugPrint(
+        "REFRESH USER (via /user) ◀︎ ${res.statusCode} ${raw.length > 800 ? raw.substring(0, 800) + '…' : raw}",
+      );
 
-    // 3) Jika user sudah memilih business sebelumnya, pulihkan kalau masih valid
-    if (lockedActiveId != null && lockedActiveId.isNotEmpty) {
-      try {
-        final raw = prefs.getString('business');
-        if (raw != null && raw.isNotEmpty) {
-          final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-          final ids = list
-              .map((e) => (e['idBusiness'] ?? '').toString())
-              .where((s) => s.isNotEmpty)
-              .toList();
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        debugPrint("REFRESH USER ❌ status ${res.statusCode}");
+        return false;
+      }
 
-          // Hanya re-apply kalau masih ada di daftar terbaru
-          if (ids.contains(lockedActiveId)) {
-            // Apply lagi agar tidak “tergeser” ke item pertama
-            final m = list.firstWhere(
-              (e) => (e['idBusiness'] ?? '').toString() == lockedActiveId,
-              orElse: () => list.first,
-            );
-            await _applyActiveBusinessAndRole(
-              prefs: prefs,
-              idBusiness: (m['idBusiness'] ?? '').toString(),
-              name: (m['name'] ?? '').toString(),
-              username: (m['username'] ?? '').toString(),
-              logoPath: (m['logoPath'] ?? '').toString(),
-              // roleMap: null → baca dari prefs
-            );
-            if (kDebugMode) {
-              debugPrint(
-                '[AuthProvider] refreshCurrentUser: restored activeBizId=$lockedActiveId',
-              );
-            }
-          } else {
-            // Kalau sudah tidak valid (akses dicabut), biarkan fallback yang terjadi di fetchAndPersistUserBusiness()
-            if (kDebugMode) {
-              debugPrint(
-                '[AuthProvider] refreshCurrentUser: previous active not in list, keep fallback',
-              );
+      final Map<String, dynamic> root = jsonDecode(raw);
+      final Map<String, dynamic> userObj =
+          (root['data'] ?? const <String, dynamic>{}).cast<String, dynamic>();
+      final List businessFull =
+          (root['business'] as List?) ?? const <dynamic>[];
+
+      final prefs = await SharedPreferences.getInstance();
+
+      // =========================================================
+      // 2) Simpan semua versi data "apa adanya" untuk keperluan debug/inspeksi
+      // =========================================================
+      await prefs.setString('user_fetch_raw', raw); // raw lengkap
+      await prefs.setString(
+        'user_full',
+        jsonEncode(userObj),
+      ); // objek user "full"
+      await prefs.setString(
+        'business_full',
+        jsonEncode(businessFull),
+      ); // list business "full"
+
+      // =========================================================
+      // 3) Update state & legacy keys dari USER
+      // =========================================================
+      final firstname = (userObj['firstname'] ?? '').toString();
+      final lastname = (userObj['lastname'] ?? '').toString();
+      final fullName = '$firstname $lastname'.trim();
+
+      final serverEmail = (userObj['email'] ?? '').toString();
+      final email = serverEmail.isNotEmpty ? serverEmail : (_email ?? '');
+      final username = (userObj['username'] ?? '').toString();
+      final photoPath = (userObj['photoPath'] ?? '').toString();
+      final phone = (userObj['phone'] ?? '').toString();
+      final hasPage = (userObj['hasPage'] ?? false) == true;
+      final roleName = (userObj['userRoleName'] ?? '').toString();
+      final idUser = (userObj['idUser'] ?? '').toString();
+      final isDeactivated = (userObj['isDeactivated'] ?? false) == true;
+
+      // set ke memori
+      _name = fullName.isNotEmpty ? fullName : _name;
+      _email = email.isNotEmpty ? email : _email;
+
+      // persist (legacy keys yang dipakai bagian lain aplikasi)
+      await prefs.setString('user', jsonEncode(userObj));
+      if (_name != null) await prefs.setString('name', _name!);
+      if (_email != null) await prefs.setString('email', _email!);
+      await prefs.setString('username', username);
+      await prefs.setString('photoPath', photoPath);
+      await prefs.setString('phone', phone);
+      await prefs.setBool('hasPage', hasPage);
+      await prefs.setString('userRoleName', roleName);
+      await prefs.setString('idUser', idUser);
+      await prefs.setBool('isDeactivated', isDeactivated);
+
+      // =========================================================
+      // 4) Normalisasi BUSINESS → isi legacy key `business`
+      //    sekaligus siapkan roleMap dari roleId/userRoleName
+      // =========================================================
+      final List<Map<String, dynamic>> simplifiedBusiness = businessFull
+          .map<Map<String, dynamic>>((e) {
+            final m = (e as Map).cast<String, dynamic>();
+            return {
+              'idBusiness': (m['idBusiness'] ?? '').toString(),
+              'name': (m['name'] ?? '').toString(),
+              'username': (m['username'] ?? '').toString(),
+              'logoPath': (m['logoPath'] ?? m['logo'] ?? '').toString(),
+            };
+          })
+          .toList();
+
+      await prefs.setString(
+        'business',
+        jsonEncode(simplifiedBusiness),
+      ); // legacy
+
+      final Map<String, dynamic> roleMap = {};
+      for (final e in businessFull) {
+        final m = (e as Map).cast<String, dynamic>();
+        final idBiz = (m['idBusiness'] ?? '').toString();
+        if (idBiz.isEmpty) continue;
+        roleMap[idBiz] = {
+          'idAdminRole': (m['roleId'] ?? '').toString(),
+          'name': (m['userRoleName'] ?? '').toString(),
+          'isPrimary': false, // tidak ada info isPrimary di payload
+        };
+      }
+      await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
+
+      // =========================================================
+      // 5) Active Business:
+      //    - hormati activeBizId lama jika masih valid
+      //    - fallback ke bisnis pertama jika tidak ada/invalid
+      //    - jika tidak ada business → bersihkan pointer active & active role
+      // =========================================================
+      final String? prevActiveId = prefs.getString('activeBizId');
+      final ids = simplifiedBusiness
+          .map((e) => (e['idBusiness'] ?? '').toString())
+          .where((s) => s.isNotEmpty)
+          .toList();
+
+      String? nextActiveId = prevActiveId;
+      if (nextActiveId == null ||
+          nextActiveId.isEmpty ||
+          !ids.contains(nextActiveId)) {
+        nextActiveId = ids.isNotEmpty ? ids.first : null;
+      }
+
+      if (nextActiveId != null && nextActiveId.isNotEmpty) {
+        final selected = simplifiedBusiness.firstWhere(
+          (m) => (m['idBusiness'] ?? '') == nextActiveId,
+          orElse: () => simplifiedBusiness.first,
+        );
+
+        await _applyActiveBusinessAndRole(
+          prefs: prefs,
+          idBusiness: (selected['idBusiness'] ?? '').toString(),
+          name: (selected['name'] ?? '').toString(),
+          username: (selected['username'] ?? '').toString(),
+          logoPath: (selected['logoPath'] ?? '').toString(),
+          roleMap: roleMap, // penting agar active role ikut ter-set
+        );
+
+        // =======================================================
+        // 6) Sinkronkan snapshot akun aktif (account_<email>)
+        // =======================================================
+        final rb = _resolveRBForBusiness(
+          (selected['idBusiness'] ?? '').toString(),
+          prefs,
+          roleMapArg: roleMap,
+        );
+        final emailKey = _email ?? prefs.getString(kActiveAccountKey);
+        if (emailKey != null && emailKey.isNotEmpty) {
+          final key = 'account_$emailKey';
+          final snapStr = prefs.getString(key);
+          if (snapStr != null) {
+            try {
+              final snap = jsonDecode(snapStr) as Map<String, dynamic>;
+              snap['user'] = userObj; // full user
+              snap['name'] = _name;
+              snap['email'] = _email;
+              snap['username'] = username;
+              snap['photoPath'] = photoPath;
+
+              snap['business'] = simplifiedBusiness; // legacy list
+              snap['business_full'] = businessFull; // simpan juga full
+              snap['activeBusiness'] = {
+                'idBusiness': selected['idBusiness'],
+                'name': selected['name'],
+                'username': selected['username'],
+                'logoPath': selected['logoPath'],
+              };
+              snap['businessRoles'] = roleMap;
+              if ((rb?['idAdminRole'] ?? '').toString().isNotEmpty) {
+                snap['activeBusinessRole'] = {
+                  'idAdminRole': (rb?['idAdminRole'] ?? '').toString(),
+                  'name': (rb?['name'] ?? '').toString(),
+                  'isPrimary': (rb?['isPrimary'] ?? false) == true,
+                };
+              }
+              await prefs.setString(key, jsonEncode(snap));
+            } catch (e) {
+              debugPrint('SYNC SNAPSHOT (refreshCurrentUser) ❌ $e');
             }
           }
         }
-      } catch (e) {
-        debugPrint('refreshCurrentUser: restore active failed: $e');
+      } else {
+        // tidak punya business → bersihkan pointer active & role
+        await prefs.remove('activeBizId');
+        await prefs.remove('activeBizName');
+        await prefs.remove('activeBizUsername');
+        await prefs.remove('activeBizLogoPath');
+        await prefs.remove(kActiveBizRoleIdKey);
+        await prefs.remove(kActiveBizRoleNameKey);
+        await prefs.remove(kActiveBizRoleIsPrimaryKey);
+
+        // bersihkan dari snapshot bila ada
+        final emailKey = _email ?? prefs.getString(kActiveAccountKey);
+        if (emailKey != null && emailKey.isNotEmpty) {
+          final key = 'account_$emailKey';
+          final snapStr = prefs.getString(key);
+          if (snapStr != null) {
+            try {
+              final snap = jsonDecode(snapStr) as Map<String, dynamic>;
+              snap['user'] = userObj;
+              snap['name'] = _name;
+              snap['email'] = _email;
+              snap['username'] = username;
+              snap['photoPath'] = photoPath;
+              snap['business'] = simplifiedBusiness;
+              snap['business_full'] = businessFull;
+              snap.remove('activeBusiness');
+              snap.remove('activeBusinessRole');
+              await prefs.setString(key, jsonEncode(snap));
+            } catch (e) {
+              debugPrint('SYNC SNAPSHOT (no business) ❌ $e');
+            }
+          }
+        }
       }
+
+      notifyListeners();
+      debugPrint('refreshCurrentUser ◀︎ done');
+      return true;
+    } catch (e, st) {
+      debugPrint('refreshCurrentUser ❌ $e\n$st');
+      return false;
     }
-
-    // 4) Tarik user profile (tidak menyentuh active business)
-    final okUser = await fetchAndPersistCurrentUser(context);
-    debugPrint('refreshCurrentUser ▶︎ fetchAndPersistCurrentUser = $okUser');
-    debugPrint('refreshCurrentUser ◀︎ done');
-
-    return okBiz || okUser;
   }
 
   /// Ganti active business + set active role dari map roles
@@ -2410,6 +2572,60 @@ class AuthProvider with ChangeNotifier {
       notifyLater(tag: tag);
       _log(tag, '🧯 Done (exception, success=false)');
       return false;
+    }
+  }
+
+  /// Kompres gambar agar lebih kecil sebelum upload.
+  /// - Target: sisi terpanjang maksimal 1280px, kualitas 80 (jpeg).
+  /// - Jika hasil kompres gagal/kosong, fallback ke file asli.
+  /// - Jika file sudah cukup kecil (< 800 KB), skip kompres.
+  Future<File> _maybeCompressImage(
+    File input, {
+    int maxWidth = 1280,
+    int maxHeight = 1280,
+    int quality = 80,
+    int skipBelowBytes = 800 * 1024, // 800 KB
+  }) async {
+    try {
+      final originalSize = await input.length();
+      if (originalSize < skipBelowBytes) {
+        // Sudah kecil — tidak perlu kompres
+        return input;
+      }
+
+      // Tentukan ekstensi output (jpeg)
+      final dir = input.parent.path;
+      final base = p.basenameWithoutExtension(input.path);
+      final outPath = p.join(dir, '${base}_cmp.jpg');
+
+      final result = await FlutterImageCompress.compressWithFile(
+        input.absolute.path,
+        minWidth: maxWidth,
+        minHeight: maxHeight,
+        quality: quality,
+        format: CompressFormat.jpeg,
+      );
+
+      if (result == null || result.isEmpty) {
+        // Kompres gagal → pakai file asli
+        return input;
+      }
+
+      final outFile = File(outPath);
+      await outFile.writeAsBytes(result, flush: true);
+
+      // Jika kompresan tidak lebih kecil, pakai yang asli
+      final newSize = await outFile.length();
+      if (newSize >= originalSize) {
+        try {
+          await outFile.delete();
+        } catch (_) {}
+        return input;
+      }
+      return outFile;
+    } catch (_) {
+      // Gagal kompres (misal format tidak didukung) → pakai file asli
+      return input;
     }
   }
 }

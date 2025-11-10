@@ -99,11 +99,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   Icons.arrow_back_ios_new_rounded,
                   color: AppColors.black,
                 ),
-                onPressed: () => Navigator.pushReplacementNamed(
-                  context,
-                  '/home',
-                  arguments: {'tab': 'settings'},
-                ),
+                onPressed: () => Navigator.pop(context, {'tab': 'settings'}),
               ),
               title: const Text(
                 'Change Password',

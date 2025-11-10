@@ -98,7 +98,9 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
         scrolledUnderElevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/sales'),
+          onPressed: () => Navigator.of(
+            context,
+          ).popUntil((route) => route.settings.name == '/sales'),
         ),
         title: Row(
           mainAxisSize: MainAxisSize.min,

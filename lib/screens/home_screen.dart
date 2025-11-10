@@ -728,6 +728,36 @@ class _GridMenu extends StatelessWidget {
     return null;
   }
 
+  /// Pemetaan prioritas urutan target:
+  /// product, sales, purchase, report, hr, settings
+  int _priorityFor(_MenuItemData it) {
+    // Prefer routeName kalau ada
+    final r = (it.routeName ?? '').toLowerCase();
+
+    // Settings bisa /setting (non-owner) atau /business (owner)
+    if (r == '/product') return 0;
+    if (r == '/sales') return 1;
+    if (r == '/purchase') return 2;
+    if (r == '/report') return 3;
+    if (r == '/hr') return 4;
+    if (r == '/setting' || r == '/business') return 5;
+
+    // Kalau routeName null, coba deteksi dari pageKeys
+    final pages = it.pageKeys.map((e) => e.toLowerCase()).toList();
+    if (pages.contains('product')) return 0;
+    if (pages.contains('sale')) return 1;
+    if (pages.contains('purchase')) return 2;
+    if (pages.contains('report')) return 3;
+    if (pages.contains('employee') ||
+        pages.contains('user') ||
+        pages.contains('role')) {
+      return 4;
+    }
+
+    // fallback: taruh di belakang settings
+    return 999;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = AppLocalizations.of(context)!;
@@ -784,16 +814,10 @@ class _GridMenu extends StatelessWidget {
         final bool isOwner =
             (prefsRoleName == 'owner') || (providerRoleName == 'owner');
 
-        // ===== OWNER MODE: 6 tile saja (tanpa Store & WA Business)
+        // ===== OWNER MODE: urutan FIX (Product, Sales, Purchase, Report, HR, Settings)
         if (isOwner) {
           final allItems = <_MenuItemData>[
-            _MenuItemData(
-              t.grid_hr,
-              'assets/hr_icon.png',
-              pageKeys: const ['employee', 'user', 'role'],
-              routeName: '/hr',
-              onTap: () => Navigator.pushNamed(context, '/hr'),
-            ),
+            // Product
             _MenuItemData(
               t.grid_product,
               'assets/product_icon.png',
@@ -801,6 +825,7 @@ class _GridMenu extends StatelessWidget {
               routeName: '/product',
               onTap: () => Navigator.pushNamed(context, '/product'),
             ),
+            // Sales
             _MenuItemData(
               t.grid_sales,
               'assets/sales_icon.png',
@@ -808,6 +833,7 @@ class _GridMenu extends StatelessWidget {
               routeName: '/sales',
               onTap: () => Navigator.pushNamed(context, '/sales'),
             ),
+            // Purchase
             _MenuItemData(
               t.grid_purchase,
               'assets/purchase_icon.png',
@@ -815,6 +841,7 @@ class _GridMenu extends StatelessWidget {
               routeName: '/purchase',
               onTap: () => Navigator.pushNamed(context, '/purchase'),
             ),
+            // Report
             _MenuItemData(
               t.grid_report,
               'assets/report_icon.png',
@@ -822,9 +849,19 @@ class _GridMenu extends StatelessWidget {
               routeName: '/report',
               onTap: () => Navigator.pushNamed(context, '/report'),
             ),
+            // HR
+            _MenuItemData(
+              t.grid_hr,
+              'assets/hr_icon.png',
+              pageKeys: const ['employee', 'user', 'role'],
+              routeName: '/hr',
+              onTap: () => Navigator.pushNamed(context, '/hr'),
+            ),
+            // Settings (owner masih ke /business sesuai implementasi awal)
             _MenuItemData(
               t.grid_setting,
               'assets/setting_icon.png',
+              routeName: '/business',
               onTap: () => Navigator.pushNamed(context, '/business'),
             ),
           ];
@@ -843,7 +880,7 @@ class _GridMenu extends StatelessWidget {
           );
         }
 
-        // ===== NON-OWNER MODE: dari backend + filter izin + banlist
+        // ===== NON-OWNER MODE: dari backend + filter izin + banlist → lalu sort ke urutan target
         final menus = role.role?.menus ?? const [];
         final items = <_MenuItemData>[];
 
@@ -903,26 +940,43 @@ class _GridMenu extends StatelessWidget {
           );
         }
 
-        // Setting publik
+        // Setting publik (non-owner)
         items.add(
           _MenuItemData(
             t.grid_setting,
             'assets/setting_icon.png',
+            routeName: '/setting',
             onTap: () => Navigator.pushNamed(context, '/setting'),
           ),
         );
 
+        // ==== SORT ke urutan target (product, sales, purchase, report, hr, settings)
+        // agar tidak "lompat-lompat" antar item dengan prioritas sama, pakai indeks awal sebagai tie-breaker
+        final indexed = items
+            .asMap()
+            .entries
+            .map((e) => (index: e.key, item: e.value))
+            .toList();
+        indexed.sort((a, b) {
+          final pa = _priorityFor(a.item);
+          final pb = _priorityFor(b.item);
+          if (pa != pb) return pa.compareTo(pb);
+          // tie-break dengan index awal → efeknya mirip stable sort
+          return a.index.compareTo(b.index);
+        });
+        final sortedItems = indexed.map((e) => e.item).toList();
+
         return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: items.length,
+          itemCount: sortedItems.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
             mainAxisSpacing: isTablet ? 24 : 19,
             crossAxisSpacing: isTablet ? 28 : 30,
             childAspectRatio: isTablet ? 1.0 : 0.90,
           ),
-          itemBuilder: (_, i) => _MenuTile(data: items[i]),
+          itemBuilder: (_, i) => _MenuTile(data: sortedItems[i]),
         );
       },
     );

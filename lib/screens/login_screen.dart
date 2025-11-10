@@ -141,15 +141,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (!mounted) return;
-    if (success) {
-      final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
-      sp?.resetNavigationGuards();
-      sp?.abortDeepLink();
-      appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
-        '/splash',
-        (r) => false,
-      );
-    } else {
+    if (!success) {
       final errorMsg = authProvider.error ?? t.login_failed;
       ScaffoldMessenger.of(
         context,
@@ -178,22 +170,44 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Banner
+              // ===== Ganti bagian header lama dengan ini =====
               Container(
                 width: double.infinity,
-                height: 156,
+                height: 180,
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Color(0xFFDDE7FF), Color(0xFFCCF5DD)],
+                    colors: [
+                      Color(0xFFDDE7FF), // biru muda
+                      Color(0xFFCCF5DD), // hijau mint
+                    ],
                   ),
                 ),
-                child: Center(
-                  child: Image.asset(
-                    "assets/wave_up_logo.png",
-                    height: 38.42,
-                    fit: BoxFit.contain,
-                  ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Gradient soft background (lebih halus)
+                    Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0xFFE6EEFF), Color(0xFFD5F7E8)],
+                        ),
+                      ),
+                    ),
+
+                    // Logo baru
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16.0),
+                      child: Image.asset(
+                        "assets/wave_up_logo_2.png",
+                        height: 48,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
