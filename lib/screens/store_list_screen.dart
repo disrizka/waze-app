@@ -1,5 +1,6 @@
 // lib/screens/store/store_list_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
@@ -133,11 +134,7 @@ class _StoreListScreenState extends State<StoreListScreen> {
                         context,
                         idStoreLocation: s.idStoreLocation,
                         initialName: s.name,
-                        // cityId di form aku simpan sebagai int? sesuai contohmu.
-                        // Jika id bukan angka, FormField-validasinya tetap jalan,
-                        // dan saat submit akan dikirim .toString().
-                        initialCityId:
-                            null, // biarkan picker tampil sesuai detail bila perlu
+                        initialCityId: null,
                         initialCityName: s.city?.name,
                         initialProvinceName: s.city?.province?.name,
                       );
@@ -429,6 +426,40 @@ Future<void> showEditStoreSheet(
   );
 }
 
+/// Formatter opsional jika ingin memaksa kapitalisasi saat mengetik.
+/// Saat ini tidak wajib karena kita juga memaksa saat submit.
+/// Jika ingin aktifkan, tambahkan ke `inputFormatters` TextFormField.
+class _CapitalizeWordsFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final text = newValue.text;
+    if (text.isEmpty) return newValue;
+    final words = text.split(RegExp(r'\s+'));
+    final capped = words
+        .map(
+          (w) => w.isEmpty
+              ? w
+              : (w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : '')),
+        )
+        .join(' ');
+    // jaga posisi kursor semirip mungkin
+    final diff = capped.length - text.length;
+    final base = (newValue.selection.baseOffset + diff).clamp(0, capped.length);
+    final extent = (newValue.selection.extentOffset + diff).clamp(
+      0,
+      capped.length,
+    );
+    return TextEditingValue(
+      text: capped,
+      selection: TextSelection(baseOffset: base, extentOffset: extent),
+      composing: TextRange.empty,
+    );
+  }
+}
+
 class _StoreSheet extends StatefulWidget {
   const _StoreSheet({
     required this.mode,
@@ -456,7 +487,7 @@ class _StoreSheetState extends State<_StoreSheet> {
 
   bool _isValid = false;
 
-  // City picker state mengikuti pola contoh penggunaannya:
+  // City picker state
   String? _cityId;
   String? _cityName;
   String? _provinceName;
@@ -476,7 +507,9 @@ class _StoreSheetState extends State<_StoreSheet> {
 
   void _revalidate() {
     final ok = (_formKey.currentState?.validate() ?? false);
-    if (ok != _isValid) setState(() => _isValid = ok);
+    if (ok != _isValid) {
+      setState(() => _isValid = ok);
+    }
   }
 
   @override
@@ -486,19 +519,31 @@ class _StoreSheetState extends State<_StoreSheet> {
     super.dispose();
   }
 
+  String _capitalizeWords(String s) {
+    final parts = s.trim().split(RegExp(r'\s+'));
+    return parts
+        .map(
+          (w) => w.isEmpty
+              ? w
+              : (w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : '')),
+        )
+        .join(' ');
+  }
+
   Future<void> _submit(BuildContext context) async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final provider = context.read<StoreProvider>();
-    final name = _nameC.text.trim();
+    // Paksa kapitalisasi tiap kata saat menyimpan
+    final fixedName = _capitalizeWords(_nameC.text);
     final cityIdStr = _cityId ?? '';
-    if (cityIdStr.isEmpty) return; // guard
+    if (cityIdStr.isEmpty) return;
 
     if (widget.mode == StoreSheetMode.create) {
       final ok = await provider.addStoreLocation(
         context: context,
-        name: name,
-        cityId: cityIdStr, // String
+        name: fixedName,
+        cityId: cityIdStr,
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -522,7 +567,7 @@ class _StoreSheetState extends State<_StoreSheet> {
       final ok = await provider.updateStoreLocation(
         context: context,
         idStoreLocation: id,
-        name: name,
+        name: fixedName,
         cityId: cityIdStr,
       );
       if (!mounted) return;
@@ -531,7 +576,7 @@ class _StoreSheetState extends State<_StoreSheet> {
         AppSnackbar.show(
           context,
           type: AppSnackType.success,
-          title: name,
+          title: fixedName,
           message: 'Store location updated successfully.',
         );
       } else {
@@ -594,8 +639,10 @@ class _StoreSheetState extends State<_StoreSheet> {
           ),
           const SizedBox(height: 8),
 
+          // ⬇⬇⬇ Tetap auto-revalidate agar tombol aktif dinamis
           Form(
             key: _formKey,
+            onChanged: _revalidate,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -608,6 +655,10 @@ class _StoreSheetState extends State<_StoreSheet> {
                   controller: _nameC,
                   autovalidateMode: AutovalidateMode.onUserInteraction,
                   textInputAction: TextInputAction.next,
+                  // 1) Arahkan keyboard kapital tiap kata
+                  textCapitalization: TextCapitalization.words,
+                  // 2) Jika ingin memaksa saat mengetik, aktifkan formatter berikut:
+                  // inputFormatters: [_CapitalizeWordsFormatter()],
                   validator: (v) => (v == null || v.trim().isEmpty)
                       ? 'Store name is required'
                       : null,
@@ -627,7 +678,7 @@ class _StoreSheetState extends State<_StoreSheet> {
                 ),
                 const SizedBox(height: 14),
 
-                // ==== CITY PICKER (mengikuti contohmu persis) ====
+                // ==== CITY PICKER ====
                 FormField<String>(
                   initialValue: _cityId,
                   autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -645,16 +696,16 @@ class _StoreSheetState extends State<_StoreSheet> {
                     onTap: () async {
                       final picked = await showCityPickerSheet(
                         context,
-                        selectedId: _cityId, // String
+                        selectedId: _cityId,
                       );
                       if (picked != null && mounted) {
                         setState(() {
                           _cityId = picked.id; // String
                           _cityName = picked.label;
-                          _provinceName =
-                              picked.data?.province.name; // Province.name
+                          _provinceName = picked.data?.province.name;
                         });
-                        ff.didChange(_cityId); // notify FormField
+                        ff.didChange(_cityId); // beri tahu FormField
+                        _revalidate();
                       }
                     },
                   ),

@@ -401,7 +401,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     settings: const RouteSettings(name: '/web/help'),
                     builder: (_) => const SimpleWebView(
                       title: 'Help',
-                      initialUrl: 'https://wave.id/help',
+                      initialUrl: 'https://up.wave.id/help-center',
                     ),
                   ),
                 );

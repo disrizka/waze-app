@@ -13,7 +13,9 @@ class ManageHRScreen extends StatelessWidget {
         backgroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/home'),
+          onPressed: () => Navigator.of(
+            context,
+          ).popUntil((route) => route.settings.name == '/home'),
         ),
         title: const Text('Manage HR'),
         centerTitle: false,

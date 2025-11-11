@@ -55,7 +55,9 @@ class _BrandListScreenState extends State<BrandListScreen> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.of(
+            context,
+          ).popUntil((route) => route.settings.name == '/product'),
         ),
       ),
       body: SafeArea(
