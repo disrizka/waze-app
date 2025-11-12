@@ -24,6 +24,7 @@ import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
 import 'package:wa_blast/screens/manage_report_screen.dart';
+import 'package:wa_blast/screens/notification_detail_list.dart';
 import 'package:wa_blast/screens/products/create_edit_screen/add_product_screen.dart';
 import 'package:wa_blast/screens/products/product_stock_inventory.dart';
 import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
@@ -67,6 +68,8 @@ import 'package:wa_blast/screens/purchase/purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_list_screen.dart';
 import 'package:wa_blast/screens/detail_purchase_screen.dart';
 import 'package:wa_blast/screens/hr/hr_screen.dart';
+
+import 'providers/notification_provider.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
@@ -149,6 +152,10 @@ class _AppShell extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => RoleProvider(), lazy: true),
         ChangeNotifierProvider(create: (_) => ReportProvider(), lazy: true),
+        ChangeNotifierProvider(
+          create: (_) => NotificationProvider(),
+          lazy: true,
+        ),
       ],
       child: const _Bootstrapper(child: MyApp()),
     );
@@ -659,6 +666,26 @@ class MyApp extends StatelessWidget {
               const BusinessEditScreen(),
               android: AndroidTransition.slideUp,
             );
+
+          case '/notification/detail': // '/notification/detail'
+            {
+              final id = settings.arguments as String?;
+              if (id == null || id.isEmpty) {
+                return _platformRouteAnimated(
+                  settings,
+                  const _RouteErrorScreen(
+                    message:
+                        'Route /notification/detail butuh argument idNotification (String).',
+                  ),
+                  android: AndroidTransition.fade,
+                );
+              }
+              return _platformRouteAnimated(
+                settings,
+                NotificationDetailScreen(idNotification: id),
+                android: AndroidTransition.slideUp,
+              );
+            }
 
           default:
             return _platformRouteAnimated(

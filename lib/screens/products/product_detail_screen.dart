@@ -87,7 +87,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 ),
               ),
 
-              // Info card (nama, brand, category, harga, store location) ← UPDATED
+              // Info card (nama, brand, category, harga, store location)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -97,7 +97,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     brand: p?.productBrand?.name,
                     category: p?.productCategory?.name,
                     headlinePrice: _headlinePriceOf(p),
-                    // NEW ↓↓↓
                     storeLocationName: p?.storeLocation?.name,
                     storeRegion: storeRegionOrNull,
                   ),
@@ -149,7 +148,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   ),
                 ),
 
-              // SKUs
+              // SKUs (tunggal → simple row; banyak → simple list)
               if ((p?.productSkus ?? []).isNotEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
@@ -159,20 +158,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     ),
                     child: _SectionCard(
                       title: 'SKU',
-                      child: Column(
-                        children: p!.productSkus
-                            .map(
-                              (s) => _SkuTile(
-                                idProductSku: s.idProductSku,
-                                code: s.code,
-                                price: s.price,
-                                attrs: s.attributes
-                                    .map((a) => '${a.name}: ${a.value}')
-                                    .toList(),
-                              ),
-                            )
-                            .toList(),
-                      ),
+                      child: _SkuSection(skus: p!.productSkus),
                     ),
                   ),
                 ),
@@ -286,7 +272,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 }
 
 /// =========================
-/// UI Pieces (warna pakai AppColors)
+/// UI Pieces
 /// =========================
 
 class _InfoCard extends StatelessWidget {
@@ -296,7 +282,6 @@ class _InfoCard extends StatelessWidget {
     required this.brand,
     required this.category,
     required this.headlinePrice,
-    // NEW ↓↓↓
     this.storeLocationName,
     this.storeRegion,
   });
@@ -307,10 +292,10 @@ class _InfoCard extends StatelessWidget {
   final String? category;
   final int? headlinePrice;
 
-  /// NEW: diambil dari response `storeLocation.name`
+  /// dari response `storeLocation.name`
   final String? storeLocationName;
 
-  /// NEW: "Kota, Provinsi" (opsional)
+  /// "Kota, Provinsi" (opsional)
   final String? storeRegion;
 
   @override
@@ -355,7 +340,7 @@ class _InfoCard extends StatelessWidget {
             ),
           ],
 
-          // NEW: Store Location section
+          // Store Location section
           if ((storeLocationName ?? '').isNotEmpty) ...[
             const SizedBox(height: 12),
             const Divider(height: 1, color: AppColors.divider),
@@ -489,209 +474,279 @@ class _RowTile extends StatelessWidget {
   }
 }
 
-class _SkuTile extends StatefulWidget {
-  const _SkuTile({
-    required this.idProductSku,
-    required this.code,
-    required this.price,
-    required this.attrs,
-  });
+/// =========================
+/// SKU Section (baru)
+/// =========================
+class _SkuSection extends StatelessWidget {
+  const _SkuSection({required this.skus});
+  final List<ProductSku> skus;
 
-  final String idProductSku;
-  final String code;
-  final int price;
-  final List<String> attrs;
-
-  @override
-  State<_SkuTile> createState() => _SkuTileState();
-}
-
-class _SkuTileState extends State<_SkuTile> {
-  bool _open = false;
-
-  void _openStock() {
+  void _openStock(BuildContext context, ProductSku s) {
     Navigator.pushNamed(
       context,
       '/product/sku/inventory',
       arguments: {
-        'idProductSKU': widget.idProductSku,
-        'skuCode': widget.code,
-        'initialPrice': widget.price,
+        'idProductSKU': s.idProductSku,
+        'skuCode': s.code,
+        'initialPrice': s.price,
       },
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (skus.length == 1) {
+      final s = skus.first;
+      return _SingleSkuRow(
+        code: s.code,
+        price: s.price,
+        attrs: s.attributes.map((a) => '${a.name}: ${a.value}').toList(),
+        onOpenStock: () => _openStock(context, s),
+      );
+    }
+
+    // Banyak SKU → list simpel (tanpa border/kartu), hanya divider tipis antar item
+    return Column(
+      children: [
+        for (int i = 0; i < skus.length; i++) ...[
+          _MultiSkuRow(
+            code: skus[i].code,
+            price: skus[i].price,
+            attrs: skus[i].attributes
+                .map((a) => '${a.name}: ${a.value}')
+                .toList(),
+            onOpenStock: () => _openStock(context, skus[i]),
+          ),
+          if (i != skus.length - 1)
+            const Divider(height: 14, color: AppColors.divider),
+        ],
+      ],
+    );
+  }
+}
+
+class _SingleSkuRow extends StatelessWidget {
+  const _SingleSkuRow({
+    required this.code,
+    required this.price,
+    required this.attrs,
+    required this.onOpenStock,
+  });
+
+  final String code;
+  final int price;
+  final List<String> attrs;
+  final VoidCallback onOpenStock;
+
+  @override
+  Widget build(BuildContext context) {
     final isNarrow = MediaQuery.of(context).size.width < 360;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.divider),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 10,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // HEADER (collapse view): Code + Open stock + Chevron
-          InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: () => setState(() => _open = !_open),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Baris utama: Code + Harga + tombol
+        Row(
+          children: [
+            // Kode + Harga
+            Expanded(
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  // Code
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Code', style: _labelStyle),
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.code,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.textPrimary,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
+                  Text(
+                    code,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                      fontSize: 16,
                     ),
                   ),
-
-                  // Open stock button (ikon-only ketika sempit)
-                  SizedBox(
-                    height: 36,
-                    child: isNarrow
-                        ? Tooltip(
-                            message: 'Open stock',
-                            child: OutlinedButton(
-                              onPressed: _openStock,
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.primary,
-                                side: const BorderSide(
-                                  color: AppColors.primary,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                visualDensity: VisualDensity.compact,
-                              ),
-                              child: const Icon(
-                                Icons.inventory_2_outlined,
-                                size: 18,
-                              ),
-                            ),
-                          )
-                        : OutlinedButton.icon(
-                            onPressed: _openStock,
-                            icon: const Icon(
-                              Icons.inventory_2_outlined,
-                              size: 18,
-                            ),
-                            label: const Text('Open stock'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.primary,
-                              side: const BorderSide(color: AppColors.primary),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ),
-                  ),
-                  const SizedBox(width: 8),
-
-                  // Chevron
-                  AnimatedRotation(
-                    turns: _open ? 0.5 : 0.0,
-                    duration: const Duration(milliseconds: 160),
-                    child: const Icon(
-                      Icons.expand_more_rounded,
+                  Text(
+                    '• ${_formatRp(price)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
                       color: AppColors.textSecondary,
                     ),
                   ),
                 ],
               ),
             ),
-          ),
 
-          // Divider muncul hanya saat expanded
-          AnimatedCrossFade(
-            duration: const Duration(milliseconds: 160),
-            crossFadeState: _open
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            firstChild: const SizedBox.shrink(),
-            secondChild: const Divider(height: 1, color: AppColors.divider),
-          ),
-
-          // BODY (expand view): Price di bawah + attributes
-          AnimatedCrossFade(
-            duration: const Duration(milliseconds: 180),
-            crossFadeState: _open
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            firstChild: const SizedBox.shrink(),
-            secondChild: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Price pindah ke bawah (expanded only)
-                  Row(
-                    children: [
-                      Expanded(child: Text('Price', style: _labelStyle)),
-                      Text(
-                        _formatRp(widget.price),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.textPrimary,
+            // Tombol Open stock
+            SizedBox(
+              height: 36,
+              child: isNarrow
+                  ? Tooltip(
+                      message: 'Open stock',
+                      child: OutlinedButton(
+                        onPressed: onOpenStock,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          visualDensity: VisualDensity.compact,
                         ),
+                        child: const Icon(Icons.inventory_2_outlined, size: 18),
                       ),
-                    ],
-                  ),
-                  if (widget.attrs.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: widget.attrs
-                          .map((t) => _ChipSoft(label: t))
-                          .toList(),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: onOpenStock,
+                      icon: const Icon(Icons.inventory_2_outlined, size: 18),
+                      label: const Text('Open stock'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+            ),
+          ],
+        ),
+
+        // Atribut (opsional)
+        if (attrs.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: attrs.map((t) => _ChipSoft(label: t)).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _MultiSkuRow extends StatelessWidget {
+  const _MultiSkuRow({
+    required this.code,
+    required this.price,
+    required this.attrs,
+    required this.onOpenStock,
+  });
+
+  final String code;
+  final int price;
+  final List<String> attrs;
+  final VoidCallback onOpenStock;
+
+  @override
+  Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 360;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        children: [
+          // Baris 1: Kode + Harga + tombol
+          Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      code,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                        fontSize: 15,
+                      ),
+                    ),
+                    Text(
+                      '• ${_formatRp(price)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
-                ],
+                ),
+              ),
+              SizedBox(
+                height: 32,
+                child: isNarrow
+                    ? IconButton.filledTonal(
+                        tooltip: 'Open stock',
+                        onPressed: onOpenStock,
+                        icon: const Icon(
+                          Icons.inventory_2_outlined,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
+                        style: ButtonStyle(
+                          backgroundColor: WidgetStateProperty.all(
+                            AppColors.greyBackground,
+                          ),
+                        ),
+                      )
+                    : OutlinedButton.icon(
+                        onPressed: onOpenStock,
+                        icon: const Icon(Icons.inventory_2_outlined, size: 18),
+                        label: const Text('Open stock'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+              ),
+            ],
+          ),
+
+          // Baris 2: Atribut (opsional)
+          if (attrs.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: attrs
+                    .map(
+                      (t) => Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.greyBackground,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.divider),
+                        ),
+                        child: Text(
+                          t,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
   }
-
-  TextStyle get _labelStyle => const TextStyle(
-    fontSize: 12,
-    color: AppColors.textSecondary,
-    fontWeight: FontWeight.w700,
-  );
 }
 
 class _ChipBadge extends StatelessWidget {
@@ -744,19 +799,15 @@ class _ChipSoft extends StatelessWidget {
   }
 }
 
+/// =========================
+/// Image Gallery + Fullscreen Viewer
+/// =========================
 class _ImageGalleryBox extends StatelessWidget {
   const _ImageGalleryBox({required this.images});
   final List<ProductImage> images;
 
   @override
   Widget build(BuildContext context) {
-    debugPrint("[Gallery] count=${images.length}");
-    for (var i = 0; i < images.length; i++) {
-      debugPrint(
-        "[Gallery] [$i] pos=${images[i].position} url=${images[i].imagePath}",
-      );
-    }
-
     if (images.isEmpty) return _emptyBox();
 
     final w = MediaQuery.of(context).size.width;
@@ -767,7 +818,7 @@ class _ImageGalleryBox extends StatelessWidget {
       return _frame(
         child: AspectRatio(
           aspectRatio: 16 / 9,
-          child: _net(images[0].imagePath),
+          child: _zoomable(context, images[0].imagePath, tag: 'img_0'),
         ),
       );
     }
@@ -779,13 +830,19 @@ class _ImageGalleryBox extends StatelessWidget {
         children: [
           Expanded(
             child: _frame(
-              child: SizedBox(height: itemH, child: _net(images[0].imagePath)),
+              child: SizedBox(
+                height: itemH,
+                child: _zoomable(context, images[0].imagePath, tag: 'img_0'),
+              ),
             ),
           ),
           const SizedBox(width: spacing),
           Expanded(
             child: _frame(
-              child: SizedBox(height: itemH, child: _net(images[1].imagePath)),
+              child: SizedBox(
+                height: itemH,
+                child: _zoomable(context, images[1].imagePath, tag: 'img_1'),
+              ),
             ),
           ),
         ],
@@ -798,18 +855,33 @@ class _ImageGalleryBox extends StatelessWidget {
     return Wrap(
       spacing: spacing,
       runSpacing: spacing,
-      children: images
-          .map(
-            (e) => _frame(
-              radius: 12,
-              child: SizedBox(
-                width: itemW,
-                height: itemH,
-                child: _net(e.imagePath),
-              ),
+      children: [
+        for (int i = 0; i < images.length; i++)
+          _frame(
+            radius: 12,
+            child: SizedBox(
+              width: itemW,
+              height: itemH,
+              child: _zoomable(context, images[i].imagePath, tag: 'img_$i'),
             ),
-          )
-          .toList(),
+          ),
+      ],
+    );
+  }
+
+  // Zoomable thumbnail → fullscreen viewer
+  Widget _zoomable(BuildContext context, String url, {required String tag}) {
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(
+        PageRouteBuilder(
+          opaque: true,
+          barrierColor: Colors.black,
+          pageBuilder: (_, __, ___) => _ImageViewerPage(url: url, tag: tag),
+          transitionsBuilder: (_, a, __, child) =>
+              FadeTransition(opacity: a, child: child),
+        ),
+      ),
+      child: Hero(tag: tag, child: _net(url)),
     );
   }
 
@@ -866,4 +938,66 @@ class _ImageGalleryBox extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _ImageViewerPage extends StatelessWidget {
+  const _ImageViewerPage({required this.url, required this.tag});
+
+  final String url;
+  final String tag;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        bottom: false,
+        child: Stack(
+          children: [
+            Center(
+              child: Hero(
+                tag: tag,
+                child: InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 4.0,
+                  child: _networkImage(url),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+                tooltip: 'Close',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _networkImage(String url) {
+    return Image.network(
+      url,
+      fit: BoxFit.contain,
+      errorBuilder: (_, __, ___) => const Icon(
+        Icons.broken_image_rounded,
+        color: Colors.white70,
+        size: 64,
+      ),
+      loadingBuilder: (c, child, p) => p == null
+          ? child
+          : const SizedBox(
+              height: 36,
+              width: 36,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            ),
+    );
+  }
 }

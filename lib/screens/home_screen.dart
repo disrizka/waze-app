@@ -6,10 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
+import 'package:wa_blast/providers/notification_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
+import 'package:wa_blast/screens/notification_detail_list.dart';
 
 import '../l10n/app_localizations.dart';
 
@@ -358,6 +361,22 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     });
   }
 
+  Future<void> _openNotificationPopup(BuildContext context) async {
+    await context.read<NotificationProvider>().fetchUnreadCount(context);
+    // ignore: use_build_context_synchronously
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => const _NotificationPopupSheet(),
+    );
+    // ignore: use_build_context_synchronously
+    await context.read<NotificationProvider>().fetchUnreadCount(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = AppLocalizations.of(context)!;
@@ -410,21 +429,61 @@ class _HeaderGradientState extends State<_HeaderGradient> {
 
                   const Spacer(),
 
-                  // BELL (tanpa IconButton bawaan supaya tidak ada padding internal)
                   SizedBox(
                     width: 36,
-                    height: 36, // sama dengan logo
+                    height: 36,
                     child: Padding(
                       padding: const EdgeInsets.only(top: 2),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(18),
-                        onTap: () {},
-                        child: const Center(
-                          child: Icon(
-                            LucideIcons.bell,
-                            color: Colors.white,
-                            size: 22,
-                          ),
+                        onTap: () => _openNotificationPopup(
+                          context,
+                        ), // buka popup list (sudah kamu tambah)
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            const Center(
+                              child: Icon(
+                                LucideIcons.bell,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                            ),
+                            // 🔴 Badge unread
+                            Positioned(
+                              right: -2,
+                              top: -2,
+                              child: Consumer<NotificationProvider>(
+                                builder: (_, np, __) {
+                                  final c = np.unreadCount;
+                                  if (c <= 0) return const SizedBox.shrink();
+                                  final text = c > 99 ? '99+' : '$c';
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1.5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.redAccent,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      text,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -979,6 +1038,428 @@ class _GridMenu extends StatelessWidget {
           itemBuilder: (_, i) => _MenuTile(data: sortedItems[i]),
         );
       },
+    );
+  }
+}
+
+// ===============================
+// POPUP LIST NOTIFIKASI (bottom sheet)
+// ===============================
+
+class _NotificationPopupSheet extends StatefulWidget {
+  const _NotificationPopupSheet();
+
+  @override
+  State<_NotificationPopupSheet> createState() =>
+      _NotificationPopupSheetState();
+}
+
+class _NotificationPopupSheetState extends State<_NotificationPopupSheet> {
+  final ScrollController _scroll = ScrollController();
+  bool _pagingBusy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final np = context.read<NotificationProvider>();
+      await np.fetchNotifications(context);
+      await np.fetchUnreadCount(context);
+    });
+    _scroll.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() async {
+    if (_pagingBusy || !_scroll.hasClients) return;
+    final pos = _scroll.position;
+    if (pos.pixels > pos.maxScrollExtent - 280) {
+      _pagingBusy = true;
+      try {
+        await context.read<NotificationProvider>().fetchMoreNotifications(
+          context,
+        );
+      } finally {
+        _pagingBusy = false;
+      }
+    }
+  }
+
+  Future<void> _onRefresh() async {
+    final np = context.read<NotificationProvider>();
+    await np.fetchNotifications(context);
+    await np.fetchUnreadCount(context);
+  }
+
+  Future<void> _handleTap(NotificationItem n) async {
+    // Ambil navigator SEKALI, supaya tidak bergantung ke context setelah pop
+    final navigator = Navigator.of(context);
+
+    // 1) Tandai read (masih aman pakai context karena sheet belum ditutup)
+    if (!n.isRead) {
+      await context.read<NotificationProvider>().markAsRead(
+        context,
+        n.idNotification,
+      );
+      // update badge sementara sheet masih hidup
+      await context.read<NotificationProvider>().fetchUnreadCount(context);
+    }
+
+    // 2) Tutup bottom sheet
+    navigator.pop();
+
+    // 3) Buka halaman detail memakai navigator yg sudah dicapture
+    await navigator.pushNamed(
+      '/notification/detail',
+      arguments: n.idNotification,
+    );
+
+    // 4) JANGAN panggil apa pun yang butuh `context` sheet di sini.
+    //    Sheet sudah ditutup → state unmounted. Refresh badge/list
+    //    sudah dihandle oleh _HeaderGradient._openNotificationPopup()
+    //    setelah modal ditutup.
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = const Radius.circular(16);
+    return SafeArea(
+      top: false,
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.88,
+        minChildSize: 0.40,
+        maxChildSize: 0.95,
+        builder: (ctx, controller) {
+          return ClipRRect(
+            borderRadius: BorderRadius.vertical(top: radius),
+            child: Material(
+              color: Colors.white,
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // HEADER
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        const Text(
+                          'Notifications',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        Consumer<NotificationProvider>(
+                          builder: (_, np, __) {
+                            final c = np.unreadCount;
+                            return Text(
+                              '$c unread',
+                              style: const TextStyle(
+                                color: Color(0xFF6B7280),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Divider(height: 1),
+
+                  // LIST
+                  Expanded(
+                    child: Consumer<NotificationProvider>(
+                      builder: (_, np, __) {
+                        if (np.loadingList && np.notifications.isEmpty) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        if (np.notifications.isEmpty) {
+                          return const _NotifEmptyState();
+                        }
+
+                        return RefreshIndicator(
+                          color: AppColors.blue,
+                          onRefresh: _onRefresh,
+                          child: ListView.separated(
+                            controller: _scroll,
+                            physics: const AlwaysScrollableScrollPhysics(
+                              parent: BouncingScrollPhysics(),
+                            ),
+                            padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
+                            itemCount: np.notifications.length + 1,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 6),
+                            itemBuilder: (_, i) {
+                              if (i == np.notifications.length) {
+                                final show =
+                                    np.page != null &&
+                                    (np.page!.currentPage <
+                                        np.page!.totalPages);
+                                return AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  child: show
+                                      ? const Padding(
+                                          padding: EdgeInsets.all(12),
+                                          child: Center(
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                        )
+                                      : const SizedBox.shrink(),
+                                );
+                              }
+
+                              final n = np.notifications[i];
+
+                              // UI tile lebih simple, tidak ada tombol Mark read
+                              return _NotifTile(
+                                item: n,
+                                onTap: () => _handleTap(n),
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  // NOTE: Footer "Mark all as read" DIHAPUS sesuai permintaan
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _NotifTile extends StatelessWidget {
+  final NotificationItem item;
+  final VoidCallback onTap;
+
+  const _NotifTile({required this.item, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isRead = item.isRead;
+
+    // Warna simpel & clean
+    final bg = isRead
+        ? Colors.white
+        : const Color(0xFFF5FAFF); // subtle biru utk unread
+    final border = isRead ? const Color(0xFFE5E7EB) : const Color(0xFFDDEAFE);
+    final titleColor = isRead
+        ? const Color(0xFF1F2937)
+        : const Color(0xFF0F172A);
+    final msgColor = isRead ? const Color(0xFF6B7280) : const Color(0xFF374151);
+
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: border, width: 1),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Indikator bulat untuk status unread
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: isRead
+                        ? const Color(0xFFCBD5E1)
+                        : const Color(0xFF2563EB),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Thumbnail / icon (opsional)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: (item.imageUrl != null && item.imageUrl!.isNotEmpty)
+                    ? Image.network(
+                        item.imageUrl!,
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _thumbFallback(),
+                      )
+                    : _thumbFallback(),
+              ),
+              const SizedBox(width: 10),
+
+              // Teks
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Judul (1 baris, tegas)
+                    Text(
+                      item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: isRead ? FontWeight.w700 : FontWeight.w800,
+                        color: titleColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+
+                    // Deskripsi (2 baris)
+                    Text(
+                      item.message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: msgColor, height: 1.25),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Waktu (kecil & abu-abu)
+                    Text(
+                      _fmtTimeAgo(item),
+                      style: const TextStyle(
+                        color: Color(0xFF9CA3AF),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 6),
+
+              // Chevron kecil sebagai affordance "tap untuk detail"
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: Color(0xFF94A3B8),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _thumbFallback() => Container(
+    width: 32,
+    height: 32,
+    decoration: BoxDecoration(
+      color: const Color(0xFFF3F4F6),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: const Icon(Icons.notifications, size: 18, color: Color(0xFF9CA3AF)),
+  );
+
+  // Format waktu relatif: Now, 1h ago, 4h ago, 05 May 2019
+  String _fmtTimeAgo(NotificationItem n) {
+    final DateTime? ts = n.createdAt ?? n.sentAt ?? n.readAt;
+    if (ts == null) return '';
+
+    final now = DateTime.now();
+    final diff = now.difference(ts);
+
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final day = ts.day.toString().padLeft(2, '0');
+    final month = months[ts.month - 1];
+    final year = ts.year;
+    return '$day $month $year';
+  }
+}
+
+// ===============================
+// EMPTY STATE untuk list notifikasi
+// ===============================
+class _NotifEmptyState extends StatelessWidget {
+  const _NotifEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(
+              Icons.notifications_off_outlined,
+              size: 48,
+              color: Color(0xFF9CA3AF),
+            ),
+            SizedBox(height: 10),
+            Text(
+              'No notifications',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+                color: Color(0xFF111827),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 6),
+            Text(
+              'You will see updates and announcements here once available.',
+              style: TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
