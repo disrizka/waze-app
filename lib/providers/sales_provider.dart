@@ -1553,14 +1553,35 @@ class SalesProvider extends SafeChangeNotifier {
     );
   }
 
-  Future<void> fetchSalesReports(BuildContext context) async {
+  /// GET /waveup/{bizId}/transaction/sales?page=&limit=&id_store_location=
+  ///
+  /// - [page]    : halaman yang mau diambil (default 1)
+  /// - [limit]   : jumlah item per halaman (default 30)
+  /// - [storeLocationId] : filter id_store_location (opsional, kalau null
+  ///                       otomatis pakai storeLocationId aktif di provider)
+  /// - [append]  : kalau true → hasilnya di-append ke list lama (infinite scroll)
+  ///               kalau false → list di-reset (pull-to-refresh / first load)
+  Future<void> fetchSalesReports(
+    BuildContext context, {
+    int page = 1,
+    int limit = 30,
+    String? storeLocationId,
+    bool append = false,
+  }) async {
     final sw = Stopwatch()..start();
-    if (kDebugMode) debugPrint('[SalesProvider] fetchSalesReports() start');
+    if (kDebugMode) {
+      debugPrint(
+        '[SalesProvider] fetchSalesReports() start '
+        '(page=$page, limit=$limit, append=$append)',
+      );
+    }
 
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _reports.clear();
-      _pageReports = null;
+      if (!append) {
+        _reports.clear();
+        _pageReports = null;
+      }
       _setReportError('Business ID is missing.');
       return;
     }
@@ -1569,7 +1590,17 @@ class SalesProvider extends SafeChangeNotifier {
     _setLoadingReports(true);
 
     try {
-      final path = '/waveup/$bizId/transaction/sales';
+      // bangun URL dengan query page, limit, dan id_store_location
+      final buf = StringBuffer('/waveup/$bizId/transaction/sales');
+      buf.write('?page=$page&limit=$limit');
+
+      // kalau storeLocationId tidak dikirim, pakai storeLocationId aktif dari provider
+      final storeId = (storeLocationId ?? _storeLocationId ?? '').trim();
+      if (storeId.isNotEmpty) {
+        buf.write('&id_store_location=$storeId');
+      }
+
+      final path = buf.toString();
       if (kDebugMode) debugPrint('[SalesProvider] GET $path');
 
       final result = await FetchHelper.fetchList<SalesReportItem>(
@@ -1579,19 +1610,31 @@ class SalesProvider extends SafeChangeNotifier {
       );
 
       if (result == null) {
-        _reports.clear();
-        _pageReports = null;
+        if (!append) {
+          _reports.clear();
+          _pageReports = null;
+        }
         return;
       }
 
-      _reports
-        ..clear()
-        ..addAll(result.items);
+      if (!append) {
+        // first load / refresh → reset list
+        _reports
+          ..clear()
+          ..addAll(result.items);
+      } else {
+        // load more (infinite scroll) → tambah di belakang
+        _reports.addAll(result.items);
+      }
+
       _pageReports = result.page;
 
       if (kDebugMode) {
-        debugPrint('[SalesProvider] reports: ${_reports.length}');
-        debugPrint('[SalesProvider] page: $_pageReports');
+        debugPrint(
+          '[SalesProvider] reports len=${_reports.length} '
+          '(received ${result.items.length} items)',
+        );
+        debugPrint('[SalesProvider] page meta: $_pageReports');
       }
       notifyListeners();
     } catch (e, st) {
@@ -1599,15 +1642,18 @@ class SalesProvider extends SafeChangeNotifier {
         debugPrint('[SalesProvider] fetchSalesReports ERROR: $e');
         debugPrintStack(stackTrace: st);
       }
-      _reports.clear();
-      _pageReports = null;
+      if (!append) {
+        _reports.clear();
+        _pageReports = null;
+      }
       _setReportError(e.toString());
     } finally {
       _setLoadingReports(false);
       sw.stop();
       if (kDebugMode) {
         debugPrint(
-          '[SalesProvider] fetchSalesReports finished in ${sw.elapsedMilliseconds} ms',
+          '[SalesProvider] fetchSalesReports finished in '
+          '${sw.elapsedMilliseconds} ms',
         );
       }
     }

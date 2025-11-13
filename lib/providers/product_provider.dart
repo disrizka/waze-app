@@ -1767,9 +1767,12 @@ class ProductProvider with ChangeNotifier {
   Future<bool> addProductExactPayload({
     required BuildContext context,
     required String name,
-    required String description,
-    required String productBrandId,
-    required String productCategoryId,
+    // boleh null
+    required String? description,
+    // boleh null
+    required String? productBrandId,
+    // boleh null
+    required String? productCategoryId,
     required List<Map<String, dynamic>>
     images, // [{"image": "...", "position": 1}]
     required List<Map<String, dynamic>> skus,
@@ -1783,6 +1786,7 @@ class ProductProvider with ChangeNotifier {
 
     final payload = <String, dynamic>{
       'name': name,
+      // langsung kirim apa adanya (bisa null)
       'description': description,
       'product_brand_id': productBrandId,
       'product_category_id': productCategoryId,

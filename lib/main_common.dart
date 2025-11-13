@@ -23,13 +23,15 @@ import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
-import 'package:wa_blast/screens/manage_report_screen.dart';
+import 'package:wa_blast/screens/report/manage_report_screen.dart';
 import 'package:wa_blast/screens/notification_detail_list.dart';
 import 'package:wa_blast/screens/products/create_edit_screen/add_product_screen.dart';
 import 'package:wa_blast/screens/products/product_stock_inventory.dart';
 import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
 import 'package:wa_blast/screens/register/business_register_screen.dart';
+import 'package:wa_blast/screens/report/report_purchase_screen.dart';
+import 'package:wa_blast/screens/report/report_sales_screen.dart';
 import 'package:wa_blast/screens/sales/costumer_screen.dart';
 import 'package:wa_blast/screens/sales/manage_sales_screen.dart';
 import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
@@ -151,7 +153,7 @@ class _AppShell extends StatelessWidget {
           lazy: false,
         ),
         ChangeNotifierProvider(create: (_) => RoleProvider(), lazy: true),
-        ChangeNotifierProvider(create: (_) => ReportProvider(), lazy: true),
+        ChangeNotifierProvider(create: (_) => ReportProviderV2(), lazy: true),
         ChangeNotifierProvider(
           create: (_) => NotificationProvider(),
           lazy: true,
@@ -566,7 +568,21 @@ class MyApp extends StatelessWidget {
           case '/report':
             return _platformRouteAnimated(
               settings,
-              const ReportDashboardScreen(),
+              const ManageReportScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/report/sales':
+            return _platformRouteAnimated(
+              settings,
+              const ReportSalesScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/report/purchase':
+            return _platformRouteAnimated(
+              settings,
+              const PurchaseReportScreen(),
               android: AndroidTransition.slideRight,
             );
 

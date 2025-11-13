@@ -794,7 +794,7 @@ class HrProvider extends ChangeNotifier {
         final deviceInfo = DeviceInfoPlugin();
         if (Platform.isAndroid) {
           final info = await deviceInfo.androidInfo;
-          deviceId = info.id ?? info.serialNumber ?? 'android-unknown';
+          deviceId = info.id ?? 'android-unknown';
           deviceName = info.model ?? 'Android Device';
         } else if (Platform.isIOS) {
           final info = await deviceInfo.iosInfo;
@@ -1030,7 +1030,7 @@ class HrProvider extends ChangeNotifier {
         final deviceInfo = DeviceInfoPlugin();
         if (Platform.isAndroid) {
           final info = await deviceInfo.androidInfo;
-          deviceId = info.id ?? info.serialNumber ?? 'android-unknown';
+          deviceId = info.id;
           deviceName = info.model ?? 'Android Device';
         } else if (Platform.isIOS) {
           final info = await deviceInfo.iosInfo;
