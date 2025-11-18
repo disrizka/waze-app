@@ -142,6 +142,40 @@ class AuthProvider with ChangeNotifier {
     return prefs.getBool(kActiveBizRoleIsPrimaryKey) ?? false;
   }
 
+  bool _parseOutOfStockFlagForBiz(dynamic raw) {
+    if (raw == null) return false;
+    if (raw is bool) return raw;
+    if (raw is num) return raw != 0;
+    if (raw is String) {
+      final s = raw.toLowerCase();
+      if (s == '1' || s == 'true' || s == 'yes') return true;
+      if (s == '0' || s == 'false' || s == 'no') return false;
+    }
+    return false;
+  }
+
+  /// Normalisasi 1 business item untuk disimpan ke prefs (key `business`)
+  /// Struktur hasil:
+  /// {
+  ///   "idBusiness": "...",
+  ///   "name": "...",
+  ///   "username": "...",
+  ///   "logoPath": "...",
+  ///   "can_be_sold_out_of_stock": true/false
+  /// }
+  Map<String, dynamic> _normalizeBizMapForPrefs(Map<String, dynamic> j) {
+    final canFlag = _parseOutOfStockFlagForBiz(
+      j['can_be_sold_out_of_stock'] ?? j['canBeSoldOutOfStock'],
+    );
+    return <String, dynamic>{
+      'idBusiness': (j['idBusiness'] ?? '').toString(),
+      'name': (j['name'] ?? '').toString(),
+      'username': (j['username'] ?? '').toString(),
+      'logoPath': (j['logoPath'] ?? j['logo'] ?? '').toString(),
+      'can_be_sold_out_of_stock': canFlag,
+    };
+  }
+
   Future<String?> getCurrentUserEmailFromPrefs() async {
     if (_email != null && _email!.isNotEmpty) return _email;
     final prefs = await SharedPreferences.getInstance();
@@ -524,6 +558,7 @@ class AuthProvider with ChangeNotifier {
   }
 
   // Ganti seluruh method login(...) dengan versi ini
+  // Ganti seluruh method login(...) dengan versi ini
   Future<bool> login({
     required BuildContext context,
     required String email,
@@ -585,8 +620,16 @@ class AuthProvider with ChangeNotifier {
         // === SUCCESS FLOW ===
         final tokenObj = (decoded?['token'] ?? {}) as Map<String, dynamic>;
         final userObj = (decoded?['data'] ?? {}) as Map<String, dynamic>;
-        final bizList =
-            (decoded?['business'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        final bizListRaw =
+            (decoded?['business'] as List?)
+                ?.map((e) => (e as Map).cast<String, dynamic>())
+                .toList() ??
+            <Map<String, dynamic>>[];
+
+        // Normalisasi business untuk prefs (termasuk can_be_sold_out_of_stock)
+        final normalizedBizList = bizListRaw
+            .map<Map<String, dynamic>>((b) => _normalizeBizMapForPrefs(b))
+            .toList();
 
         final accessToken = tokenObj['access_token'] as String?;
         final refreshToken = tokenObj['refresh_token'] as String?;
@@ -605,9 +648,9 @@ class AuthProvider with ChangeNotifier {
         final username = (userObj['username'] ?? '') as String;
         final photoPath = (userObj['photoPath'] ?? '') as String;
 
-        // Build role map dari LOGIN response
+        // Build role map dari LOGIN response (pakai raw list)
         final Map<String, dynamic> roleMap = {};
-        for (final b in bizList) {
+        for (final b in bizListRaw) {
           final idBiz = (b['idBusiness'] ?? '').toString();
           if (idBiz.isEmpty) continue;
           final roleId = (b['roleId'] ?? '').toString();
@@ -631,10 +674,8 @@ class AuthProvider with ChangeNotifier {
         await prefs.setString('login_raw', rawBody);
         await prefs.setString('token', jsonEncode(tokenObj));
         await prefs.setString('user', jsonEncode(userObj));
-        await prefs.setString(
-          'business',
-          jsonEncode(bizList),
-        ); // simpan list (bisa kosong)
+        // ⬇️ simpan list business yang sudah dinormalisasi + flag out of stock
+        await prefs.setString('business', jsonEncode(normalizedBizList));
         await prefs.setString('accessToken', _accessToken!);
         if (_refreshToken != null)
           await prefs.setString('refreshToken', _refreshToken!);
@@ -656,14 +697,14 @@ class AuthProvider with ChangeNotifier {
         await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
 
         // === Branch A: business KOSONG → arahkan ke /register/business
-        if (bizList.isEmpty) {
+        if (normalizedBizList.isEmpty) {
           await _clearActiveBusinessPrefs(prefs);
 
           // snapshot akun (tanpa activeBusiness)
           final accountSnapshot = {
             'token': tokenObj,
             'user': userObj,
-            'business': bizList, // []
+            'business': normalizedBizList, // []
             'accessToken': _accessToken,
             'refreshToken': _refreshToken,
             'name': _name,
@@ -715,15 +756,15 @@ class AuthProvider with ChangeNotifier {
         }
 
         // === Branch B: ADA business → set active + ARAHKAN KE /splash
-        final Map<String, dynamic>? firstBiz = bizList.isNotEmpty
-            ? bizList.first
+        final Map<String, dynamic>? firstBiz = normalizedBizList.isNotEmpty
+            ? normalizedBizList.first
             : null;
         final String activeBizId = (firstBiz?['idBusiness'] ?? '').toString();
         final String activeBizName = (firstBiz?['name'] ?? '').toString();
         final String activeBizUsername = (firstBiz?['username'] ?? '')
             .toString();
-        final String activeBizLogoPath =
-            (firstBiz?['logoPath'] ?? firstBiz?['logo'] ?? '').toString();
+        final String activeBizLogoPath = (firstBiz?['logoPath'] ?? '')
+            .toString();
 
         if (activeBizId.isNotEmpty) {
           await _applyActiveBusinessAndRole(
@@ -748,7 +789,7 @@ class AuthProvider with ChangeNotifier {
         final accountSnapshot = {
           'token': tokenObj,
           'user': userObj,
-          'business': bizList,
+          'business': normalizedBizList,
           'accessToken': _accessToken,
           'refreshToken': _refreshToken,
           'name': _name,
@@ -762,6 +803,8 @@ class AuthProvider with ChangeNotifier {
               'name': activeBizName,
               'username': activeBizUsername,
               'logoPath': activeBizLogoPath,
+              'can_be_sold_out_of_stock':
+                  firstBiz?['can_be_sold_out_of_stock'] ?? false,
             },
           'businessRoles': roleMap,
           if ((rbSnap?['idAdminRole'] ?? '').toString().isNotEmpty)
@@ -783,7 +826,7 @@ class AuthProvider with ChangeNotifier {
         }
         await prefs.setString(kActiveAccountKey, _email!);
 
-        // ⤵️ Tambahkan blok navigasi yang kamu minta
+        // ⤵️ Navigasi ke /splash jika ada active business
         if (activeBizId.isNotEmpty) {
           final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
           sp?.resetNavigationGuards();
@@ -1066,6 +1109,8 @@ class AuthProvider with ChangeNotifier {
 
   Future<bool> registerStep1({
     required String email,
+    required String first_name,
+    required String last_name,
     required String password,
     String referralCode = "",
     required String deviceId,
@@ -1080,6 +1125,8 @@ class AuthProvider with ChangeNotifier {
       final body = {
         "user": email,
         "password": password,
+        "first_name": first_name,
+        "last_name": last_name,
         "referral_code": referralCode,
         "device_id": deviceId,
         "device_name": deviceName,
@@ -1124,10 +1171,9 @@ class AuthProvider with ChangeNotifier {
 
   Future<bool> registerStep2({
     required BuildContext context,
-    required String firstName,
-    required String lastName,
     required String organisationName,
     File? organisationLogo,
+    String? organisationAbout,
   }) async {
     _isLoading = true;
     _error = null;
@@ -1163,10 +1209,9 @@ class AuthProvider with ChangeNotifier {
       }
 
       final fields = <String, String>{
-        'firstname': firstName,
-        'lastname': lastName,
         'organisation_name': organisationName,
         if (uploadedFilename != null) 'organisation_logo': uploadedFilename,
+        if (organisationAbout != null) 'about': organisationAbout,
       };
 
       final res = await ApiService.postMultipart(
@@ -1222,70 +1267,139 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<bool> fetchAndPersistCurrentUser(BuildContext context) async {
+  Future<bool> fetchAndPersistUserBusiness(BuildContext context) async {
     try {
-      final res = await ApiService.get(context, '/user', withAccessToken: true);
+      final res = await ApiService.get(
+        context,
+        '/user/business',
+        withAccessToken: true,
+      );
       final raw = res.body;
       debugPrint(
-        "FETCH USER ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
+        "FETCH USER BUSINESS ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
       );
 
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final j = jsonDecode(raw) as Map<String, dynamic>;
-        final userObj = (j['data'] ?? {}) as Map<String, dynamic>;
-        final prefs = await SharedPreferences.getInstance();
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        debugPrint("FETCH USER BUSINESS ❌ status ${res.statusCode}");
+        return false;
+      }
 
-        final firstname = (userObj['firstname'] ?? '') as String;
-        final lastname = (userObj['lastname'] ?? '') as String;
-        final fullName = '$firstname $lastname'.trim();
-        final email = (userObj['email'] ?? '') as String? ?? _email ?? '';
-        final username = (userObj['username'] ?? '') as String? ?? '';
-        final photoPath = (userObj['photoPath'] ?? '') as String? ?? '';
-        final phone = (userObj['phone'] ?? '').toString();
-        final hasPage = (userObj['hasPage'] ?? false) as bool;
-        final roleName = (userObj['userRoleName'] ?? '').toString();
-        final idUser = (userObj['idUser'] ?? '').toString();
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      final List data = (j['data'] as List?) ?? const [];
 
-        _name = fullName.isNotEmpty ? fullName : _name;
-        _email = email.isNotEmpty ? email : _email;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userBusinessRaw', raw);
 
-        await prefs.setString('user', jsonEncode(userObj));
-        if (_name != null) await prefs.setString('name', _name!);
-        if (_email != null) await prefs.setString('email', _email!);
-        await prefs.setString('username', username);
-        await prefs.setString('photoPath', photoPath);
-        await prefs.setString('phone', phone);
-        await prefs.setBool('hasPage', hasPage);
-        await prefs.setString('userRoleName', roleName);
-        await prefs.setString('idUser', idUser);
+      // ——— Normalisasi daftar business untuk dipakai app (pakai helper)
+      final List<Map<String, dynamic>> simplifiedBusiness = data
+          .map<Map<String, dynamic>>((e) {
+            final b =
+                (e as Map)['business'] as Map<String, dynamic>? ?? const {};
+            return _normalizeBizMapForPrefs(b);
+          })
+          .toList();
 
-        final activeEmail = _email ?? prefs.getString(kActiveAccountKey);
-        if (activeEmail != null) {
-          final key = 'account_$activeEmail';
-          final jsonStr = prefs.getString(key);
-          if (jsonStr != null) {
+      await prefs.setString('business', jsonEncode(simplifiedBusiness));
+
+      // ——— Role map per business
+      final Map<String, dynamic> roleMap = {};
+      for (final item in data) {
+        final m = (item as Map).cast<String, dynamic>();
+        final biz = (m['business'] ?? const {}) as Map<String, dynamic>;
+        final role = (m['adminRole'] ?? const {}) as Map<String, dynamic>;
+        final idBiz = (biz['idBusiness'] ?? '').toString();
+        if (idBiz.isNotEmpty) {
+          roleMap[idBiz] = {
+            'idAdminRole': (role['idAdminRole'] ?? '').toString(),
+            'name': (role['name'] ?? '').toString(),
+            'isPrimary': (role['isPrimary'] ?? false) == true,
+          };
+        }
+      }
+      await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
+
+      // ——— HORMATI activeBizId yang ada; hanya fallback jika belum ada / tidak valid
+      final String? prevActiveId = prefs.getString('activeBizId');
+      final ids = simplifiedBusiness
+          .map((e) => (e['idBusiness'] ?? '').toString())
+          .where((s) => s.isNotEmpty)
+          .toList();
+
+      String? nextActiveId = prevActiveId;
+      if (nextActiveId == null ||
+          nextActiveId.isEmpty ||
+          !ids.contains(nextActiveId)) {
+        // belum pernah set atau id lama tidak ada pada data terbaru → pilih pertama (kalau ada)
+        nextActiveId = ids.isNotEmpty ? ids.first : null;
+      }
+
+      // Terapkan active business (hanya jika ada data)
+      if (nextActiveId != null && nextActiveId.isNotEmpty) {
+        final first = simplifiedBusiness.firstWhere(
+          (m) => (m['idBusiness'] ?? '') == nextActiveId,
+          orElse: () => simplifiedBusiness.first,
+        );
+
+        await _applyActiveBusinessAndRole(
+          prefs: prefs,
+          idBusiness: (first['idBusiness'] ?? '').toString(),
+          name: (first['name'] ?? '').toString(),
+          username: (first['username'] ?? '').toString(),
+          logoPath: (first['logoPath'] ?? '').toString(),
+          roleMap: roleMap,
+        );
+
+        // Sinkronkan snapshot akun aktif
+        final rb = _resolveRBForBusiness(
+          (first['idBusiness'] ?? '').toString(),
+          prefs,
+          roleMapArg: roleMap,
+        );
+        final emailKey = _email ?? prefs.getString(kActiveAccountKey);
+        if (emailKey != null && emailKey.isNotEmpty) {
+          final key = 'account_$emailKey';
+          final snapStr = prefs.getString(key);
+          if (snapStr != null) {
             try {
-              final Map<String, dynamic> snap = jsonDecode(jsonStr);
-              snap['user'] = userObj;
-              snap['name'] = _name;
-              snap['email'] = _email;
-              snap['username'] = username;
-              snap['photoPath'] = photoPath;
+              final snap = jsonDecode(snapStr) as Map<String, dynamic>;
+              snap['business'] = simplifiedBusiness;
+              snap['activeBusiness'] = {
+                'idBusiness': first['idBusiness'],
+                'name': first['name'],
+                'username': first['username'],
+                'logoPath': first['logoPath'],
+                'can_be_sold_out_of_stock':
+                    first['can_be_sold_out_of_stock'] ?? false,
+              };
+              snap['businessRoles'] = roleMap;
+              if ((rb?['idAdminRole'] ?? '').toString().isNotEmpty) {
+                snap['activeBusinessRole'] = {
+                  'idAdminRole': (rb?['idAdminRole'] ?? '').toString(),
+                  'name': (rb?['name'] ?? '').toString(),
+                  'isPrimary': (rb?['isPrimary'] ?? false) == true,
+                };
+              }
               await prefs.setString(key, jsonEncode(snap));
             } catch (e) {
-              debugPrint('UPDATE SNAPSHOT USER ❌ $e');
+              debugPrint('SYNC SNAPSHOT (user business) ❌ $e');
             }
           }
         }
-
-        notifyListeners();
-        return true;
       } else {
-        debugPrint("FETCH USER ❌ status ${res.statusCode}");
-        return false;
+        // Tidak ada business sama sekali → bersihkan pointer active (opsional)
+        await prefs.remove('activeBizId');
+        await prefs.remove('activeBizName');
+        await prefs.remove('activeBizUsername');
+        await prefs.remove('activeBizLogoPath');
+        await prefs.remove(kActiveBizRoleIdKey);
+        await prefs.remove(kActiveBizRoleNameKey);
+        await prefs.remove(kActiveBizRoleIsPrimaryKey);
       }
+
+      notifyListeners();
+      return true;
     } catch (e, st) {
-      debugPrint('FETCH USER ❌ $e\n$st');
+      debugPrint('FETCH USER BUSINESS ❌ $e\n$st');
       return false;
     }
   }
@@ -1323,8 +1437,16 @@ class AuthProvider with ChangeNotifier {
     try {
       final tokenObj = (decoded['token'] ?? {}) as Map<String, dynamic>;
       final userObj = (decoded['data'] ?? {}) as Map<String, dynamic>;
-      final bizList =
-          (decoded['business'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final bizListRaw =
+          (decoded['business'] as List?)
+              ?.map((e) => (e as Map).cast<String, dynamic>())
+              .toList() ??
+          <Map<String, dynamic>>[];
+
+      // Normalisasi business untuk prefs
+      final normalizedBizList = bizListRaw
+          .map<Map<String, dynamic>>((b) => _normalizeBizMapForPrefs(b))
+          .toList();
 
       final accessToken = tokenObj['access_token'] as String?;
       final refreshToken = tokenObj['refresh_token'] as String?;
@@ -1340,18 +1462,17 @@ class AuthProvider with ChangeNotifier {
       final username = (userObj['username'] ?? '') as String;
       final photoPath = (userObj['photoPath'] ?? '') as String;
 
-      final Map<String, dynamic>? firstBiz = bizList.isNotEmpty
-          ? bizList.first
+      final Map<String, dynamic>? firstBiz = normalizedBizList.isNotEmpty
+          ? normalizedBizList.first
           : null;
       final String activeBizId = (firstBiz?['idBusiness'] ?? '').toString();
       final String activeBizName = (firstBiz?['name'] ?? '').toString();
       final String activeBizUsername = (firstBiz?['username'] ?? '').toString();
-      final String activeBizLogoPath =
-          (firstBiz?['logoPath'] ?? firstBiz?['logo'] ?? '').toString();
+      final String activeBizLogoPath = (firstBiz?['logoPath'] ?? '').toString();
 
-      // Build role map dari register (struktur sama dengan login)
+      // Build role map dari register (struktur sama dengan login) — pakai raw
       final Map<String, dynamic> roleMap = {};
-      for (final b in bizList) {
+      for (final b in bizListRaw) {
         final idBiz = (b['idBusiness'] ?? '').toString();
         if (idBiz.isEmpty) continue;
         final roleId = (b['roleId'] ?? '').toString();
@@ -1373,7 +1494,7 @@ class AuthProvider with ChangeNotifier {
       await prefs.setString('login_raw', rawBody);
       await prefs.setString('token', jsonEncode(tokenObj));
       await prefs.setString('user', jsonEncode(userObj));
-      await prefs.setString('business', jsonEncode(bizList));
+      await prefs.setString('business', jsonEncode(normalizedBizList));
       await prefs.setString('accessToken', _accessToken!);
       if (_refreshToken != null) {
         await prefs.setString('refreshToken', _refreshToken!);
@@ -1398,14 +1519,16 @@ class AuthProvider with ChangeNotifier {
       await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
 
       // set default active business + active role
-      await _applyActiveBusinessAndRole(
-        prefs: prefs,
-        idBusiness: activeBizId,
-        name: activeBizName,
-        username: activeBizUsername,
-        logoPath: activeBizLogoPath,
-        roleMap: roleMap,
-      );
+      if (activeBizId.isNotEmpty) {
+        await _applyActiveBusinessAndRole(
+          prefs: prefs,
+          idBusiness: activeBizId,
+          name: activeBizName,
+          username: activeBizUsername,
+          logoPath: activeBizLogoPath,
+          roleMap: roleMap,
+        );
+      }
 
       if (_email != null) {
         final rbSnap = _resolveRBForBusiness(
@@ -1416,7 +1539,7 @@ class AuthProvider with ChangeNotifier {
         final accountSnapshot = {
           'token': tokenObj,
           'user': userObj,
-          'business': bizList,
+          'business': normalizedBizList,
           'accessToken': _accessToken,
           'refreshToken': _refreshToken,
           'name': _name,
@@ -1424,12 +1547,15 @@ class AuthProvider with ChangeNotifier {
           'username': username,
           'photoPath': photoPath,
           'isActivated': _isActivated,
-          'activeBusiness': {
-            'idBusiness': activeBizId,
-            'name': activeBizName,
-            'username': activeBizUsername,
-            'logoPath': activeBizLogoPath,
-          },
+          if (activeBizId.isNotEmpty)
+            'activeBusiness': {
+              'idBusiness': activeBizId,
+              'name': activeBizName,
+              'username': activeBizUsername,
+              'logoPath': activeBizLogoPath,
+              'can_be_sold_out_of_stock':
+                  firstBiz?['can_be_sold_out_of_stock'] ?? false,
+            },
           'businessRoles': roleMap,
           if ((rbSnap?['idAdminRole'] ?? '').toString().isNotEmpty)
             'activeBusinessRole': {
@@ -1451,7 +1577,7 @@ class AuthProvider with ChangeNotifier {
         await prefs.setString(kActiveAccountKey, _email!);
       }
 
-      debugPrint('REGISTER FINISH ✅ persisted (+roles)');
+      debugPrint('REGISTER FINISH ✅ persisted (+roles & out-of-stock flag)');
       return true;
     } catch (e, st) {
       _error = 'Gagal menyimpan data register: $e';
@@ -1571,154 +1697,11 @@ class AuthProvider with ChangeNotifier {
     );
   }
 
-  Future<bool> fetchAndPersistUserBusiness(BuildContext context) async {
-    try {
-      final res = await ApiService.get(
-        context,
-        '/user/business',
-        withAccessToken: true,
-      );
-      final raw = res.body;
-      debugPrint(
-        "FETCH USER BUSINESS ◀︎ ${res.statusCode} ${raw.length > 500 ? raw.substring(0, 500) + '…' : raw}",
-      );
-
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        debugPrint("FETCH USER BUSINESS ❌ status ${res.statusCode}");
-        return false;
-      }
-
-      final j = jsonDecode(raw) as Map<String, dynamic>;
-      final List data = (j['data'] as List?) ?? const [];
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('userBusinessRaw', raw);
-
-      // ——— Normalisasi daftar business untuk dipakai app
-      final List<Map<String, dynamic>> simplifiedBusiness = data
-          .map<Map<String, dynamic>>((e) {
-            final b =
-                (e as Map)['business'] as Map<String, dynamic>? ?? const {};
-            return {
-              'idBusiness': (b['idBusiness'] ?? '').toString(),
-              'name': (b['name'] ?? '').toString(),
-              'username': (b['username'] ?? '').toString(),
-              'logoPath': (b['logoPath'] ?? b['logo'] ?? '').toString(),
-            };
-          })
-          .toList();
-
-      await prefs.setString('business', jsonEncode(simplifiedBusiness));
-
-      // ——— Role map per business
-      final Map<String, dynamic> roleMap = {};
-      for (final item in data) {
-        final m = (item as Map).cast<String, dynamic>();
-        final biz = (m['business'] ?? const {}) as Map<String, dynamic>;
-        final role = (m['adminRole'] ?? const {}) as Map<String, dynamic>;
-        final idBiz = (biz['idBusiness'] ?? '').toString();
-        if (idBiz.isNotEmpty) {
-          roleMap[idBiz] = {
-            'idAdminRole': (role['idAdminRole'] ?? '').toString(),
-            'name': (role['name'] ?? '').toString(),
-            'isPrimary': (role['isPrimary'] ?? false) == true,
-          };
-        }
-      }
-      await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
-
-      // ——— HORMATI activeBizId yang ada; hanya fallback jika belum ada / tidak valid
-      final String? prevActiveId = prefs.getString('activeBizId');
-      final ids = simplifiedBusiness
-          .map((e) => (e['idBusiness'] ?? '').toString())
-          .where((s) => s.isNotEmpty)
-          .toList();
-
-      String? nextActiveId = prevActiveId;
-      if (nextActiveId == null ||
-          nextActiveId.isEmpty ||
-          !ids.contains(nextActiveId)) {
-        // belum pernah set atau id lama tidak ada pada data terbaru → pilih pertama (kalau ada)
-        nextActiveId = ids.isNotEmpty ? ids.first : null;
-      }
-
-      // Terapkan active business (hanya jika ada data)
-      if (nextActiveId != null && nextActiveId.isNotEmpty) {
-        final first = simplifiedBusiness.firstWhere(
-          (m) => (m['idBusiness'] ?? '') == nextActiveId,
-          orElse: () => simplifiedBusiness.first,
-        );
-
-        await _applyActiveBusinessAndRole(
-          prefs: prefs,
-          idBusiness: (first['idBusiness'] ?? '').toString(),
-          name: (first['name'] ?? '').toString(),
-          username: (first['username'] ?? '').toString(),
-          logoPath: (first['logoPath'] ?? '').toString(),
-          roleMap: roleMap,
-        );
-
-        // Sinkronkan snapshot akun aktif
-        final rb = _resolveRBForBusiness(
-          (first['idBusiness'] ?? '').toString(),
-          prefs,
-          roleMapArg: roleMap,
-        );
-        final emailKey = _email ?? prefs.getString(kActiveAccountKey);
-        if (emailKey != null && emailKey.isNotEmpty) {
-          final key = 'account_$emailKey';
-          final snapStr = prefs.getString(key);
-          if (snapStr != null) {
-            try {
-              final snap = jsonDecode(snapStr) as Map<String, dynamic>;
-              snap['business'] = simplifiedBusiness;
-              snap['activeBusiness'] = {
-                'idBusiness': first['idBusiness'],
-                'name': first['name'],
-                'username': first['username'],
-                'logoPath': first['logoPath'],
-              };
-              snap['businessRoles'] = roleMap;
-              if ((rb?['idAdminRole'] ?? '').toString().isNotEmpty) {
-                snap['activeBusinessRole'] = {
-                  'idAdminRole': (rb?['idAdminRole'] ?? '').toString(),
-                  'name': (rb?['name'] ?? '').toString(),
-                  'isPrimary': (rb?['isPrimary'] ?? false) == true,
-                };
-              }
-              await prefs.setString(key, jsonEncode(snap));
-            } catch (e) {
-              debugPrint('SYNC SNAPSHOT (user business) ❌ $e');
-            }
-          }
-        }
-      } else {
-        // Tidak ada business sama sekali → bersihkan pointer active (opsional)
-        await prefs.remove('activeBizId');
-        await prefs.remove('activeBizName');
-        await prefs.remove('activeBizUsername');
-        await prefs.remove('activeBizLogoPath');
-        await prefs.remove(kActiveBizRoleIdKey);
-        await prefs.remove(kActiveBizRoleNameKey);
-        await prefs.remove(kActiveBizRoleIsPrimaryKey);
-      }
-
-      notifyListeners();
-      return true;
-    } catch (e, st) {
-      debugPrint('FETCH USER BUSINESS ❌ $e\n$st');
-      return false;
-    }
-  }
-
   Future<bool> refreshCurrentUser(BuildContext context) async {
     debugPrint('refreshCurrentUser ▶︎ start');
 
     try {
-      // =========================================================
       // 1) Ambil data terbaru dari /user
-      //    Struktur: { status, data: {...user}, business: [ {...}, ... ] }
-      // =========================================================
       final res = await ApiService.get(context, '/user', withAccessToken: true);
       final raw = res.body;
       debugPrint(
@@ -1738,22 +1721,12 @@ class AuthProvider with ChangeNotifier {
 
       final prefs = await SharedPreferences.getInstance();
 
-      // =========================================================
-      // 2) Simpan semua versi data "apa adanya" untuk keperluan debug/inspeksi
-      // =========================================================
+      // 2) Simpan raw untuk debug
       await prefs.setString('user_fetch_raw', raw); // raw lengkap
-      await prefs.setString(
-        'user_full',
-        jsonEncode(userObj),
-      ); // objek user "full"
-      await prefs.setString(
-        'business_full',
-        jsonEncode(businessFull),
-      ); // list business "full"
+      await prefs.setString('user_full', jsonEncode(userObj));
+      await prefs.setString('business_full', jsonEncode(businessFull));
 
-      // =========================================================
       // 3) Update state & legacy keys dari USER
-      // =========================================================
       final firstname = (userObj['firstname'] ?? '').toString();
       final lastname = (userObj['lastname'] ?? '').toString();
       final fullName = '$firstname $lastname'.trim();
@@ -1768,11 +1741,9 @@ class AuthProvider with ChangeNotifier {
       final idUser = (userObj['idUser'] ?? '').toString();
       final isDeactivated = (userObj['isDeactivated'] ?? false) == true;
 
-      // set ke memori
       _name = fullName.isNotEmpty ? fullName : _name;
       _email = email.isNotEmpty ? email : _email;
 
-      // persist (legacy keys yang dipakai bagian lain aplikasi)
       await prefs.setString('user', jsonEncode(userObj));
       if (_name != null) await prefs.setString('name', _name!);
       if (_email != null) await prefs.setString('email', _email!);
@@ -1784,27 +1755,20 @@ class AuthProvider with ChangeNotifier {
       await prefs.setString('idUser', idUser);
       await prefs.setBool('isDeactivated', isDeactivated);
 
-      // =========================================================
-      // 4) Normalisasi BUSINESS → isi legacy key `business`
-      //    sekaligus siapkan roleMap dari roleId/userRoleName
-      // =========================================================
+      // 4) Normalisasi BUSINESS + simpan ke prefs.business (dengan flag stok)
       final List<Map<String, dynamic>> simplifiedBusiness = businessFull
           .map<Map<String, dynamic>>((e) {
             final m = (e as Map).cast<String, dynamic>();
-            return {
-              'idBusiness': (m['idBusiness'] ?? '').toString(),
-              'name': (m['name'] ?? '').toString(),
-              'username': (m['username'] ?? '').toString(),
-              'logoPath': (m['logoPath'] ?? m['logo'] ?? '').toString(),
-            };
+            return _normalizeBizMapForPrefs(m);
           })
           .toList();
 
       await prefs.setString(
         'business',
         jsonEncode(simplifiedBusiness),
-      ); // legacy
+      ); // legacy + flag
 
+      // Role map dari payload /user (roleId + userRoleName)
       final Map<String, dynamic> roleMap = {};
       for (final e in businessFull) {
         final m = (e as Map).cast<String, dynamic>();
@@ -1813,17 +1777,12 @@ class AuthProvider with ChangeNotifier {
         roleMap[idBiz] = {
           'idAdminRole': (m['roleId'] ?? '').toString(),
           'name': (m['userRoleName'] ?? '').toString(),
-          'isPrimary': false, // tidak ada info isPrimary di payload
+          'isPrimary': false,
         };
       }
       await prefs.setString(kBusinessRolesKey, jsonEncode(roleMap));
 
-      // =========================================================
-      // 5) Active Business:
-      //    - hormati activeBizId lama jika masih valid
-      //    - fallback ke bisnis pertama jika tidak ada/invalid
-      //    - jika tidak ada business → bersihkan pointer active & active role
-      // =========================================================
+      // 5) Active Business (hormati yang lama kalau masih valid)
       final String? prevActiveId = prefs.getString('activeBizId');
       final ids = simplifiedBusiness
           .map((e) => (e['idBusiness'] ?? '').toString())
@@ -1849,12 +1808,10 @@ class AuthProvider with ChangeNotifier {
           name: (selected['name'] ?? '').toString(),
           username: (selected['username'] ?? '').toString(),
           logoPath: (selected['logoPath'] ?? '').toString(),
-          roleMap: roleMap, // penting agar active role ikut ter-set
+          roleMap: roleMap,
         );
 
-        // =======================================================
         // 6) Sinkronkan snapshot akun aktif (account_<email>)
-        // =======================================================
         final rb = _resolveRBForBusiness(
           (selected['idBusiness'] ?? '').toString(),
           prefs,
@@ -1873,13 +1830,15 @@ class AuthProvider with ChangeNotifier {
               snap['username'] = username;
               snap['photoPath'] = photoPath;
 
-              snap['business'] = simplifiedBusiness; // legacy list
-              snap['business_full'] = businessFull; // simpan juga full
+              snap['business'] = simplifiedBusiness;
+              snap['business_full'] = businessFull;
               snap['activeBusiness'] = {
                 'idBusiness': selected['idBusiness'],
                 'name': selected['name'],
                 'username': selected['username'],
                 'logoPath': selected['logoPath'],
+                'can_be_sold_out_of_stock':
+                    selected['can_be_sold_out_of_stock'] ?? false,
               };
               snap['businessRoles'] = roleMap;
               if ((rb?['idAdminRole'] ?? '').toString().isNotEmpty) {

@@ -6,13 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 import 'package:wa_blast/providers/notification_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
-import 'package:wa_blast/screens/notification_detail_list.dart';
 
 import '../l10n/app_localizations.dart';
 
@@ -50,18 +48,15 @@ class _HomeScreenState extends State<HomeScreen> {
       GlobalKey<_HeaderGradientState>();
 
   Future<void> _kickDailyFetch() async {
-    final rp = context.read<ReportProvider>();
+    final rp = context.read<ReportProviderV2>();
 
-    // Pastikan tab/kind yang dipakai adalah SALES
-    rp.setKind(ReportKind.sales, notify: false);
-
-    // Set period = daily khusus untuk SALES
-    if (rp.periodOf(ReportKind.sales) != SalesPeriod.daily) {
-      rp.setPeriod(SalesPeriod.daily, forKind: ReportKind.sales, notify: false);
-    }
-
-    // Fetch endpoint: /report/sales?period=daily
-    await rp.fetch(context, kind: ReportKind.sales);
+    // Ambil SALES by CUSTOMER untuk granularity = DAY (harian)
+    await rp.fetchSales(
+      context,
+      target: ReportTarget.customer,
+      period: ReportPeriod.day,
+      force: true, // paksa refresh supaya home selalu fresh
+    );
   }
 
   @override
@@ -266,10 +261,13 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     if (changed == true && mounted) {
       // reload label/logo setelah switch
       await _loadPrefs();
-      final rp = context.read<ReportProvider>();
-      rp.setKind(ReportKind.sales, notify: false);
-      rp.setPeriod(SalesPeriod.daily, forKind: ReportKind.sales, notify: false);
-      await rp.fetch(context, kind: ReportKind.sales);
+      final rp = context.read<ReportProviderV2>();
+      await rp.fetchSales(
+        context,
+        target: ReportTarget.customer,
+        period: ReportPeriod.day,
+        force: true,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -359,22 +357,6 @@ class _HeaderGradientState extends State<_HeaderGradient> {
       _businessName = businessName.isNotEmpty ? businessName : '—';
       _businessUsername = businessUsername.isNotEmpty ? businessUsername : '—';
     });
-  }
-
-  Future<void> _openNotificationPopup(BuildContext context) async {
-    await context.read<NotificationProvider>().fetchUnreadCount(context);
-    // ignore: use_build_context_synchronously
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) => const _NotificationPopupSheet(),
-    );
-    // ignore: use_build_context_synchronously
-    await context.read<NotificationProvider>().fetchUnreadCount(context);
   }
 
   @override
@@ -1042,21 +1024,108 @@ class _GridMenu extends StatelessWidget {
   }
 }
 
-// ===============================
-// POPUP LIST NOTIFIKASI (bottom sheet)
-// ===============================
+Future<void> _openNotificationPopup(BuildContext context) async {
+  // refresh badge sebelum popup dibuka
+  await context.read<NotificationProvider>().fetchUnreadCount(context);
 
-class _NotificationPopupSheet extends StatefulWidget {
-  const _NotificationPopupSheet();
+  await showGeneralDialog(
+    context: context,
+    barrierLabel: 'Notifications',
+    barrierDismissible: true,
+    barrierColor: Colors.black.withOpacity(0.20),
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (ctx, anim, secondaryAnim) {
+      return const SizedBox.shrink();
+    },
+    transitionBuilder: (ctx, animation, secondaryAnimation, child) {
+      final fade = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutQuad,
+      );
+      final slide = Tween<Offset>(
+        begin: const Offset(0, -0.05),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
 
-  @override
-  State<_NotificationPopupSheet> createState() =>
-      _NotificationPopupSheetState();
+      final media = MediaQuery.of(ctx);
+      // posisi kira-kira tepat di bawah lonceng
+      final double topOffset = media.padding.top + 52;
+
+      // LEBAR KARTU DIPERKECIL DI SINI 👇
+      // di HP kecil: layar - 32px
+      // di layar lebar: fix 320px
+      final double cardWidth = media.size.width <= 360
+          ? media.size.width - 32
+          : 320;
+
+      final double maxHeight = media.size.height * 0.7;
+
+      return FadeTransition(
+        opacity: fade,
+        child: SlideTransition(
+          position: slide,
+          child: Stack(
+            children: [
+              // tap di area gelap untuk menutup
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () => Navigator.of(ctx).pop(),
+                ),
+              ),
+              Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: topOffset,
+                    right: 8,
+                    left: 8, // sedikit diperkecil juga
+                  ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: cardWidth,
+                      maxHeight: maxHeight,
+                    ),
+                    child: const _NotificationDropdownCard(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  // refresh badge lagi setelah popup ditutup
+  await context.read<NotificationProvider>().fetchUnreadCount(context);
 }
 
-class _NotificationPopupSheetState extends State<_NotificationPopupSheet> {
+// ===============================
+// DROPDOWN NOTIFIKASI DI BAWAH LONCENG
+// ===============================
+
+// ===============================
+// DROPDOWN NOTIFIKASI DI BAWAH LONCENG
+// ===============================
+
+// ===============================
+// DROPDOWN NOTIFIKASI DI BAWAH LONCENG (3 item, scrollable)
+// ===============================
+
+class _NotificationDropdownCard extends StatefulWidget {
+  const _NotificationDropdownCard();
+
+  @override
+  State<_NotificationDropdownCard> createState() =>
+      _NotificationDropdownCardState();
+}
+
+class _NotificationDropdownCardState extends State<_NotificationDropdownCard> {
   final ScrollController _scroll = ScrollController();
   bool _pagingBusy = false;
+
+  static const _primaryBlue = Color(0xFF2563EB);
 
   @override
   void initState() {
@@ -1099,164 +1168,465 @@ class _NotificationPopupSheetState extends State<_NotificationPopupSheet> {
   }
 
   Future<void> _handleTap(NotificationItem n) async {
-    // Ambil navigator SEKALI, supaya tidak bergantung ke context setelah pop
     final navigator = Navigator.of(context);
 
-    // 1) Tandai read (masih aman pakai context karena sheet belum ditutup)
     if (!n.isRead) {
       await context.read<NotificationProvider>().markAsRead(
         context,
         n.idNotification,
       );
-      // update badge sementara sheet masih hidup
       await context.read<NotificationProvider>().fetchUnreadCount(context);
     }
 
-    // 2) Tutup bottom sheet
+    // tutup dropdown dulu
     navigator.pop();
 
-    // 3) Buka halaman detail memakai navigator yg sudah dicapture
+    // lalu buka detail
     await navigator.pushNamed(
       '/notification/detail',
       arguments: n.idNotification,
     );
-
-    // 4) JANGAN panggil apa pun yang butuh `context` sheet di sini.
-    //    Sheet sudah ditutup → state unmounted. Refresh badge/list
-    //    sudah dihandle oleh _HeaderGradient._openNotificationPopup()
-    //    setelah modal ditutup.
   }
 
   @override
   Widget build(BuildContext context) {
-    final radius = const Radius.circular(16);
-    return SafeArea(
-      top: false,
-      child: DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.88,
-        minChildSize: 0.40,
-        maxChildSize: 0.95,
-        builder: (ctx, controller) {
-          return ClipRRect(
-            borderRadius: BorderRadius.vertical(top: radius),
-            child: Material(
-              color: Colors.white,
-              child: Column(
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.18),
+              blurRadius: 22,
+              offset: const Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // HEADER
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
                 children: [
-                  const SizedBox(height: 8),
                   Container(
-                    width: 40,
-                    height: 4,
+                    width: 28,
+                    height: 28,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE5E7EB),
-                      borderRadius: BorderRadius.circular(2),
+                      color: const Color(0xFFE0ECFF),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Icon(
+                      Icons.notifications_rounded,
+                      size: 18,
+                      color: _primaryBlue,
                     ),
                   ),
-                  const SizedBox(height: 8),
-
-                  // HEADER
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        const Text(
-                          'Notifications',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
+                  const SizedBox(width: 10),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Notifications',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Updates & announcements',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF6B7280),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Consumer<NotificationProvider>(
+                    builder: (_, np, __) {
+                      final c = np.unreadCount;
+                      final label = c <= 0 ? 'All read' : '$c unread';
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0ECFF),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          label,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: _primaryBlue,
                           ),
                         ),
-                        const Spacer(),
-                        Consumer<NotificationProvider>(
-                          builder: (_, np, __) {
-                            final c = np.unreadCount;
-                            return Text(
-                              '$c unread',
-                              style: const TextStyle(
-                                color: Color(0xFF6B7280),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                      ],
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                  // tombol close kecil
+                  InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: () => Navigator.of(context).pop(),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: Color(0xFF9CA3AF),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Divider(height: 1),
-
-                  // LIST
-                  Expanded(
-                    child: Consumer<NotificationProvider>(
-                      builder: (_, np, __) {
-                        if (np.loadingList && np.notifications.isEmpty) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        }
-                        if (np.notifications.isEmpty) {
-                          return const _NotifEmptyState();
-                        }
-
-                        return RefreshIndicator(
-                          color: AppColors.blue,
-                          onRefresh: _onRefresh,
-                          child: ListView.separated(
-                            controller: _scroll,
-                            physics: const AlwaysScrollableScrollPhysics(
-                              parent: BouncingScrollPhysics(),
-                            ),
-                            padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
-                            itemCount: np.notifications.length + 1,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 6),
-                            itemBuilder: (_, i) {
-                              if (i == np.notifications.length) {
-                                final show =
-                                    np.page != null &&
-                                    (np.page!.currentPage <
-                                        np.page!.totalPages);
-                                return AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  child: show
-                                      ? const Padding(
-                                          padding: EdgeInsets.all(12),
-                                          child: Center(
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          ),
-                                        )
-                                      : const SizedBox.shrink(),
-                                );
-                              }
-
-                              final n = np.notifications[i];
-
-                              // UI tile lebih simple, tidak ada tombol Mark read
-                              return _NotifTile(
-                                item: n,
-                                onTap: () => _handleTap(n),
-                              );
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-
-                  // NOTE: Footer "Mark all as read" DIHAPUS sesuai permintaan
                 ],
               ),
             ),
-          );
-        },
+            const Divider(height: 1, color: Color(0xFFE5E7EB)),
+
+            // LIST (tinggi dinamis: max 3 notifikasi)
+            Consumer<NotificationProvider>(
+              builder: (_, np, __) {
+                if (np.loadingList && np.notifications.isEmpty) {
+                  // loading pertama -> tinggi kecil
+                  return const SizedBox(
+                    height: 120,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                if (np.notifications.isEmpty) {
+                  // kosong -> tinggi kecil
+                  return const SizedBox(height: 160, child: _NotifEmptyState());
+                }
+
+                // === Hitung tinggi untuk 3 notifikasi teratas ===
+                final total = np.notifications.length;
+                final int visibleCount = total >= 3
+                    ? 3
+                    : total; // min(total, 3)
+
+                const double itemHeightEstimate = 96; // kira-kira tinggi tile
+                const double separator = 8;
+                const double verticalPadding = 24; // padding list (12+12)
+
+                final double listHeight =
+                    visibleCount * itemHeightEstimate +
+                    (visibleCount - 1) * separator +
+                    verticalPadding;
+
+                return SizedBox(
+                  height: listHeight,
+                  child: RefreshIndicator(
+                    color: AppColors.blue,
+                    onRefresh: _onRefresh,
+                    child: ListView.separated(
+                      controller: _scroll,
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: BouncingScrollPhysics(),
+                      ),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                      // tetap gunakan seluruh list, tapi tinggi cuma cukup utk 3 item → sisanya di-scroll
+                      itemCount: np.notifications.length + 1,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        if (i == np.notifications.length) {
+                          final show =
+                              np.page != null &&
+                              (np.page!.currentPage < np.page!.totalPages);
+                          return AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 200),
+                            child: show
+                                ? const Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                          );
+                        }
+
+                        final n = np.notifications[i];
+                        return _NotifTile(item: n, onTap: () => _handleTap(n));
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
 }
+
+// ===============================
+// SIDEBAR NOTIFIKASI DARI KANAN
+// ===============================
+
+class _NotificationSidebar extends StatefulWidget {
+  const _NotificationSidebar();
+
+  @override
+  State<_NotificationSidebar> createState() => _NotificationSidebarState();
+}
+
+class _NotificationSidebarState extends State<_NotificationSidebar> {
+  final ScrollController _scroll = ScrollController();
+  bool _pagingBusy = false;
+
+  static const _primaryBlue = Color(0xFF2563EB);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final np = context.read<NotificationProvider>();
+      await np.fetchNotifications(context);
+      await np.fetchUnreadCount(context);
+    });
+    _scroll.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() async {
+    if (_pagingBusy || !_scroll.hasClients) return;
+    final pos = _scroll.position;
+    if (pos.pixels > pos.maxScrollExtent - 280) {
+      _pagingBusy = true;
+      try {
+        await context.read<NotificationProvider>().fetchMoreNotifications(
+          context,
+        );
+      } finally {
+        _pagingBusy = false;
+      }
+    }
+  }
+
+  Future<void> _onRefresh() async {
+    final np = context.read<NotificationProvider>();
+    await np.fetchNotifications(context);
+    await np.fetchUnreadCount(context);
+  }
+
+  Future<void> _handleTap(NotificationItem n) async {
+    final navigator = Navigator.of(context);
+
+    if (!n.isRead) {
+      await context.read<NotificationProvider>().markAsRead(
+        context,
+        n.idNotification,
+      );
+      await context.read<NotificationProvider>().fetchUnreadCount(context);
+    }
+
+    navigator.pop(); // tutup sidebar
+
+    await navigator.pushNamed(
+      '/notification/detail',
+      arguments: n.idNotification,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final bool isTablet = size.shortestSide >= 600;
+
+    // Lebar panel: Hp hampir full, tablet/desktop lebih kecil
+    final double panelWidth = isTablet ? 420 : size.width * 0.92;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 8, right: 8),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: panelWidth,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.14),
+                  blurRadius: 20,
+                  offset: const Offset(-8, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                // HEADER
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0ECFF),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Icon(
+                          Icons.notifications_rounded,
+                          size: 18,
+                          color: _primaryBlue,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Notifications',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Updates & announcements',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Consumer<NotificationProvider>(
+                        builder: (_, np, __) {
+                          final c = np.unreadCount;
+                          final label = c <= 0 ? 'All read' : '$c unread';
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE0ECFF),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              label,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: _primaryBlue,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 6),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(999),
+                        onTap: () => Navigator.of(context).pop(),
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 20,
+                            color: Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, color: Color(0xFFE5E7EB)),
+
+                // LIST
+                Expanded(
+                  child: Consumer<NotificationProvider>(
+                    builder: (_, np, __) {
+                      if (np.loadingList && np.notifications.isEmpty) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (np.notifications.isEmpty) {
+                        return const _NotifEmptyState();
+                      }
+
+                      return RefreshIndicator(
+                        color: AppColors.blue,
+                        onRefresh: _onRefresh,
+                        child: ListView.separated(
+                          controller: _scroll,
+                          physics: const AlwaysScrollableScrollPhysics(
+                            parent: BouncingScrollPhysics(),
+                          ),
+                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+                          itemCount: np.notifications.length + 1,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
+                          itemBuilder: (_, i) {
+                            if (i == np.notifications.length) {
+                              final show =
+                                  np.page != null &&
+                                  (np.page!.currentPage < np.page!.totalPages);
+                              return AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 200),
+                                child: show
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(12),
+                                        child: Center(
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      )
+                                    : const SizedBox.shrink(),
+                              );
+                            }
+
+                            final n = np.notifications[i];
+                            return _NotifTile(
+                              item: n,
+                              onTap: () => _handleTap(n),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ===============================
+// TILE NOTIFICATION – MODERN BIRU PUTIH
+// ===============================
 
 class _NotifTile extends StatelessWidget {
   final NotificationItem item;
@@ -1264,72 +1634,63 @@ class _NotifTile extends StatelessWidget {
 
   const _NotifTile({required this.item, required this.onTap});
 
+  static const _primaryBlue = Color(0xFF2563EB);
+
   @override
   Widget build(BuildContext context) {
     final isRead = item.isRead;
 
-    // Warna simpel & clean
-    final bg = isRead
+    final Color bg = isRead
         ? Colors.white
-        : const Color(0xFFF5FAFF); // subtle biru utk unread
-    final border = isRead ? const Color(0xFFE5E7EB) : const Color(0xFFDDEAFE);
-    final titleColor = isRead
-        ? const Color(0xFF1F2937)
+        : const Color(0xFFF3F7FF); // unread sedikit biru
+    final Color border = isRead
+        ? const Color(0xFFE5E7EB)
+        : const Color(0xFFBFDBFE);
+    final Color titleColor = isRead
+        ? const Color(0xFF111827)
         : const Color(0xFF0F172A);
-    final msgColor = isRead ? const Color(0xFF6B7280) : const Color(0xFF374151);
+    final Color msgColor = isRead
+        ? const Color(0xFF6B7280)
+        : const Color(0xFF374151);
 
     return Material(
-      color: bg,
-      borderRadius: BorderRadius.circular(12),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
+            color: bg,
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(color: border, width: 1),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Indikator bulat untuk status unread
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: isRead
-                        ? const Color(0xFFCBD5E1)
-                        : const Color(0xFF2563EB),
-                    shape: BoxShape.circle,
-                  ),
+              // Icon / thumbnail kiri
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: isRead ? const Color(0xFFE0ECFF) : _primaryBlue,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(
+                  Icons.notifications_rounded,
+                  size: 18,
+                  color: isRead ? _primaryBlue : Colors.white,
                 ),
               ),
               const SizedBox(width: 10),
 
-              // Thumbnail / icon (opsional)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: (item.imageUrl != null && item.imageUrl!.isNotEmpty)
-                    ? Image.network(
-                        item.imageUrl!,
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _thumbFallback(),
-                      )
-                    : _thumbFallback(),
-              ),
-              const SizedBox(width: 10),
-
-              // Teks
+              // TEKS
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Judul (1 baris, tegas)
+                    // Title
                     Text(
                       item.title,
                       maxLines: 1,
@@ -1337,25 +1698,30 @@ class _NotifTile extends StatelessWidget {
                       style: TextStyle(
                         fontWeight: isRead ? FontWeight.w700 : FontWeight.w800,
                         color: titleColor,
+                        fontSize: 14,
                       ),
                     ),
                     const SizedBox(height: 4),
 
-                    // Deskripsi (2 baris)
+                    // Message (2 baris)
                     Text(
                       item.message,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: msgColor, height: 1.25),
+                      style: TextStyle(
+                        color: msgColor,
+                        fontSize: 13,
+                        height: 1.25,
+                      ),
                     ),
                     const SizedBox(height: 8),
 
-                    // Waktu (kecil & abu-abu)
+                    // Waktu
                     Text(
                       _fmtTimeAgo(item),
                       style: const TextStyle(
                         color: Color(0xFF9CA3AF),
-                        fontSize: 12,
+                        fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -1365,11 +1731,25 @@ class _NotifTile extends StatelessWidget {
 
               const SizedBox(width: 6),
 
-              // Chevron kecil sebagai affordance "tap untuk detail"
-              const Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: Color(0xFF94A3B8),
+              // Kolom kecil kanan: dot unread + chevron
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: isRead ? Colors.transparent : _primaryBlue,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1378,17 +1758,7 @@ class _NotifTile extends StatelessWidget {
     );
   }
 
-  Widget _thumbFallback() => Container(
-    width: 32,
-    height: 32,
-    decoration: BoxDecoration(
-      color: const Color(0xFFF3F4F6),
-      borderRadius: BorderRadius.circular(6),
-    ),
-    child: const Icon(Icons.notifications, size: 18, color: Color(0xFF9CA3AF)),
-  );
-
-  // Format waktu relatif: Now, 1h ago, 4h ago, 05 May 2019
+  // Format waktu relatif: Just now, 1h ago, 4h ago, 05 May 2019
   String _fmtTimeAgo(NotificationItem n) {
     final DateTime? ts = n.createdAt ?? n.sentAt ?? n.readAt;
     if (ts == null) return '';
@@ -1423,8 +1793,9 @@ class _NotifTile extends StatelessWidget {
 }
 
 // ===============================
-// EMPTY STATE untuk list notifikasi
+// EMPTY STATE – TEMA BIRU PUTIH
 // ===============================
+
 class _NotifEmptyState extends StatelessWidget {
   const _NotifEmptyState();
 
@@ -1436,14 +1807,18 @@ class _NotifEmptyState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: const [
-            Icon(
-              Icons.notifications_off_outlined,
-              size: 48,
-              color: Color(0xFF9CA3AF),
+            CircleAvatar(
+              radius: 32,
+              backgroundColor: Color(0xFFE0ECFF),
+              child: Icon(
+                Icons.notifications_off_rounded,
+                size: 30,
+                color: Color(0xFF2563EB),
+              ),
             ),
-            SizedBox(height: 10),
+            SizedBox(height: 12),
             Text(
-              'No notifications',
+              'No notifications yet',
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 16,
@@ -1884,11 +2259,12 @@ class _TrackingReportGate extends StatelessWidget {
     final canSale = role.canPage('sale');
     final canReport = role.canPage('report');
     return canSale || canReport; // ← pakai OR
+    // NOTE: method ini disimpan bila nanti diperlukan
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<RoleProvider, ReportProvider>(
+    return Consumer2<RoleProvider, ReportProviderV2>(
       builder: (context, role, _, __) {
         return FutureBuilder(
           future: Future.wait([_hasActiveBusiness(), _getPrefsRoleName()]),
@@ -1927,38 +2303,49 @@ class _TrackingReportGate extends StatelessWidget {
 class _TrackingReportPanel extends StatelessWidget {
   const _TrackingReportPanel();
 
+  // ==== FIX: ambil lastError secara aman (provider-mu tidak punya properti ini) ====
+  String? _getLastErrorSafe(ReportProviderV2 rp) {
+    try {
+      final dyn = rp as dynamic;
+      final v = dyn.lastError;
+      if (v is String && v.trim().isNotEmpty) return v;
+    } catch (_) {
+      // provider tidak expose lastError → abaikan
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
 
-    return Consumer<ReportProvider>(
+    return Consumer<ReportProviderV2>(
       builder: (context, rp, _) {
-        // BACA STATE PER-KIND: SALES
-        const kind = ReportKind.sales;
-        final isLoading = rp.isLoadingOf(kind);
-        final summary = rp.summaryOf(kind);
-        final err = rp.lastErrorOf(kind);
+        // State dari LAST FETCH (kita sudah pastikan _kickDailyFetch() memanggil SALES/CUSTOMER/DAY)
+        final isLoading = rp.isLoading;
+        final err = _getLastErrorSafe(rp); // <<— aman
+        final summary = rp.summary; // nullable
+        final items = rp.items;
 
-        // Jika summary belum ada, fallback hitung dari items
-        final items = rp.itemsOf(kind);
-        final num revenueComputed = items.fold<num>(
-          0,
-          (acc, e) => acc + e.totalRevenue,
-        );
-        final int qtyComputed = items.fold<int>(
-          0,
-          (acc, e) => acc + e.totalQty,
-        );
+        // Fallback jika summary null → hitung dari items
+        num revenueComputed = 0;
+        int qtyComputed = 0;
+        int txComputed = 0;
+
+        for (final e in items) {
+          revenueComputed += (e.totalRevenue as num);
+          qtyComputed += (e.totalQty as int);
+          txComputed += (e.totalTransactions as int? ?? 0);
+        }
+
+        final num totalRevenue = (summary?.totalRevenue ?? revenueComputed);
+        final int totalQty = (summary?.totalQty ?? qtyComputed);
+        final int totalTx = (summary?.totalTransactions ?? txComputed);
 
         final String salesToday = isLoading
             ? '—'
-            : _formatRpCompact2Digits(
-                (summary?.totalRevenue ?? revenueComputed),
-              );
-
-        final String productsToday = isLoading
-            ? '—'
-            : '${summary?.totalQty ?? qtyComputed} product';
+            : _formatRpCompact2Digits(totalRevenue);
+        final String productsToday = isLoading ? '—' : '$totalQty product';
 
         return Container(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
@@ -2024,6 +2411,13 @@ class _TrackingReportPanel extends StatelessWidget {
                       color: const Color(0xFF16A34A),
                     ),
 
+                    // (Opsional) tampilkan total transaksi harian jika kamu punya slot lain:
+                    // const SizedBox(height: 18),
+                    // _MetricText.loadingAware(
+                    //   isLoading: isLoading,
+                    //   text: 'Transactions Today: $totalTx',
+                    //   color: Color(0xFF111827),
+                    // ),
                     if (!isLoading && err != null) ...[
                       const SizedBox(height: 10),
                       Row(
@@ -2054,7 +2448,7 @@ class _TrackingReportPanel extends StatelessWidget {
 
               const SizedBox(width: 12),
 
-              // kanan
+              // kanan (gambar tetap)
               SizedBox(
                 width: isTablet ? 180 : 140,
                 height: isTablet ? 180 : 140,

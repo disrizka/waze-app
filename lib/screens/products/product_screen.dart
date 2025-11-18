@@ -252,7 +252,7 @@ class _ProductScreenState extends State<ProductScreen> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/product'),
+          onPressed: () => Navigator.pop(context),
         ),
       ),
       body: SafeArea(
@@ -590,10 +590,13 @@ class _ProductScreenState extends State<ProductScreen> {
               ),
             ),
             onPressed: () async {
-              await showAddProductSheet(context);
+              final result = await Navigator.pushNamed(context, '/product/add');
               if (!mounted) return;
-              await context.read<ProductProvider>().refreshProducts(context);
-              if (_listCtrl.hasClients) _listCtrl.jumpTo(0);
+              // jika halaman add product berhasil simpan (result == true)
+              if (result == true) {
+                await context.read<ProductProvider>().refreshProducts(context);
+                if (_listCtrl.hasClients) _listCtrl.jumpTo(0);
+              }
             },
             child: const Text(
               'Add new product',

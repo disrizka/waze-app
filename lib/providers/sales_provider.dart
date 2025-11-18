@@ -2016,11 +2016,6 @@ class SalesProvider extends SafeChangeNotifier {
       return false;
     }
 
-    if ((_customerId ?? '').isEmpty) {
-      _lastError = "Customer must be selected.";
-      return false;
-    }
-
     ensureReferenceInitialized(notify: false);
 
     final payload = buildOrderPayload();

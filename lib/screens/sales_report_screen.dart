@@ -2,9 +2,11 @@ import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:wa_blast/providers/sales_provider.dart';
 
-/// Sales Report with search + date range filters
+import 'package:wa_blast/providers/sales_provider.dart';
+import 'package:wa_blast/widgets/reusable_pickers.dart';
+
+/// Sales Report with search + date range + store filter + infinite scroll
 class SalesReportScreen extends StatefulWidget {
   const SalesReportScreen({super.key});
 
@@ -14,28 +16,90 @@ class SalesReportScreen extends StatefulWidget {
 
 class _SalesReportScreenState extends State<SalesReportScreen> {
   final _searchC = TextEditingController();
-  DateTimeRange? _range; // active date range
-  bool _showFilters = true; // keep filters visible by default
+  DateTimeRange? _range;
+  bool _showFilters = true;
+
+  // infinite scroll
+  final ScrollController _scrollController = ScrollController();
+  int _currentPage = 1;
+  final int _limit = 30;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+
+  // store filter (local)
+  String? _selectedStoreId;
+  String? _selectedStoreName;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<SalesProvider>().fetchSalesReports(context);
+      _loadFirstPage();
+      _scrollController.addListener(_onScroll);
     });
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _searchC.dispose();
     super.dispose();
   }
 
-  // Helpers
-  String _formatRangeShort(DateTimeRange r) {
-    final f = DateFormat('dd MMM yyyy');
-    return '${f.format(r.start)} — ${f.format(r.end)}';
+  void _onScroll() {
+    if (!_hasMore || _isLoadingMore) return;
+    if (!_scrollController.hasClients) return;
+
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200) {
+      _loadNextPage();
+    }
+  }
+
+  Future<void> _loadFirstPage() async {
+    final prov = context.read<SalesProvider>();
+    _currentPage = 1;
+    _hasMore = true;
+    _isLoadingMore = false;
+
+    await prov.fetchSalesReports(
+      context,
+      page: _currentPage,
+      limit: _limit,
+      append: false,
+      storeLocationId: _selectedStoreId,
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadNextPage() async {
+    final prov = context.read<SalesProvider>();
+    if (prov.loadingReports) return;
+
+    _isLoadingMore = true;
+    if (mounted) setState(() {});
+
+    final before = prov.reports.length;
+
+    await prov.fetchSalesReports(
+      context,
+      page: _currentPage + 1,
+      limit: _limit,
+      append: true,
+      storeLocationId: _selectedStoreId,
+    );
+
+    final after = prov.reports.length;
+    if (after == before) {
+      _hasMore = false;
+    } else {
+      _currentPage += 1;
+    }
+
+    _isLoadingMore = false;
+    if (mounted) setState(() {});
   }
 
   Future<void> _pickRange() async {
@@ -79,17 +143,48 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     }
   }
 
-  void _clearFilters() {
+  void _clearTextAndRange() {
     setState(() {
       _searchC.clear();
       _range = null;
     });
   }
 
+  Future<void> _pickStore() async {
+    final result = await showStorePickerSheet(
+      context,
+      selectedId: _selectedStoreId,
+      autoSelectWhenSingle: false,
+    );
+
+    if (result != null) {
+      setState(() {
+        _selectedStoreId = result.id;
+        _selectedStoreName = result.label;
+      });
+      await _loadFirstPage();
+    }
+  }
+
+  Future<void> _clearStore() async {
+    if (_selectedStoreId == null && _selectedStoreName == null) return;
+    setState(() {
+      _selectedStoreId = null;
+      _selectedStoreName = null;
+    });
+    await _loadFirstPage();
+  }
+
   @override
   Widget build(BuildContext context) {
     final fTime = DateFormat('dd MMM yyyy, HH:mm');
     final fMoney = NumberFormat.decimalPattern('id_ID');
+
+    final storeLabel =
+        (_selectedStoreName == null || _selectedStoreName!.isEmpty)
+        ? 'All stores'
+        : _selectedStoreName!;
+    final hasStoreFilter = _selectedStoreId != null;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -98,9 +193,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
         scrolledUnderElevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.of(
-            context,
-          ).popUntil((route) => route.settings.name == '/sales'),
+          onPressed: () => Navigator.pop(context),
         ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
@@ -121,13 +214,6 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
           ],
         ),
         centerTitle: false,
-        // actions: [
-        //   IconButton(
-        //     tooltip: _showFilters ? 'Hide filters' : 'Show filters',
-        //     onPressed: () => setState(() => _showFilters = !_showFilters),
-        //     icon: Icon(_showFilters ? Icons.filter_alt_off : Icons.filter_alt),
-        //   ),
-        // ],
       ),
       body: Consumer<SalesProvider>(
         builder: (context, prov, _) {
@@ -135,9 +221,8 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
           final isLoading = prov.loadingReports;
           final error = prov.reportError;
 
-          // Apply client-side filters
+          // client-side filter search & date
           final filtered = items.where((it) {
-            // search
             final q = _searchC.text.trim().toLowerCase();
             final matchesQuery = q.isEmpty
                 ? true
@@ -147,7 +232,6 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                     it.status,
                   ].whereType<String>().any((s) => s.toLowerCase().contains(q));
 
-            // date range (inclusive)
             final matchesRange = _range == null
                 ? true
                 : (it.time.isAfter(_range!.start) ||
@@ -159,12 +243,13 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
           }).toList();
 
           return RefreshIndicator(
-            onRefresh: () =>
-                context.read<SalesProvider>().fetchSalesReports(context),
+            onRefresh: _loadFirstPage,
             color: const Color(0xFF426FD4),
             child: CustomScrollView(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
-                // Filters (collapsible)
+                // FILTER CARD (search + date + store)
                 SliverToBoxAdapter(
                   child: AnimatedCrossFade(
                     duration: const Duration(milliseconds: 300),
@@ -182,17 +267,22 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                         searchC: _searchC,
                         onSearchChanged: () => setState(() {}),
                         onPickRange: _pickRange,
-                        range: _range, // kirim DateTimeRange? langsung
-                        onClear: (_searchC.text.isNotEmpty || _range != null)
-                            ? _clearFilters
+                        range: _range,
+                        onClearTextAndRange:
+                            (_searchC.text.isNotEmpty || _range != null)
+                            ? _clearTextAndRange
                             : null,
+                        storeLabel: storeLabel,
+                        hasStoreFilter: hasStoreFilter,
+                        onTapStore: _pickStore,
+                        onClearStore: hasStoreFilter ? _clearStore : null,
                       ),
                     ),
                     secondChild: const SizedBox.shrink(),
                   ),
                 ),
 
-                // Empty / error / loading states
+                // STATES
                 if (isLoading && items.isEmpty)
                   const SliverToBoxAdapter(
                     child: Padding(
@@ -204,12 +294,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-                      child: _ErrorBox(
-                        message: error,
-                        onRetry: () => context
-                            .read<SalesProvider>()
-                            .fetchSalesReports(context),
-                      ),
+                      child: _ErrorBox(message: error, onRetry: _loadFirstPage),
                     ),
                   )
                 else if (items.isEmpty)
@@ -220,20 +305,27 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                     ),
                   )
                 else ...[
-                  // Header with count
+                  // HEADER
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                       child: Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              'Results (${filtered.length})',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF6B7280),
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 4),
+                                Text(
+                                  hasStoreFilter
+                                      ? 'Store: $storeLabel'
+                                      : 'Store: All',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF9CA3AF),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           if (isLoading)
@@ -247,7 +339,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                     ),
                   ),
 
-                  // List
+                  // LIST
                   SliverList.separated(
                     itemCount: filtered.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -272,7 +364,6 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // header
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -321,7 +412,6 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                                 ],
                               ),
                               const SizedBox(height: 16),
-                              // amounts
                               Row(
                                 children: [
                                   Expanded(
@@ -392,7 +482,24 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                       );
                     },
                   ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+
+                  // FOOTER LOADER
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      child: Center(
+                        child: _isLoadingMore
+                            ? const SizedBox(
+                                height: 24,
+                                width: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -427,10 +534,10 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   }
 }
 
-/// --- Formatter range pendek ---
-/// - Same month/year:  "27 Oct — 31"
-/// - Same year:        "27 Oct — 02 Nov"
-/// - Different year:   "27 Oct 2025 — 02 Jan 2026"
+// =======================================================
+// Helpers & widgets
+// =======================================================
+
 String formatRangeCompact(DateTimeRange r) {
   final s = r.start;
   final e = r.end;
@@ -446,19 +553,29 @@ String formatRangeCompact(DateTimeRange r) {
   }
 }
 
+/// CARD FILTER BARU: 2 baris (atas: search, bawah: date + store)
 class _FiltersCard extends StatelessWidget {
   final TextEditingController searchC;
   final VoidCallback onSearchChanged;
   final VoidCallback onPickRange;
-  final DateTimeRange? range; // ganti dari String ke DateTimeRange?
-  final VoidCallback? onClear;
+  final DateTimeRange? range;
+  final VoidCallback? onClearTextAndRange;
+
+  final String storeLabel;
+  final bool hasStoreFilter;
+  final VoidCallback onTapStore;
+  final VoidCallback? onClearStore;
 
   const _FiltersCard({
     required this.searchC,
     required this.onSearchChanged,
     required this.onPickRange,
     required this.range,
-    this.onClear,
+    this.onClearTextAndRange,
+    required this.storeLabel,
+    required this.hasStoreFilter,
+    required this.onTapStore,
+    this.onClearStore,
   });
 
   @override
@@ -473,8 +590,7 @@ class _FiltersCard extends StatelessWidget {
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        height: 52,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -487,15 +603,14 @@ class _FiltersCard extends StatelessWidget {
             ),
           ],
         ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isTight = constraints.maxWidth < 360; // responsif sederhana
-            return Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ================= TOP: SEARCH =================
+            Row(
               children: [
                 const Icon(Icons.search_rounded, size: 20, color: textSub),
                 const SizedBox(width: 8),
-
-                // search field
                 Expanded(
                   child: TextField(
                     controller: searchC,
@@ -519,39 +634,37 @@ class _FiltersCard extends StatelessWidget {
                     ),
                   ),
                 ),
-
-                if (searchC.text.isNotEmpty) ...[
-                  const SizedBox(width: 8),
+                if (searchC.text.isNotEmpty && onClearTextAndRange != null)
                   InkWell(
                     borderRadius: BorderRadius.circular(20),
-                    onTap: () {
-                      searchC.clear();
-                      onSearchChanged();
-                    },
+                    onTap: onClearTextAndRange,
                     child: const Padding(
-                      padding: EdgeInsets.all(6),
+                      padding: EdgeInsets.all(4),
                       child: Icon(
                         Icons.close_rounded,
-                        size: 18,
+                        size: 16,
                         color: Color(0xFF9CA3AF),
                       ),
                     ),
                   ),
-                ],
+              ],
+            ),
 
-                const SizedBox(width: 10),
-                _VDivider(color: borderColor),
-                const SizedBox(width: 10),
+            const SizedBox(height: 8),
+            const _VDivider(color: borderColor),
+            const SizedBox(height: 8),
 
-                // date (Flexible supaya tidak overflow)
-                Flexible(
-                  fit: FlexFit.loose,
+            // ================= BOTTOM: DATE + STORE =================
+            Row(
+              children: [
+                // DATE
+                Expanded(
                   child: InkWell(
                     borderRadius: BorderRadius.circular(10),
                     onTap: onPickRange,
-                    child: Padding(
+                    child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
+                        horizontal: 8,
                         vertical: 8,
                       ),
                       child: Row(
@@ -562,13 +675,12 @@ class _FiltersCard extends StatelessWidget {
                             size: 18,
                             color: textMain,
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           Flexible(
                             child: Text(
                               rangeLabel,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              softWrap: false,
                               style: const TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
@@ -582,48 +694,64 @@ class _FiltersCard extends StatelessWidget {
                   ),
                 ),
 
-                if (onClear != null) ...[
-                  const SizedBox(width: 8),
-                  _VDivider(color: borderColor),
-                  const SizedBox(width: 4),
+                const SizedBox(width: 8),
 
-                  // Reset: teks atau ikon saja bila sempit
-                  if (!isTight)
-                    TextButton(
-                      onPressed: onClear,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 8,
-                        ),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        minimumSize: Size.zero,
-                        foregroundColor: const Color(0xFF2563EB),
+                // STORE
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: onTapStore,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 8,
                       ),
-                      child: const Text(
-                        'Reset',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    )
-                  else
-                    IconButton(
-                      onPressed: onClear,
-                      tooltip: 'Reset filters',
-                      padding: const EdgeInsets.all(6),
-                      constraints: const BoxConstraints(),
-                      icon: const Icon(
-                        Icons.restart_alt_rounded,
-                        size: 18,
-                        color: Color(0xFF2563EB),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.store_mall_directory_rounded,
+                            size: 18,
+                            color: hasStoreFilter
+                                ? const Color(0xFF2563EB)
+                                : textMain,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              storeLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: hasStoreFilter
+                                    ? const Color(0xFF2563EB)
+                                    : textMain,
+                              ),
+                            ),
+                          ),
+                          if (hasStoreFilter && onClearStore != null)
+                            InkWell(
+                              onTap: onClearStore,
+                              borderRadius: BorderRadius.circular(20),
+                              child: const Padding(
+                                padding: EdgeInsets.only(left: 4),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 14,
+                                  color: Color(0xFF9CA3AF),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                ],
+                  ),
+                ),
               ],
-            );
-          },
+            ),
+          ],
         ),
       ),
     );
@@ -635,7 +763,7 @@ class _VDivider extends StatelessWidget {
   const _VDivider({required this.color});
   @override
   Widget build(BuildContext context) {
-    return Container(width: 1, height: 24, color: color);
+    return Container(width: double.infinity, height: 1, color: color);
   }
 }
 

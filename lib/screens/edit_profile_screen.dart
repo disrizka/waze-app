@@ -165,15 +165,16 @@ class _EditProfileView extends StatelessWidget {
                       controller: p.lastNameC,
                       hint: 'Your Last Name',
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 24),
 
-                    // === Danger zone (menarik) ===
-                    const Divider(height: 32),
-                    _DangerZoneCard(
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        _startDeleteOrDeactivateEntry(context);
-                      },
+                    // Danger zone di tengah layar (horizontal center)
+                    Center(
+                      child: _DangerZoneCard(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          _startDeleteOrDeactivateEntry(context);
+                        },
+                      ),
                     ),
                   ],
                 ),
@@ -390,93 +391,17 @@ class _DangerZoneCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      borderRadius: BorderRadius.circular(16),
       onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFFFE9EC), // soft red-rose
-              Color(0xFFFFF7F8), // very light
-            ],
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+        child: const Text(
+          'Delete your account',
+          style: TextStyle(
+            color: AppColors.red,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
           ),
-          border: Border.all(color: AppColors.red.withOpacity(0.18), width: 1),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.red.withOpacity(0.06),
-              blurRadius: 20,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            // Icon bulat
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.red.withOpacity(0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.delete_forever_rounded,
-                color: AppColors.red,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Teks
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Delete your account',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15.5,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Delete or temporarily deactivate your account. Deletion is permanent.',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: AppColors.disabledFg,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Tombol kecil “Manage”
-            TextButton(
-              onPressed: onTap,
-              style: TextButton.styleFrom(
-                backgroundColor: AppColors.red,
-                foregroundColor: AppColors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: const Text(
-                'Manage',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ],
         ),
       ),
     );

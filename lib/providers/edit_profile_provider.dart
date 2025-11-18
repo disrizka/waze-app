@@ -15,6 +15,9 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+// ⬇️ Tambahan: ambil BizIdCache dari provider_helper
+import 'package:wa_blast/core/provider_helper.dart' show BizIdCache;
+
 enum _UsernameCheck { available, taken, error }
 
 class EditProfileProvider with ChangeNotifier {
@@ -255,7 +258,7 @@ class EditProfileProvider with ChangeNotifier {
     }
   }
 
-  // ===================== SUBMIT =====================
+  // ===================== SUBMIT PROFILE =====================
   Future<bool> submitEditProfile(BuildContext context) async {
     _saving = true;
     notifyListeners();
@@ -437,6 +440,12 @@ class EditProfileProvider with ChangeNotifier {
     String? about,
     String? organisationName,
     File? organisationLogoFile,
+
+    /// business out of stock flag:
+    /// - true  → 1
+    /// - false → 0
+    /// - null  → tidak kirim field
+    bool? canBeSoldOutOfStock,
   }) async {
     bool allOk = true;
     String? uploadedFilename;
@@ -447,6 +456,7 @@ class EditProfileProvider with ChangeNotifier {
     debugPrint('  ↳ name=$name');
     debugPrint('  ↳ about=$about');
     debugPrint('  ↳ organisationName=$organisationName');
+    debugPrint('  ↳ canBeSoldOutOfStock=$canBeSoldOutOfStock');
     debugPrint('  ↳ organisationLogoFile=${organisationLogoFile?.path}');
 
     try {
@@ -511,6 +521,17 @@ class EditProfileProvider with ChangeNotifier {
         );
       }
 
+      // ⬇️ Tambahan field can_be_sold_out_of_stock
+      if (canBeSoldOutOfStock != null) {
+        // Bisa dikirim sebagai 0/1 (masih sesuai spesifikasi backend)
+        payload['can_be_sold_out_of_stock'] = canBeSoldOutOfStock
+            ? 1
+            : 0; // atau 'true' / 'false'
+        debugPrint(
+          '🧩 Payload add: can_be_sold_out_of_stock=${payload['can_be_sold_out_of_stock']}',
+        );
+      }
+
       if (payload.isNotEmpty) {
         didAnything = true;
       }
@@ -522,13 +543,23 @@ class EditProfileProvider with ChangeNotifier {
         return (true, uploadedFilename);
       }
 
-      // 4) Panggil API edit business
-      debugPrint('🚀 [2] Sending API request to /waveup/business/edit');
+      // 4) Ambil idBusiness dari BizIdCache dan build endpoint
+      final bizId = await BizIdCache.get();
+      if (bizId == null || bizId.isEmpty) {
+        debugPrint(
+          '❌ [submitEditBusiness] active business id is empty / null. Abort.',
+        );
+        _snack(context, 'Active business not found.');
+        return (false, uploadedFilename);
+      }
+
+      final endpoint = '/waveup/business/$bizId/edit';
+      debugPrint('🚀 [2] Sending API request to $endpoint');
       debugPrint('    Payload: $payload');
 
       final res = await ApiService.post(
         context,
-        '/waveup/business/edit',
+        endpoint,
         payload,
         withAccessToken: true,
       );

@@ -37,7 +37,9 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
         backgroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/purchase'),
+          onPressed: () => Navigator.of(
+            context,
+          ).popUntil((route) => route.settings.name == '/purchase'),
         ),
         // 🆕 Judul alami
         title: Row(

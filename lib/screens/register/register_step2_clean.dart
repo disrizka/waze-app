@@ -16,9 +16,9 @@ class RegisterStep2Clean extends StatefulWidget {
 
 class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
   final _formKey = GlobalKey<FormState>();
-  final _firstC = TextEditingController();
-  final _lastC = TextEditingController();
+
   final _orgC = TextEditingController();
+  final _aboutC = TextEditingController();
 
   File? _logo;
   XFile? _logoX;
@@ -28,9 +28,8 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
 
   @override
   void dispose() {
-    _firstC.dispose();
-    _lastC.dispose();
     _orgC.dispose();
+    _aboutC.dispose();
     super.dispose();
   }
 
@@ -68,7 +67,7 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Camera permission permanently denied. Enable it in Settings.',
+              'Camera permission is permanently denied. Please enable it from Settings.',
             ),
           ),
         );
@@ -105,7 +104,7 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'Ukuran gambar terlalu besar (${_fmtBytes(len)}). Maksimal ${_fmtBytes(_maxBytes)}.',
+                'Image size is too large (${_fmtBytes(len)}). Maximum allowed is ${_fmtBytes(_maxBytes)}.',
               ),
             ),
           );
@@ -125,7 +124,7 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Gagal memilih gambar: $e')));
+      ).showSnackBar(SnackBar(content: Text('Failed to pick image: $e')));
     }
   }
 
@@ -142,8 +141,8 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           children: [
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Pilih dari Galeri'),
-              subtitle: const Text('Tidak perlu izin tambahan'),
+              title: const Text('Choose from gallery'),
+              subtitle: const Text('Recommended for existing photos'),
               onTap: () async {
                 Navigator.pop(context);
                 await _pick(ImageSource.gallery);
@@ -151,7 +150,8 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
             ),
             ListTile(
               leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Ambil dari Kamera'),
+              title: const Text('Take a photo'),
+              subtitle: const Text('Use your camera to capture a logo'),
               onTap: () async {
                 Navigator.pop(context);
                 await _pick(ImageSource.camera);
@@ -172,20 +172,20 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
 
   Future<void> _onCreate() async {
     if (!_formKey.currentState!.validate()) return;
+
     final auth = context.read<AuthProvider>();
 
     final ok = await auth.registerStep2(
       context: context,
-      firstName: _firstC.text.trim(),
-      lastName: _lastC.text.trim(),
       organisationName: _orgC.text.trim(),
       organisationLogo: _logo,
+      organisationAbout: _aboutC.text.trim(),
     );
 
     if (!mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.error ?? 'Register Step 2 gagal')),
+        SnackBar(content: Text(auth.error ?? 'Step 2 registration failed')),
       );
     }
   }
@@ -199,47 +199,62 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ===== Intro =====
           const Text(
-            'First Name',
-            style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
+            'Set up your business',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 20,
+              color: _textGray,
+            ),
           ),
           const SizedBox(height: 6),
-          TextFormField(
-            controller: _firstC,
-            decoration: _inputDec('E.g. Abi'),
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null,
-          ),
-          const SizedBox(height: 16),
-
           const Text(
-            'Last Name',
-            style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
+            'Tell us more about your business. This helps us personalise reports and how your brand appears to your customers.',
+            style: TextStyle(fontSize: 13, color: _hintGray),
           ),
-          const SizedBox(height: 6),
-          TextFormField(
-            controller: _lastC,
-            decoration: _inputDec('E.g. Mamat'),
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null,
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
+          // ===== Business Name =====
           const Text(
-            'Organisation Name',
+            'Business name',
             style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
           ),
           const SizedBox(height: 6),
           TextFormField(
             controller: _orgC,
-            decoration: _inputDec('E.g. Berjaya Selalu Grocery'),
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null,
+            decoration: _inputDec('e.g. Berjaya Selalu Grocery'),
+            validator: (v) {
+              if (v == null || v.trim().isEmpty) {
+                return 'Business name is required';
+              }
+              if (v.trim().length < 2) {
+                return 'Please enter at least 2 characters';
+              }
+              return null;
+            },
           ),
           const SizedBox(height: 16),
 
+          // ===== About (optional) =====
           const Text(
-            'Organisation Logo',
+            'About',
+            style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
+          ),
+          const SizedBox(height: 6),
+          TextFormField(
+            controller: _aboutC,
+            maxLines: 3,
+            decoration: _inputDec(
+              'e.g. Modern mini market focused on fresh groceries and daily needs.',
+            ),
+            // optional: no validator
+          ),
+          const SizedBox(height: 16),
+
+          // ===== Business Logo =====
+          const Text(
+            'Business logo',
             style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
           ),
           const SizedBox(height: 8),
@@ -296,19 +311,15 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                               children: [
                                 TextSpan(
                                   text: _logo == null
-                                      ? 'Add your organisation logo'
+                                      ? 'Add your business logo'
                                       : 'Selected: ${_logoX?.name ?? _logo!.path.split('/').last}',
-                                ),
-                                const TextSpan(
-                                  text: ' *',
-                                  style: TextStyle(color: Colors.red),
                                 ),
                               ],
                             ),
                           ),
                           const SizedBox(height: 4),
                           const Text(
-                            'Format JPG, PNG (maks 10MB)',
+                            'JPG or PNG, up to 10MB. A clear square logo works best.',
                             style: TextStyle(fontSize: 12, color: _hintGray),
                           ),
                         ],
@@ -344,6 +355,7 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           ),
 
           const SizedBox(height: 22),
+
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -366,7 +378,7 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                       ),
                     )
                   : const Text(
-                      'Create',
+                      'Finish setup',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
