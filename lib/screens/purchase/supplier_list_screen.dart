@@ -44,6 +44,12 @@ class _SupplierScreenState extends State<SupplierScreen> {
             color: AppColors.textPrimary,
           ),
         ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          onPressed: () => Navigator.of(
+            context,
+          ).popUntil((route) => route.settings.name == '/purchase'),
+        ),
       ),
       backgroundColor: AppColors.white,
       body: SafeArea(

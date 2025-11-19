@@ -333,14 +333,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
             .buildSkus()
             .where((s) => s.code.trim().isNotEmpty && s.price > 0)
             .toList();
-        if (skusBuilt.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Fill at least one SKU (name & price).'),
-            ),
-          );
-          return;
-        }
         if (_useMultiPrice && !_variantPricesUniform) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(

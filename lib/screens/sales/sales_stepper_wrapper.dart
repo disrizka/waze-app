@@ -166,10 +166,9 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
       prov.goTo(step - 1); // mundur satu step
     } else {
       if (!mounted) return;
-      Navigator.pushReplacementNamed(
+      Navigator.of(
         context,
-        '/sales/list',
-      ); // sudah di step awal
+      ).popUntil((route) => route.settings.name == '/sales/list');
     }
   }
 

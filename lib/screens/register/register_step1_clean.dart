@@ -149,7 +149,6 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
       first_name: _firstNameC.text.trim(),
       last_name: _lastNameC.text.trim(),
     );
-    // NOTE: _confirmPasswordC TIDAK dikirim ke backend, hanya untuk validasi lokal.
 
     if (!mounted) return;
 
@@ -182,10 +181,10 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
       }
 
       // Untuk sekarang: langsung loncat ke Step 2 (Profile) tanpa submit ke backend
-      widget.onSuccessNext();
+      // widget.onSuccessNext();
 
       // Nanti kalau mau aktifkan submit lagi, cukup ganti jadi:
-      // _submitRegistration();
+      _submitRegistration();
     }
   }
 
