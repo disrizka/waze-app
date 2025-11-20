@@ -1,8 +1,10 @@
+// lib/screens/report/sales_report_screen.dart
 import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 
@@ -103,6 +105,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   }
 
   Future<void> _pickRange() async {
+    final l10n = AppLocalizations.of(context)!;
     final now = DateTime.now();
     final firstDate = DateTime(now.year - 3);
     final lastDate = DateTime(now.year + 1, 12, 31);
@@ -117,7 +120,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
           ),
       firstDate: firstDate,
       lastDate: lastDate,
-      saveText: 'Apply',
+      saveText: l10n.salesDateApply,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -177,12 +180,14 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     final fTime = DateFormat('dd MMM yyyy, HH:mm');
     final fMoney = NumberFormat.decimalPattern('id_ID');
 
     final storeLabel =
         (_selectedStoreName == null || _selectedStoreName!.isEmpty)
-        ? 'All stores'
+        ? l10n.salesStoreAll
         : _selectedStoreName!;
     final hasStoreFilter = _selectedStoreId != null;
 
@@ -199,12 +204,15 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
-          children: const [
-            Text('Sales', style: TextStyle(fontWeight: FontWeight.w800)),
-            SizedBox(width: 8),
+          children: [
             Text(
-              '/history',
-              style: TextStyle(
+              l10n.salesTitle,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              l10n.salesHistorySuffix,
+              style: const TextStyle(
                 fontSize: 12,
                 color: Color(0xFF9CA3AF),
                 fontFamily: 'monospace',
@@ -318,8 +326,8 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                                 const SizedBox(height: 4),
                                 Text(
                                   hasStoreFilter
-                                      ? 'Store: $storeLabel'
-                                      : 'Store: All',
+                                      ? l10n.salesStoreLabelWithName(storeLabel)
+                                      : l10n.salesStoreLabelAll,
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: Color(0xFF9CA3AF),
@@ -419,9 +427,9 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        const Text(
-                                          'Total amount',
-                                          style: TextStyle(
+                                        Text(
+                                          l10n.salesTotalAmount,
+                                          style: const TextStyle(
                                             fontSize: 12,
                                             color: Color(0xFF6B7280),
                                           ),
@@ -441,9 +449,9 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      const Text(
-                                        'Quantity',
-                                        style: TextStyle(
+                                      Text(
+                                        l10n.salesQuantity,
+                                        style: const TextStyle(
                                           fontSize: 12,
                                           color: Color(0xFF6B7280),
                                         ),
@@ -515,9 +523,12 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
             child: FilledButton.icon(
               onPressed: () => Navigator.pushNamed(context, '/sales/add'),
               icon: const Icon(Icons.add, size: 20),
-              label: const Text(
-                'Add Sales',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              label: Text(
+                l10n.salesAddButton,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
               ),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF426FD4),
@@ -584,7 +595,10 @@ class _FiltersCard extends StatelessWidget {
     const textMain = Color(0xFF111827);
     const textSub = Color(0xFF6B7280);
 
-    final rangeLabel = range == null ? 'Any time' : formatRangeCompact(range!);
+    final l10n = AppLocalizations.of(context)!;
+    final rangeLabel = range == null
+        ? l10n.salesFilterAnyTime
+        : formatRangeCompact(range!);
 
     return Material(
       color: Colors.white,
@@ -619,9 +633,9 @@ class _FiltersCard extends StatelessWidget {
                     textAlignVertical: TextAlignVertical.center,
                     style: const TextStyle(fontSize: 14, color: textMain),
                     maxLines: 1,
-                    decoration: const InputDecoration(
-                      hintText: 'Search code / reference / status',
-                      hintStyle: TextStyle(
+                    decoration: InputDecoration(
+                      hintText: l10n.salesSearchHint,
+                      hintStyle: const TextStyle(
                         fontSize: 14,
                         color: Color(0xFF9CA3AF),
                       ),
@@ -816,6 +830,8 @@ class _ErrorBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -826,9 +842,9 @@ class _ErrorBox extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Failed to load sales',
-            style: TextStyle(
+          Text(
+            l10n.salesErrorTitle,
+            style: const TextStyle(
               fontWeight: FontWeight.w700,
               color: Color(0xFF991B1B),
             ),
@@ -841,7 +857,7 @@ class _ErrorBox extends StatelessWidget {
             child: TextButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Retry'),
+              label: Text(l10n.salesErrorRetry),
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFF991B1B),
               ),
@@ -858,6 +874,8 @@ class _EmptyBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -866,21 +884,25 @@ class _EmptyBox extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Column(
-        children: const [
-          Icon(Icons.receipt_long_rounded, size: 32, color: Color(0xFF9CA3AF)),
-          SizedBox(height: 8),
+        children: [
+          const Icon(
+            Icons.receipt_long_rounded,
+            size: 32,
+            color: Color(0xFF9CA3AF),
+          ),
+          const SizedBox(height: 8),
           Text(
-            'No sales yet',
-            style: TextStyle(
+            l10n.salesEmptyTitle,
+            style: const TextStyle(
               fontWeight: FontWeight.w700,
               color: Color(0xFF111827),
             ),
           ),
-          SizedBox(height: 6),
+          const SizedBox(height: 6),
           Text(
-            'Pull down to refresh.',
+            l10n.salesEmptySubtitle,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Color(0xFF6B7280)),
+            style: const TextStyle(color: Color(0xFF6B7280)),
           ),
         ],
       ),

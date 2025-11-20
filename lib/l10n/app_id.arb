@@ -1,4 +1,5 @@
 {
+    "@@locale": "id",
     "refresh_success": "Data berhasil diperbarui",
     "refresh_failed": "Gagal memuat ulang",
     "previewReport_title": "Pratinjau Laporan",
@@ -79,6 +80,7 @@
     "profile_menu_terms": "Syarat & Ketentuan",
     "profile_menu_privacy": "Kebijakan Privasi",
     "profile_button_logout": "Keluar Akun",
+    "profile_button_password": "Ganti Kata Sandi",
     "dialog_add_account_title": "Tambah Akun Lainnya?",
     "dialog_add_account_message": "Apakah kamu ingin menambahkan akun lainnya? Kamu bisa login dan berpindah akun kapan saja.",
     "dialog_add_account_cancel": "Batal",
@@ -89,10 +91,429 @@
     "sheet_name_not_found": "Nama tidak ditemukan",
     "sheet_switch_account_failed": "Gagal switch akun",
     "profile_menu_language": "Bahasa",
+    "profile_thermal_pinter": "Printer Thermal",
     "language_sheet_title": "Ubah Bahasa",
     "language_use_system": "Ikuti bahasa sistem",
     "language_english": "Inggris",
     "language_indonesian": "Indonesia",
     "language_switched": "Bahasa diperbarui",
-    "language_cancel": "Batal"
+    "language_cancel": "Batal",
+    "register_welcome_title": "Yuk daftar akun baru!",
+    "@register_welcome_title": {
+        "description": "Judul utama di halaman welcome register."
+    },
+    "register_welcome_description": "Buat akunmu hanya dalam beberapa langkah mudah. Kami akan memandu kamu dengan proses yang ramah dan sederhana.",
+    "@register_welcome_description": {
+        "description": "Deskripsi singkat di bawah judul pada halaman welcome register."
+    },
+    "register_welcome_hint_title": "Kenapa perlu membuat akun WaveUp?",
+    "@register_welcome_hint_title": {
+        "description": "Judul kartu tips yang menjelaskan manfaat membuat akun WaveUp."
+    },
+    "register_welcome_hint_point1": "Akses data bisnismu dari mana saja",
+    "@register_welcome_hint_point1": {
+        "description": "Poin pertama pada kartu tips."
+    },
+    "register_welcome_hint_point2": "Pantau laporan dengan lebih akurat",
+    "@register_welcome_hint_point2": {
+        "description": "Poin kedua pada kartu tips."
+    },
+    "register_welcome_hint_point3": "Proses checkout lebih cepat dan insight lebih jelas",
+    "@register_welcome_hint_point3": {
+        "description": "Poin ketiga pada kartu tips."
+    },
+    "register_welcome_back_tooltip": "Kembali ke login",
+    "@register_welcome_back_tooltip": {
+        "description": "Teks tooltip tombol kembali di halaman welcome register."
+    },
+    "register_step1_device_not_ready": "Kami masih menyiapkan perangkatmu. Silakan coba lagi sebentar lagi.",
+    "register_step1_registration_failed_default": "Pendaftaran gagal. Silakan coba lagi.",
+    "register_step1_primary_continue": "Lanjut",
+    "register_step1_primary_create_account": "Buat akun",
+    "register_step1_step1_title": "Apa email kamu?",
+    "register_step1_step2_title": "Ceritakan tentang kamu",
+    "register_step1_step3_title": "Buat kata sandi yang aman",
+    "register_step1_step4_title": "Tinjau dan konfirmasi",
+    "register_step1_step1_desc": "Kami akan menggunakan email ini untuk membuat akun WaveUp kamu dan mengirimkan notifikasi penting.",
+    "register_step1_step2_desc": "Kami hanya membutuhkan namamu untuk mempersonalisasi pengalaman dan membantu tim mengenalmu.",
+    "register_step1_step3_desc": "Pilih kata sandi yang kuat agar akun dan data bisnismu tetap aman.",
+    "register_step1_step4_desc": "Silakan tinjau kembali detail di bawah ini sebelum kami membuat akunmu.",
+    "register_step1_email_label": "Email",
+    "register_step1_email_hint": "mis. yourmail@mail.com",
+    "register_step1_email_required": "Email wajib diisi",
+    "register_step1_email_invalid": "Silakan masukkan alamat email yang valid",
+    "register_step1_first_name_label": "Nama depan",
+    "register_step1_first_name_hint": "mis. John",
+    "register_step1_first_name_required": "Nama depan wajib diisi",
+    "register_step1_first_name_min_length": "Silakan masukkan minimal 2 karakter",
+    "register_step1_last_name_label": "Nama belakang",
+    "register_step1_last_name_hint": "mis. Doe",
+    "register_step1_last_name_required": "Nama belakang wajib diisi",
+    "register_step1_last_name_min_length": "Silakan masukkan minimal 2 karakter",
+    "register_step1_password_label": "Kata sandi",
+    "register_step1_password_hint": "Buat kata sandi yang kuat",
+    "register_step1_password_required": "Kata sandi wajib diisi",
+    "register_step1_password_min_length": "Kata sandi minimal 8 karakter",
+    "register_step1_password_rule_not_satisfied": "Kata sandi harus mengandung huruf besar, huruf kecil, angka, dan karakter khusus",
+    "register_step1_confirm_password_label": "Konfirmasi kata sandi",
+    "register_step1_confirm_password_hint": "Ulangi kata sandi kamu",
+    "register_step1_confirm_password_required": "Silakan konfirmasi kata sandi kamu",
+    "register_step1_confirm_password_not_match": "Kata sandi tidak sama",
+    "register_step1_password_info_title": "Kata sandi kamu harus berisi:",
+    "register_step1_password_rule_8_chars": "Minimal 8 karakter",
+    "register_step1_password_rule_uppercase": "Minimal 1 huruf besar (A–Z)",
+    "register_step1_password_rule_lowercase": "Minimal 1 huruf kecil (a–z)",
+    "register_step1_password_rule_number": "Minimal 1 angka (0–9)",
+    "register_step1_password_rule_special": "Minimal 1 karakter khusus (contoh: !, @, #, ?)",
+    "register_step1_privacy_checkbox_text_prefix": "Dengan membuat akun, kamu mengonfirmasi bahwa datamu sudah benar dan kamu menyetujui ",
+    "register_step1_privacy_checkbox_link": "Kebijakan Privasi",
+    "register_step1_privacy_policy_title": "Kebijakan Privasi",
+    "register_step1_privacy_not_agreed_snackbar": "Silakan setujui Kebijakan Privasi untuk melanjutkan.",
+    "register_step1_back_button": "Kembali",
+    "register_step1_footer_have_account": "Sudah punya akun? ",
+    "register_step1_footer_login": "Masuk",
+    "register_step2_camera_perm_permanently_denied": "Izin kamera ditolak secara permanen. Silakan aktifkan dari Pengaturan.",
+    "register_step2_image_too_large_prefix": "Ukuran gambar terlalu besar",
+    "register_step2_image_too_large_suffix": "Maksimal yang diperbolehkan adalah",
+    "register_step2_pick_image_failed_prefix": "Gagal memilih gambar: ",
+    "register_step2_logo_from_gallery_title": "Pilih dari galeri",
+    "register_step2_logo_from_gallery_subtitle": "Disarankan untuk foto yang sudah ada",
+    "register_step2_logo_take_photo_title": "Ambil foto",
+    "register_step2_logo_take_photo_subtitle": "Gunakan kamera untuk mengambil logo",
+    "register_step2_failed_default": "Pendaftaran langkah 2 gagal",
+    "register_step2_title": "Atur bisnismu",
+    "register_step2_desc": "Beritahu kami lebih banyak tentang bisnismu. Ini membantu kami mempersonalisasi laporan dan bagaimana brand-mu tampil ke pelanggan.",
+    "register_step2_business_name_label": "Nama bisnis",
+    "register_step2_business_name_hint": "mis. Berjaya Selalu Grocery",
+    "register_step2_business_name_required": "Nama bisnis wajib diisi",
+    "register_step2_business_name_min_length": "Silakan masukkan minimal 2 karakter",
+    "register_step2_about_label": "Tentang bisnis (opsional)",
+    "register_step2_about_hint": "mis. Minimarket modern yang fokus pada kebutuhan harian dan bahan segar.",
+    "register_step2_logo_label": "Logo bisnis",
+    "register_step2_logo_add": "Tambahkan logo bisnismu",
+    "register_step2_logo_selected_prefix": "Dipilih: ",
+    "register_step2_logo_hint": "JPG atau PNG, maksimal 10MB. Logo persegi yang jelas akan terlihat paling baik.",
+    "register_step2_logo_remove": "Hapus",
+    "register_step2_logo_upload": "Unggah",
+    "register_step2_finish_button": "Selesaikan pengaturan",
+    "manage_report_load_error_prefix": "Gagal memuat ringkasan laporan: ",
+    "manage_report_appbar_title": "Laporan",
+    "manage_report_section_menu_title": "Daftar Menu",
+    "manage_report_menu_sales": "Laporan Penjualan",
+    "manage_report_menu_purchase": "Laporan Pembelian",
+    "manage_report_dashboard_title": "Ringkasan Laporan",
+    "manage_report_sales_revenue_title": "Pendapatan Penjualan",
+    "manage_report_purchase_revenue_title": "Pembelian",
+    "manage_report_submetric_transactions": "Transaksi",
+    "manage_report_submetric_qty": "Qty",
+    "make_order_store_location_title": "Lokasi Toko",
+    "make_order_required_badge": "Wajib",
+    "make_order_store_picker_label": "Pilih toko",
+    "make_order_store_picker_empty": "Pilih toko…",
+    "make_order_customer_section_title": "Pelanggan",
+    "make_order_customer_clear": "Bersihkan",
+    "make_order_customer_picker_label": "Pilih pelanggan",
+    "make_order_customer_picker_empty": "Pilih pelanggan...",
+    "make_order_notes_section_title": "Catatan",
+    "make_order_notes_hint": "Catatan tambahan untuk pesanan ini (opsional)...",
+    "make_order_cta_check_order": "Periksa Pesanan",
+    "make_order_empty_cart_message": "Belum ada item. Tambahkan produk dari katalog.",
+    "make_order_table_col_product": "Produk",
+    "make_order_table_col_sku": "SKU",
+    "make_order_table_col_qty": "Qty",
+    "make_order_table_col_disc_per_item": "Diskon/Item",
+    "make_order_table_col_unit_base": "Harga dasar",
+    "make_order_table_col_unit_effective": "Harga efektif",
+    "make_order_table_col_line_total": "Total baris",
+    "make_order_table_action_remove": "Hapus",
+    "make_order_totals_discount_label": "Diskon",
+    "make_order_totals_total_label": "Total",
+    "make_order_edit_ref_title": "Ubah Nomor Referensi",
+    "make_order_edit_ref_hint": "REF-123456",
+    "make_order_edit_ref_cancel": "Batal",
+    "make_order_edit_ref_save": "Simpan",
+    "add_product_retry": "Coba lagi",
+    "add_product_select_products_title": "Pilih Produk",
+    "add_product_search_hint": "Cari produk / SKU",
+    "add_product_no_products": "Produk tidak ditemukan",
+    "add_product_footer_hint_empty": "Pilih produk lalu tentukan variannya",
+    "add_product_footer_hint_selected": "{skuCount} SKU • {qtyCount} qty",
+    "@add_product_footer_hint_selected": {
+        "placeholders": {
+            "skuCount": {
+                "type": "int"
+            },
+            "qtyCount": {
+                "type": "int"
+            }
+        }
+    },
+    "add_product_use_selected_button": "Gunakan yang dipilih",
+    "common_close": "Tutup",
+    "add_product_selected_semantics": "Dipilih {count}",
+    "@add_product_selected_semantics": {
+        "placeholders": {
+            "count": {
+                "type": "int"
+            }
+        }
+    },
+    "add_product_empty_stock_label": "Stok habis",
+    "add_product_price_from_label": "mulai Rp {price}",
+    "@add_product_price_from_label": {
+        "placeholders": {
+            "price": {
+                "type": "String"
+            }
+        }
+    },
+    "add_product_unavailable_button": "Tidak tersedia",
+    "add_product_choose_button": "Pilih",
+    "variant_sheet_title": "Pilih Varian",
+    "variant_stock_label": "Stok: {stock}",
+    "@variant_stock_label": {
+        "placeholders": {
+            "stock": {
+                "type": "int"
+            }
+        }
+    },
+    "variant_in_cart_label": "Di keranjang: {qty}",
+    "@variant_in_cart_label": {
+        "placeholders": {
+            "qty": {
+                "type": "int"
+            }
+        }
+    },
+    "variant_quantity_label": "Jumlah",
+    "variant_cta_select_all_variants": "Pilih semua varian",
+    "variant_cta_stock_empty": "Stok habis",
+    "variant_cta_add_to_cart": "Tambah ke keranjang — Rp {price}",
+    "@variant_cta_add_to_cart": {
+        "placeholders": {
+            "price": {
+                "type": "String"
+            }
+        }
+    },
+    "manageProductTitle": "Kelola Produk",
+    "@manageProductTitle": {
+        "description": "Judul app bar untuk halaman kelola produk"
+    },
+    "manageProductListMenuLabel": "Daftar Menu",
+    "@manageProductListMenuLabel": {
+        "description": "Label section di atas daftar menu pada halaman kelola produk"
+    },
+    "manageProductProductList": "Daftar Produk",
+    "@manageProductProductList": {
+        "description": "Label menu untuk menuju halaman daftar produk"
+    },
+    "manageProductBrandList": "Daftar Merek",
+    "@manageProductBrandList": {
+        "description": "Label menu untuk menuju halaman daftar merek"
+    },
+    "manageProductCategoryList": "Daftar Kategori",
+    "@manageProductCategoryList": {
+        "description": "Label menu untuk menuju halaman daftar kategori"
+    },
+    "productDetailTitle": "Detail Produk",
+    "@productDetailTitle": {
+        "description": "Judul app bar untuk halaman detail produk"
+    },
+    "productDetailBackTooltip": "Kembali",
+    "@productDetailBackTooltip": {
+        "description": "Tooltip tombol kembali di halaman detail produk"
+    },
+    "productDetailDescriptionSectionTitle": "Deskripsi",
+    "@productDetailDescriptionSectionTitle": {
+        "description": "Judul section deskripsi produk"
+    },
+    "productDetailPricesWholesaleTitle": "Harga (Grosir)",
+    "@productDetailPricesWholesaleTitle": {
+        "description": "Judul section harga grosir"
+    },
+    "productDetailPriceRowMin": "Min. {minQty} pcs",
+    "@productDetailPriceRowMin": {
+        "description": "Label minimum kuantitas di daftar harga grosir",
+        "placeholders": {
+            "minQty": {
+                "type": "int"
+            }
+        }
+    },
+    "productDetailSkuSectionTitle": "SKU",
+    "@productDetailSkuSectionTitle": {
+        "description": "Judul section daftar SKU"
+    },
+    "productDetailDeleteSuccess": "Produk berhasil dihapus",
+    "@productDetailDeleteSuccess": {
+        "description": "Pesan snackbar ketika produk berhasil dihapus"
+    },
+    "productDetailDeleteFailed": "Gagal menghapus produk",
+    "@productDetailDeleteFailed": {
+        "description": "Pesan snackbar ketika gagal menghapus produk"
+    },
+    "productDetailDeleteButton": "Hapus",
+    "@productDetailDeleteButton": {
+        "description": "Label tombol hapus di halaman detail produk"
+    },
+    "productDetailEditButton": "Edit Produk",
+    "@productDetailEditButton": {
+        "description": "Label tombol edit produk di halaman detail produk"
+    },
+    "productDetailHiddenLabel": "Disembunyikan",
+    "@productDetailHiddenLabel": {
+        "description": "Badge ketika produk disembunyikan"
+    },
+    "productDetailOpenStock": "Buka stok",
+    "@productDetailOpenStock": {
+        "description": "Label & tooltip tombol untuk membuka stok SKU"
+    },
+    "productDetailImageViewerCloseTooltip": "Tutup",
+    "@productDetailImageViewerCloseTooltip": {
+        "description": "Tooltip tombol tutup di tampilan gambar full screen"
+    },
+    "salesTitle": "Penjualan",
+    "salesHistorySuffix": "/riwayat",
+    "salesSearchHint": "Cari kode / referensi / status",
+    "salesDateApply": "Terapkan",
+    "salesFilterAnyTime": "Kapan saja",
+    "salesStoreAll": "Semua toko",
+    "salesStoreLabelWithName": "Toko: {storeName}",
+    "@salesStoreLabelWithName": {
+        "description": "Label yang menampilkan nama toko terpilih di header laporan penjualan",
+        "placeholders": {
+            "storeName": {
+                "type": "String"
+            }
+        }
+    },
+    "salesStoreLabelAll": "Toko: Semua",
+    "salesTotalAmount": "Total penjualan",
+    "salesQuantity": "Kuantitas",
+    "salesErrorTitle": "Gagal memuat data penjualan",
+    "salesErrorRetry": "Coba lagi",
+    "salesEmptyTitle": "Belum ada penjualan",
+    "salesEmptySubtitle": "Tarik ke bawah untuk memuat ulang.",
+    "salesAddButton": "Tambah penjualan",
+    "reportSalesTitle": "Laporan penjualan",
+    "reportSalesCustomerLabel": "Pelanggan",
+    "reportCommonRefresh": "Muat ulang",
+    "reportDateRangeHelp": "Pilih rentang tanggal",
+    "reportDateRangeApply": "Pakai rentang",
+    "reportFilterTarget": "Target",
+    "reportFilterGranularity": "Granularitas",
+    "reportFilterCustomRange": "Rentang tanggal khusus",
+    "reportFilterToggleOn": "Aktif",
+    "reportFilterToggleOff": "Nonaktif",
+    "reportFilterPickDateRange": "Pilih rentang tanggal",
+    "reportSummaryTotalRevenue": "Total pendapatan",
+    "reportSummaryTotalQty": "Total kuantitas",
+    "reportSummaryTotalTransactions": "Total transaksi",
+    "reportSortLabel": "Urut:",
+    "reportSortPeriod": "Periode",
+    "reportSortTransactions": "Transaksi",
+    "reportSortQty": "Qty",
+    "reportSortRevenue": "Pendapatan",
+    "reportSortName": "Nama",
+    "reportSortDescendingTooltip": "Menurun",
+    "reportSortAscendingTooltip": "Menaik",
+    "reportDistributionTitle": "Distribusi pendapatan",
+    "reportDistributionNoData": "Belum ada data untuk ditampilkan",
+    "reportDistributionOthers": "Lainnya",
+    "reportTop5CustomerTitle": "5 {customerLabel} teratas",
+    "@reportTop5CustomerTitle": {
+        "description": "Judul untuk top 5 ketika dikelompokkan berdasarkan entitas mirip customer",
+        "placeholders": {
+            "customerLabel": {
+                "type": "String"
+            }
+        }
+    },
+    "reportTop5ProductsTitle": "5 produk teratas",
+    "reportTop5CategoriesTitle": "5 kategori teratas",
+    "reportTop5BrandsTitle": "5 merek teratas",
+    "reportTop5PeriodsTitle": "5 periode teratas",
+    "reportTop5Empty": "Belum ada data",
+    "reportTopRowUnnamed": "Tanpa nama",
+    "reportTopRowPercentageOfRevenue": "{percentage}% dari pendapatan",
+    "@reportTopRowPercentageOfRevenue": {
+        "description": "Menjelaskan persentase kontribusi terhadap pendapatan",
+        "placeholders": {
+            "percentage": {
+                "type": "String"
+            }
+        }
+    },
+    "reportDetailsByCustomerLabel": "Detail per {customerLabel}",
+    "@reportDetailsByCustomerLabel": {
+        "description": "Judul section detail per entitas mirip customer",
+        "placeholders": {
+            "customerLabel": {
+                "type": "String"
+            }
+        }
+    },
+    "reportDetailsByProduct": "Detail per produk",
+    "reportDetailsByCategory": "Detail per kategori",
+    "reportDetailsByBrand": "Detail per merek",
+    "reportDetailsByPeriod": "Detail per periode",
+    "reportTableColumnQty": "Qty",
+    "reportTableColumnRevenue": "Pendapatan",
+    "reportTableColumnAvgTx": "Rata2/transaksi",
+    "reportTableColumnPeriod": "Periode",
+    "reportTableColumnTransactions": "Transaksi",
+    "reportTableSkuPrefix": "SKU: {sku}",
+    "@reportTableSkuPrefix": {
+        "placeholders": {
+            "sku": {
+                "type": "String"
+            }
+        }
+    },
+    "reportTablePhonePrefix": "Telepon: {phone}",
+    "@reportTablePhonePrefix": {
+        "placeholders": {
+            "phone": {
+                "type": "String"
+            }
+        }
+    },
+    "reportRangeChipLabel": "Rentang: {start} — {end}",
+    "@reportRangeChipLabel": {
+        "placeholders": {
+            "start": {
+                "type": "String"
+            },
+            "end": {
+                "type": "String"
+            }
+        }
+    },
+    "reportDetailsTitle": "Detail",
+    "reportPurchaseTitle": "Laporan pembelian",
+    "reportPurchaseSupplierLabel": "Supplier",
+    "reportPurchaseSummaryTotalPurchase": "Total pembelian",
+    "reportPurchaseDistributionTitle": "Distribusi pembelian",
+    "reportPurchaseDistributionNoData": "Belum ada data untuk ditampilkan",
+    "reportPurchaseDistributionOthers": "Lainnya",
+    "reportPurchaseTopRowPercentageOfPurchase": "{percentage}% dari pembelian",
+    "@reportPurchaseTopRowPercentageOfPurchase": {
+        "description": "Menjelaskan persentase kontribusi terhadap total pembelian",
+        "placeholders": {
+            "percentage": {
+                "type": "String"
+            }
+        }
+    },
+    "businessSettingsTitle": "Pengaturan bisnis",
+    "businessSettingsSectionManagement": "Manajemen",
+    "businessSettingsBusinessEditTitle": "Edit bisnis",
+    "businessSettingsBusinessEditSubtitle": "Kelola informasi bisnis Anda",
+    "businessSettingsStoreListTitle": "Daftar toko",
+    "businessSettingsStoreListSubtitle": "Kelola toko dan lokasi Anda",
+    "trackingReportTitle": "Ringkasan penjualan",
+    "trackingReportSalesToday": "Penjualan hari ini",
+    "trackingReportProductsSoldToday": "Produk terjual hari ini"
 }

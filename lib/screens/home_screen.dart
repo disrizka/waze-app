@@ -2303,7 +2303,7 @@ class _TrackingReportGate extends StatelessWidget {
 class _TrackingReportPanel extends StatelessWidget {
   const _TrackingReportPanel();
 
-  // ==== FIX: ambil lastError secara aman (provider-mu tidak punya properti ini) ====
+  // Ambil lastError secara aman (provider-mu tidak punya properti ini secara eksplisit)
   String? _getLastErrorSafe(ReportProviderV2 rp) {
     try {
       final dyn = rp as dynamic;
@@ -2318,12 +2318,13 @@ class _TrackingReportPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+    final l10n = AppLocalizations.of(context)!;
 
     return Consumer<ReportProviderV2>(
       builder: (context, rp, _) {
-        // State dari LAST FETCH (kita sudah pastikan _kickDailyFetch() memanggil SALES/CUSTOMER/DAY)
+        // State dari LAST FETCH (dipastikan _kickDailyFetch() sudah memanggil SALES/CUSTOMER/DAY)
         final isLoading = rp.isLoading;
-        final err = _getLastErrorSafe(rp); // <<— aman
+        final err = _getLastErrorSafe(rp); // aman
         final summary = rp.summary; // nullable
         final items = rp.items;
 
@@ -2345,7 +2346,9 @@ class _TrackingReportPanel extends StatelessWidget {
         final String salesToday = isLoading
             ? '—'
             : _formatRpCompact2Digits(totalRevenue);
-        final String productsToday = isLoading ? '—' : '$totalQty product';
+
+        // Supaya tidak ada kata Inggris "product" di value, value-nya hanya angka.
+        final String productsToday = isLoading ? '—' : '$totalQty';
 
         return Container(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
@@ -2368,9 +2371,9 @@ class _TrackingReportPanel extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Tracking Report',
-                      style: TextStyle(
+                    Text(
+                      l10n.trackingReportTitle,
+                      style: const TextStyle(
                         color: Color(0xFF374151),
                         fontWeight: FontWeight.w700,
                         fontSize: 16,
@@ -2379,9 +2382,9 @@ class _TrackingReportPanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 18),
 
-                    const Text(
-                      'Sales Today',
-                      style: TextStyle(
+                    Text(
+                      l10n.trackingReportSalesToday,
+                      style: const TextStyle(
                         color: Color(0xFF6B7280),
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
@@ -2396,9 +2399,9 @@ class _TrackingReportPanel extends StatelessWidget {
 
                     const SizedBox(height: 18),
 
-                    const Text(
-                      'Products Sold Today',
-                      style: TextStyle(
+                    Text(
+                      l10n.trackingReportProductsSoldToday,
+                      style: const TextStyle(
                         color: Color(0xFF6B7280),
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
@@ -2464,6 +2467,11 @@ class _TrackingReportPanel extends StatelessWidget {
     );
   }
 }
+
+// Catatan:
+// - _MetricText dan _formatRpCompact2Digits diasumsikan sudah didefinisikan di file yang sama
+//   atau di-import dari helper lain.
+// - ReportProviderV2 dan AppLocalizations sudah diimport di bagian atas.
 
 String _formatRp(num v) {
   final s = v.floor().toString();

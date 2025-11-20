@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
+import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/screens/products/create_edit_sheet/edit_product_sheet.dart';
@@ -44,6 +45,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<ProductProvider>();
+    final loc = AppLocalizations.of(context)!;
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -52,7 +54,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         backgroundColor: AppColors.white,
         foregroundColor: AppColors.textPrimary,
         title: Text(
-          prov.productDetail?.name ?? 'Product Detail',
+          prov.productDetail?.name ?? loc.productDetailTitle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w700),
@@ -60,7 +62,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           onPressed: () => Navigator.pop(context),
-          tooltip: 'Back',
+          tooltip: loc.productDetailBackTooltip,
         ),
       ),
       body: FutureBuilder(
@@ -112,7 +114,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       vertical: 6,
                     ),
                     child: _SectionCard(
-                      title: 'Description',
+                      title: loc.productDetailDescriptionSectionTitle,
                       child: Text(
                         p!.description,
                         style: const TextStyle(
@@ -133,12 +135,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       vertical: 6,
                     ),
                     child: _SectionCard(
-                      title: 'Prices (Wholesale tiers)',
+                      title: loc.productDetailPricesWholesaleTitle,
                       child: Column(
                         children: p!.productPrices
                             .map(
                               (e) => _RowTile(
-                                left: 'Min. ${e.minQty} pcs',
+                                left: loc.productDetailPriceRowMin(e.minQty),
                                 right: _formatRp(e.price),
                               ),
                             )
@@ -157,7 +159,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       vertical: 6,
                     ),
                     child: _SectionCard(
-                      title: 'SKU',
+                      title: loc.productDetailSkuSectionTitle,
                       child: _SkuSection(skus: p!.productSkus),
                     ),
                   ),
@@ -176,6 +178,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       // Sticky bottom bar
       bottomNavigationBar: Consumer<ProductProvider>(
         builder: (context, prov, _) {
+          final loc = AppLocalizations.of(context)!;
           final p = prov.productDetail;
           final loading = prov.loadingDetail;
           return Container(
@@ -205,19 +208,21 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               AppSnackbar.show(
                                 context,
                                 type: AppSnackType.success,
-                                message: 'Product deleted',
+                                message: loc.productDetailDeleteSuccess,
                               );
                               Navigator.pop(context);
                             } else {
                               AppSnackbar.show(
                                 context,
                                 type: AppSnackType.error,
-                                message: prov.lastError ?? 'Failed to delete',
+                                message:
+                                    prov.lastError ??
+                                    loc.productDetailDeleteFailed,
                               );
                             }
                           },
                     icon: const Icon(Icons.delete_outline_rounded),
-                    label: const Text('Delete'),
+                    label: Text(loc.productDetailDeleteButton),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.danger,
                       side: const BorderSide(color: AppColors.danger),
@@ -239,7 +244,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             prov.productDetail!.idProduct,
                           ),
                     icon: const Icon(Icons.edit_rounded),
-                    label: const Text('Edit Product'),
+                    label: Text(loc.productDetailEditButton),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.blueButton,
                       foregroundColor: AppColors.white,
@@ -300,6 +305,8 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
+
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -309,10 +316,10 @@ class _InfoCard extends StatelessWidget {
             runSpacing: 8,
             children: [
               if (isHide)
-                const _ChipBadge(
-                  label: 'Hidden',
+                _ChipBadge(
+                  label: loc.productDetailHiddenLabel,
                   color: AppColors.danger,
-                  bg: Color(0xFFFFF1F2),
+                  bg: const Color(0xFFFFF1F2),
                 ),
               if ((brand ?? '').isNotEmpty) _ChipSoft(label: brand!),
               if ((category ?? '').isNotEmpty) _ChipSoft(label: category!),
@@ -541,6 +548,7 @@ class _SingleSkuRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isNarrow = MediaQuery.of(context).size.width < 360;
+    final loc = AppLocalizations.of(context)!;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -579,7 +587,7 @@ class _SingleSkuRow extends StatelessWidget {
               height: 36,
               child: isNarrow
                   ? Tooltip(
-                      message: 'Open stock',
+                      message: loc.productDetailOpenStock,
                       child: OutlinedButton(
                         onPressed: onOpenStock,
                         style: OutlinedButton.styleFrom(
@@ -597,7 +605,7 @@ class _SingleSkuRow extends StatelessWidget {
                   : OutlinedButton.icon(
                       onPressed: onOpenStock,
                       icon: const Icon(Icons.inventory_2_outlined, size: 18),
-                      label: const Text('Open stock'),
+                      label: Text(loc.productDetailOpenStock),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.primary,
                         side: const BorderSide(color: AppColors.primary),
@@ -642,6 +650,7 @@ class _MultiSkuRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isNarrow = MediaQuery.of(context).size.width < 360;
+    final loc = AppLocalizations.of(context)!;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -678,7 +687,7 @@ class _MultiSkuRow extends StatelessWidget {
                 height: 32,
                 child: isNarrow
                     ? IconButton.filledTonal(
-                        tooltip: 'Open stock',
+                        tooltip: loc.productDetailOpenStock,
                         onPressed: onOpenStock,
                         icon: const Icon(
                           Icons.inventory_2_outlined,
@@ -694,7 +703,7 @@ class _MultiSkuRow extends StatelessWidget {
                     : OutlinedButton.icon(
                         onPressed: onOpenStock,
                         icon: const Icon(Icons.inventory_2_outlined, size: 18),
-                        label: const Text('Open stock'),
+                        label: Text(loc.productDetailOpenStock),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.primary,
                           side: const BorderSide(color: AppColors.primary),
@@ -808,7 +817,7 @@ class _ImageGalleryBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (images.isEmpty) return _emptyBox();
+    if (images.isEmpty) return _emptyBox(context);
 
     final w = MediaQuery.of(context).size.width;
     const spacing = 8.0;
@@ -923,7 +932,7 @@ class _ImageGalleryBox extends StatelessWidget {
     );
   }
 
-  Widget _emptyBox() => Container(
+  Widget _emptyBox(BuildContext context) => Container(
     height: 180,
     decoration: BoxDecoration(
       color: AppColors.greyBackground,
@@ -948,6 +957,8 @@ class _ImageViewerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -970,7 +981,7 @@ class _ImageViewerPage extends StatelessWidget {
               child: IconButton(
                 icon: const Icon(Icons.close_rounded, color: Colors.white),
                 onPressed: () => Navigator.pop(context),
-                tooltip: 'Close',
+                tooltip: loc.productDetailImageViewerCloseTooltip,
               ),
             ),
           ],

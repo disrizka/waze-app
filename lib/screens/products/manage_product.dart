@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:wa_blast/l10n/app_localizations.dart';
 
 class ManageProductScreen extends StatelessWidget {
   const ManageProductScreen({super.key});
@@ -6,6 +7,7 @@ class ManageProductScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final loc = AppLocalizations.of(context)!;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -17,7 +19,7 @@ class ManageProductScreen extends StatelessWidget {
             context,
           ).popUntil((route) => route.settings.name == '/home'),
         ),
-        title: const Text('Manage Product'),
+        title: Text(loc.manageProductTitle),
         centerTitle: false,
         elevation: 0,
       ),
@@ -28,7 +30,7 @@ class ManageProductScreen extends StatelessWidget {
           children: [
             const SizedBox(height: 8),
             Text(
-              'List Menu',
+              loc.manageProductListMenuLabel,
               style: textTheme.bodyMedium?.copyWith(
                 color: Colors.black.withOpacity(0.6),
                 fontWeight: FontWeight.w600,
@@ -37,19 +39,19 @@ class ManageProductScreen extends StatelessWidget {
             const SizedBox(height: 8),
             _MenuTile(
               icon: Icons.list_alt_rounded,
-              title: 'Product List',
+              title: loc.manageProductProductList,
               onTap: () => Navigator.pushNamed(context, '/product/list'),
             ),
             const SizedBox(height: 8),
             _MenuTile(
               icon: Icons.sell,
-              title: 'Brand List',
+              title: loc.manageProductBrandList,
               onTap: () => Navigator.pushNamed(context, '/product/brand'),
-            ), //produk list dulu
+            ), // product list dulu
             const SizedBox(height: 8),
             _MenuTile(
               icon: Icons.category,
-              title: 'Category List',
+              title: loc.manageProductCategoryList,
               onTap: () => Navigator.pushNamed(context, '/product/category'),
             ),
 

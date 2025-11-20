@@ -1,4 +1,5 @@
 {
+    "@@locale": "en",
     "refresh_success": "Data updated",
     "refresh_failed": "Failed to refresh",
     "previewReport_title": "Preview Report",
@@ -79,6 +80,7 @@
     "profile_menu_terms": "Terms & Conditions",
     "profile_menu_privacy": "Privacy Policy",
     "profile_button_logout": "Logout Account",
+    "profile_button_password": "Change Password",
     "dialog_add_account_title": "Add another account?",
     "dialog_add_account_message": "Do you want to add another account? You can log in and switch accounts anytime.",
     "dialog_add_account_cancel": "Cancel",
@@ -89,10 +91,429 @@
     "sheet_name_not_found": "Name not found",
     "sheet_switch_account_failed": "Failed to switch account",
     "profile_menu_language": "Language",
+    "profile_thermal_pinter": "Thermal Printer",
     "language_sheet_title": "Change Language",
     "language_use_system": "Use system language",
     "language_english": "English",
     "language_indonesian": "Indonesian",
     "language_switched": "Language updated",
-    "language_cancel": "Cancel"
+    "language_cancel": "Cancel",
+    "register_welcome_title": "Let’s sign up a new account!",
+    "@register_welcome_title": {
+        "description": "Headline text on the register welcome screen."
+    },
+    "register_welcome_description": "Create your account in just a few easy steps. We’ll guide you through a friendly, simple setup.",
+    "@register_welcome_description": {
+        "description": "Short description under the headline on the register welcome screen."
+    },
+    "register_welcome_hint_title": "Why create a WaveUp account?",
+    "@register_welcome_hint_title": {
+        "description": "Title of the hint card explaining benefits of creating a WaveUp account."
+    },
+    "register_welcome_hint_point1": "Access your business data anywhere",
+    "@register_welcome_hint_point1": {
+        "description": "First bullet point in the hint card."
+    },
+    "register_welcome_hint_point2": "Track your report accurately",
+    "@register_welcome_hint_point2": {
+        "description": "Second bullet point in the hint card."
+    },
+    "register_welcome_hint_point3": "Faster checkout and insights",
+    "@register_welcome_hint_point3": {
+        "description": "Third bullet point in the hint card."
+    },
+    "register_welcome_back_tooltip": "Back to login",
+    "@register_welcome_back_tooltip": {
+        "description": "Tooltip text for the back button on the register welcome screen."
+    },
+    "register_step1_device_not_ready": "We are still preparing your device. Please try again in a moment.",
+    "register_step1_registration_failed_default": "Registration failed. Please try again.",
+    "register_step1_primary_continue": "Continue",
+    "register_step1_primary_create_account": "Create account",
+    "register_step1_step1_title": "What is your email?",
+    "register_step1_step2_title": "Tell us about you",
+    "register_step1_step3_title": "Create a secure password",
+    "register_step1_step4_title": "Review and confirm",
+    "register_step1_step1_desc": "We will use this email to create your WaveUp account and send important notifications.",
+    "register_step1_step2_desc": "We only need your name to personalize your experience and help your team recognize you.",
+    "register_step1_step3_desc": "Choose a strong password to keep your account and business data safe.",
+    "register_step1_step4_desc": "Please review your details below before we create your account.",
+    "register_step1_email_label": "Email",
+    "register_step1_email_hint": "e.g. yourmail@mail.com",
+    "register_step1_email_required": "Email is required",
+    "register_step1_email_invalid": "Please enter a valid email address",
+    "register_step1_first_name_label": "First name",
+    "register_step1_first_name_hint": "e.g. John",
+    "register_step1_first_name_required": "First name is required",
+    "register_step1_first_name_min_length": "Please enter at least 2 characters",
+    "register_step1_last_name_label": "Last name",
+    "register_step1_last_name_hint": "e.g. Doe",
+    "register_step1_last_name_required": "Last name is required",
+    "register_step1_last_name_min_length": "Please enter at least 2 characters",
+    "register_step1_password_label": "Password",
+    "register_step1_password_hint": "Create a strong password",
+    "register_step1_password_required": "Password is required",
+    "register_step1_password_min_length": "Password must be at least 8 characters long",
+    "register_step1_password_rule_not_satisfied": "Password must contain uppercase, lowercase, number, and special character",
+    "register_step1_confirm_password_label": "Confirm password",
+    "register_step1_confirm_password_hint": "Confirm your password",
+    "register_step1_confirm_password_required": "Please confirm your password",
+    "register_step1_confirm_password_not_match": "Passwords do not match",
+    "register_step1_password_info_title": "Your password must contain:",
+    "register_step1_password_rule_8_chars": "At least 8 characters",
+    "register_step1_password_rule_uppercase": "At least 1 uppercase letter (A–Z)",
+    "register_step1_password_rule_lowercase": "At least 1 lowercase letter (a–z)",
+    "register_step1_password_rule_number": "At least 1 number (0–9)",
+    "register_step1_password_rule_special": "At least 1 special character (e.g. !, @, #, ?)",
+    "register_step1_privacy_checkbox_text_prefix": "By creating an account, you confirm that your details are correct and you agree to our ",
+    "register_step1_privacy_checkbox_link": "Privacy Policy",
+    "register_step1_privacy_policy_title": "Privacy Policy",
+    "register_step1_privacy_not_agreed_snackbar": "Please agree to the Privacy Policy to continue.",
+    "register_step1_back_button": "Back",
+    "register_step1_footer_have_account": "Already have an account? ",
+    "register_step1_footer_login": "Log in",
+    "register_step2_camera_perm_permanently_denied": "Camera permission is permanently denied. Please enable it from Settings.",
+    "register_step2_image_too_large_prefix": "Image size is too large",
+    "register_step2_image_too_large_suffix": "Maximum allowed is",
+    "register_step2_pick_image_failed_prefix": "Failed to pick image: ",
+    "register_step2_logo_from_gallery_title": "Choose from gallery",
+    "register_step2_logo_from_gallery_subtitle": "Recommended for existing photos",
+    "register_step2_logo_take_photo_title": "Take a photo",
+    "register_step2_logo_take_photo_subtitle": "Use your camera to capture a logo",
+    "register_step2_failed_default": "Step 2 registration failed",
+    "register_step2_title": "Set up your business",
+    "register_step2_desc": "Tell us more about your business. This helps us personalise reports and how your brand appears to your customers.",
+    "register_step2_business_name_label": "Business name",
+    "register_step2_business_name_hint": "e.g. Berjaya Selalu Grocery",
+    "register_step2_business_name_required": "Business name is required",
+    "register_step2_business_name_min_length": "Please enter at least 2 characters",
+    "register_step2_about_label": "About",
+    "register_step2_about_hint": "e.g. Modern mini market focused on fresh groceries and daily needs.",
+    "register_step2_logo_label": "Business logo",
+    "register_step2_logo_add": "Add your business logo",
+    "register_step2_logo_selected_prefix": "Selected: ",
+    "register_step2_logo_hint": "JPG or PNG, up to 10MB. A clear square logo works best.",
+    "register_step2_logo_remove": "Remove",
+    "register_step2_logo_upload": "Upload",
+    "register_step2_finish_button": "Finish setup",
+    "manage_report_load_error_prefix": "Failed to load report summary: ",
+    "manage_report_appbar_title": "Report",
+    "manage_report_section_menu_title": "List Menu",
+    "manage_report_menu_sales": "Report Sales",
+    "manage_report_menu_purchase": "Report Purchase",
+    "manage_report_dashboard_title": "Report Summary",
+    "manage_report_sales_revenue_title": "Sales Revenue",
+    "manage_report_purchase_revenue_title": "Purchase",
+    "manage_report_submetric_transactions": "Transactions",
+    "manage_report_submetric_qty": "Qty",
+    "make_order_store_location_title": "Store Location",
+    "make_order_required_badge": "Required",
+    "make_order_store_picker_label": "Choose a store",
+    "make_order_store_picker_empty": "Select store…",
+    "make_order_customer_section_title": "Customer",
+    "make_order_customer_clear": "Clear",
+    "make_order_customer_picker_label": "Choose customer",
+    "make_order_customer_picker_empty": "Select customer...",
+    "make_order_notes_section_title": "Notes",
+    "make_order_notes_hint": "Optional notes for this order...",
+    "make_order_cta_check_order": "Check Order",
+    "make_order_empty_cart_message": "No items yet. Add products from catalog.",
+    "make_order_table_col_product": "Product",
+    "make_order_table_col_sku": "SKU",
+    "make_order_table_col_qty": "Qty",
+    "make_order_table_col_disc_per_item": "Disc/Item",
+    "make_order_table_col_unit_base": "Unit (Base)",
+    "make_order_table_col_unit_effective": "Unit (Effective)",
+    "make_order_table_col_line_total": "Line Total",
+    "make_order_table_action_remove": "Remove",
+    "make_order_totals_discount_label": "Discount",
+    "make_order_totals_total_label": "Total",
+    "make_order_edit_ref_title": "Edit Reference Number",
+    "make_order_edit_ref_hint": "REF-123456",
+    "make_order_edit_ref_cancel": "Cancel",
+    "make_order_edit_ref_save": "Save",
+    "add_product_retry": "Retry",
+    "add_product_select_products_title": "Select Products",
+    "add_product_search_hint": "Search product / SKU",
+    "add_product_no_products": "No products found",
+    "add_product_footer_hint_empty": "Select products then set their variants",
+    "add_product_footer_hint_selected": "{skuCount} SKU • {qtyCount} qty",
+    "@add_product_footer_hint_selected": {
+        "placeholders": {
+            "skuCount": {
+                "type": "int"
+            },
+            "qtyCount": {
+                "type": "int"
+            }
+        }
+    },
+    "add_product_use_selected_button": "Use selected",
+    "common_close": "Close",
+    "add_product_selected_semantics": "Selected {count}",
+    "@add_product_selected_semantics": {
+        "placeholders": {
+            "count": {
+                "type": "int"
+            }
+        }
+    },
+    "add_product_empty_stock_label": "Empty Stock",
+    "add_product_price_from_label": "from Rp {price}",
+    "@add_product_price_from_label": {
+        "placeholders": {
+            "price": {
+                "type": "String"
+            }
+        }
+    },
+    "add_product_unavailable_button": "Unavailable",
+    "add_product_choose_button": "Choose",
+    "variant_sheet_title": "Choose Variants",
+    "variant_stock_label": "Stock: {stock}",
+    "@variant_stock_label": {
+        "placeholders": {
+            "stock": {
+                "type": "int"
+            }
+        }
+    },
+    "variant_in_cart_label": "In cart: {qty}",
+    "@variant_in_cart_label": {
+        "placeholders": {
+            "qty": {
+                "type": "int"
+            }
+        }
+    },
+    "variant_quantity_label": "Quantity",
+    "variant_cta_select_all_variants": "Select all variants",
+    "variant_cta_stock_empty": "Out of stock",
+    "variant_cta_add_to_cart": "Add to cart — Rp {price}",
+    "@variant_cta_add_to_cart": {
+        "placeholders": {
+            "price": {
+                "type": "String"
+            }
+        }
+    },
+    "manageProductTitle": "Manage Product",
+    "@manageProductTitle": {
+        "description": "Title of manage product screen app bar"
+    },
+    "manageProductListMenuLabel": "List Menu",
+    "@manageProductListMenuLabel": {
+        "description": "Section label above the menu list on manage product screen"
+    },
+    "manageProductProductList": "Product List",
+    "@manageProductProductList": {
+        "description": "Menu item label for navigating to product list screen"
+    },
+    "manageProductBrandList": "Brand List",
+    "@manageProductBrandList": {
+        "description": "Menu item label for navigating to brand list screen"
+    },
+    "manageProductCategoryList": "Category List",
+    "@manageProductCategoryList": {
+        "description": "Menu item label for navigating to category list screen"
+    },
+    "productDetailTitle": "Product Detail",
+    "@productDetailTitle": {
+        "description": "Title for the product detail screen app bar"
+    },
+    "productDetailBackTooltip": "Back",
+    "@productDetailBackTooltip": {
+        "description": "Tooltip for back button on product detail screen"
+    },
+    "productDetailDescriptionSectionTitle": "Description",
+    "@productDetailDescriptionSectionTitle": {
+        "description": "Section title for product description"
+    },
+    "productDetailPricesWholesaleTitle": "Prices (Wholesale tiers)",
+    "@productDetailPricesWholesaleTitle": {
+        "description": "Section title for wholesale prices"
+    },
+    "productDetailPriceRowMin": "Min. {minQty} pcs",
+    "@productDetailPriceRowMin": {
+        "description": "Label for minimum quantity row in wholesale price list",
+        "placeholders": {
+            "minQty": {
+                "type": "int"
+            }
+        }
+    },
+    "productDetailSkuSectionTitle": "SKU",
+    "@productDetailSkuSectionTitle": {
+        "description": "Section title for SKU list"
+    },
+    "productDetailDeleteSuccess": "Product deleted",
+    "@productDetailDeleteSuccess": {
+        "description": "Snackbar message when product delete succeeds"
+    },
+    "productDetailDeleteFailed": "Failed to delete",
+    "@productDetailDeleteFailed": {
+        "description": "Snackbar message when product delete fails"
+    },
+    "productDetailDeleteButton": "Delete",
+    "@productDetailDeleteButton": {
+        "description": "Label for delete button on product detail screen"
+    },
+    "productDetailEditButton": "Edit Product",
+    "@productDetailEditButton": {
+        "description": "Label for edit product button on product detail screen"
+    },
+    "productDetailHiddenLabel": "Hidden",
+    "@productDetailHiddenLabel": {
+        "description": "Badge label when product is hidden"
+    },
+    "productDetailOpenStock": "Open stock",
+    "@productDetailOpenStock": {
+        "description": "Button label and tooltip for opening stock page of SKU"
+    },
+    "productDetailImageViewerCloseTooltip": "Close",
+    "@productDetailImageViewerCloseTooltip": {
+        "description": "Tooltip for close button in full screen image viewer"
+    },
+    "salesTitle": "Sales",
+    "salesHistorySuffix": "/history",
+    "salesSearchHint": "Search code / reference / status",
+    "salesDateApply": "Apply",
+    "salesFilterAnyTime": "Any time",
+    "salesStoreAll": "All stores",
+    "salesStoreLabelWithName": "Store: {storeName}",
+    "@salesStoreLabelWithName": {
+        "description": "Label showing selected store name in sales report header",
+        "placeholders": {
+            "storeName": {
+                "type": "String"
+            }
+        }
+    },
+    "salesStoreLabelAll": "Store: All",
+    "salesTotalAmount": "Total amount",
+    "salesQuantity": "Quantity",
+    "salesErrorTitle": "Failed to load sales",
+    "salesErrorRetry": "Retry",
+    "salesEmptyTitle": "No sales yet",
+    "salesEmptySubtitle": "Pull down to refresh.",
+    "salesAddButton": "Add sales",
+    "reportSalesTitle": "Sales report",
+    "reportSalesCustomerLabel": "Customer",
+    "reportCommonRefresh": "Refresh",
+    "reportDateRangeHelp": "Choose date range",
+    "reportDateRangeApply": "Apply range",
+    "reportFilterTarget": "Target",
+    "reportFilterGranularity": "Granularity",
+    "reportFilterCustomRange": "Custom date range",
+    "reportFilterToggleOn": "On",
+    "reportFilterToggleOff": "Off",
+    "reportFilterPickDateRange": "Pick date range",
+    "reportSummaryTotalRevenue": "Total revenue",
+    "reportSummaryTotalQty": "Total qty",
+    "reportSummaryTotalTransactions": "Total transactions",
+    "reportSortLabel": "Sort:",
+    "reportSortPeriod": "Period",
+    "reportSortTransactions": "Transactions",
+    "reportSortQty": "Qty",
+    "reportSortRevenue": "Revenue",
+    "reportSortName": "Name",
+    "reportSortDescendingTooltip": "Descending",
+    "reportSortAscendingTooltip": "Ascending",
+    "reportDistributionTitle": "Revenue distribution",
+    "reportDistributionNoData": "No data to visualize",
+    "reportDistributionOthers": "Others",
+    "reportTop5CustomerTitle": "Top 5 {customerLabel}",
+    "@reportTop5CustomerTitle": {
+        "description": "Title for top 5 section when grouped by customer-like entity",
+        "placeholders": {
+            "customerLabel": {
+                "type": "String"
+            }
+        }
+    },
+    "reportTop5ProductsTitle": "Top 5 products",
+    "reportTop5CategoriesTitle": "Top 5 categories",
+    "reportTop5BrandsTitle": "Top 5 brands",
+    "reportTop5PeriodsTitle": "Top 5 periods",
+    "reportTop5Empty": "No data yet",
+    "reportTopRowUnnamed": "Unnamed",
+    "reportTopRowPercentageOfRevenue": "{percentage}% of revenue",
+    "@reportTopRowPercentageOfRevenue": {
+        "description": "Shows how much percent of revenue this row contributes",
+        "placeholders": {
+            "percentage": {
+                "type": "String"
+            }
+        }
+    },
+    "reportDetailsByCustomerLabel": "Details by {customerLabel}",
+    "@reportDetailsByCustomerLabel": {
+        "description": "Section title for details table grouped by a customer-like entity",
+        "placeholders": {
+            "customerLabel": {
+                "type": "String"
+            }
+        }
+    },
+    "reportDetailsByProduct": "Details by product",
+    "reportDetailsByCategory": "Details by category",
+    "reportDetailsByBrand": "Details by brand",
+    "reportDetailsByPeriod": "Details by period",
+    "reportTableColumnQty": "Qty",
+    "reportTableColumnRevenue": "Revenue",
+    "reportTableColumnAvgTx": "Avg/Tx",
+    "reportTableColumnPeriod": "Period",
+    "reportTableColumnTransactions": "Transactions",
+    "reportTableSkuPrefix": "SKU: {sku}",
+    "@reportTableSkuPrefix": {
+        "placeholders": {
+            "sku": {
+                "type": "String"
+            }
+        }
+    },
+    "reportTablePhonePrefix": "Phone: {phone}",
+    "@reportTablePhonePrefix": {
+        "placeholders": {
+            "phone": {
+                "type": "String"
+            }
+        }
+    },
+    "reportRangeChipLabel": "Range: {start} — {end}",
+    "@reportRangeChipLabel": {
+        "placeholders": {
+            "start": {
+                "type": "String"
+            },
+            "end": {
+                "type": "String"
+            }
+        }
+    },
+    "reportDetailsTitle": "Details",
+    "reportPurchaseTitle": "Purchase report",
+    "reportPurchaseSupplierLabel": "Supplier",
+    "reportPurchaseSummaryTotalPurchase": "Total purchase",
+    "reportPurchaseDistributionTitle": "Purchase distribution",
+    "reportPurchaseDistributionNoData": "No data to visualize",
+    "reportPurchaseDistributionOthers": "Others",
+    "reportPurchaseTopRowPercentageOfPurchase": "{percentage}% of purchase",
+    "@reportPurchaseTopRowPercentageOfPurchase": {
+        "description": "Shows how much percent of purchase this row contributes",
+        "placeholders": {
+            "percentage": {
+                "type": "String"
+            }
+        }
+    },
+    "businessSettingsTitle": "Business settings",
+    "businessSettingsSectionManagement": "Management",
+    "businessSettingsBusinessEditTitle": "Business edit",
+    "businessSettingsBusinessEditSubtitle": "Manage your business information",
+    "businessSettingsStoreListTitle": "Store list",
+    "businessSettingsStoreListSubtitle": "Manage your stores and locations",
+    "trackingReportTitle": "Tracking report",
+    "trackingReportSalesToday": "Sales today",
+    "trackingReportProductsSoldToday": "Products sold today"
 }

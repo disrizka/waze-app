@@ -385,7 +385,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               },
             ),
             _MenuTile(
-              title: 'Change Password',
+              title: t.profile_button_password,
               icon: LucideIcons.key,
               subtitle: null,
               onTap: () async {
@@ -414,7 +414,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onTap: () => _showLanguageSheet(context),
             ),
             _MenuTile(
-              title: 'Thermal Printer',
+              title: t.profile_thermal_pinter,
               icon: LucideIcons.printer,
               onTap: () {
                 Navigator.pushNamed(
