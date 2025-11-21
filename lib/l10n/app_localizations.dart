@@ -1804,6 +1804,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Products sold today'**
   String get trackingReportProductsSoldToday;
+
+  /// Bottom navigation label for the Home tab in MainWrapper
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get mainNavHomeLabel;
+
+  /// Bottom navigation label for the Chats tab in MainWrapper
+  ///
+  /// In en, this message translates to:
+  /// **'Chats'**
+  String get mainNavChatsLabel;
+
+  /// Bottom navigation label for the Settings tab in MainWrapper
+  ///
+  /// In en, this message translates to:
+  /// **'Setting'**
+  String get mainNavSettingsLabel;
+
+  /// Unit for 1 million in compact currency format
+  ///
+  /// In en, this message translates to:
+  /// **'million'**
+  String get currencyUnitMillion;
+
+  /// Unit for 1 billion in compact currency format
+  ///
+  /// In en, this message translates to:
+  /// **'billion'**
+  String get currencyUnitBillion;
+
+  /// Unit for 1 trillion in compact currency format
+  ///
+  /// In en, this message translates to:
+  /// **'trillion'**
+  String get currencyUnitTrillion;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

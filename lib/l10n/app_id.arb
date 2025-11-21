@@ -515,5 +515,32 @@
     "businessSettingsStoreListSubtitle": "Kelola toko dan lokasi Anda",
     "trackingReportTitle": "Ringkasan penjualan",
     "trackingReportSalesToday": "Penjualan hari ini",
-    "trackingReportProductsSoldToday": "Produk terjual hari ini"
+    "trackingReportProductsSoldToday": "Produk terjual hari ini",
+    "mainNavHomeLabel": "Beranda",
+    "@mainNavHomeLabel": {
+        "description": "Label navigasi bawah untuk tab Beranda di MainWrapper",
+        "type": "text"
+    },
+    "mainNavChatsLabel": "Chat",
+    "@mainNavChatsLabel": {
+        "description": "Label navigasi bawah untuk tab Chat di MainWrapper",
+        "type": "text"
+    },
+    "mainNavSettingsLabel": "Pengaturan",
+    "@mainNavSettingsLabel": {
+        "description": "Label navigasi bawah untuk tab Pengaturan di MainWrapper",
+        "type": "text"
+    },
+    "currencyUnitMillion": "juta",
+    "@currencyUnitMillion": {
+        "description": "Satuan untuk 1 juta dalam tampilan rupiah compact (contoh: Rp 1,2 juta)"
+    },
+    "currencyUnitBillion": "miliar",
+    "@currencyUnitBillion": {
+        "description": "Satuan untuk 1 miliar dalam tampilan rupiah compact (contoh: Rp 3 miliar)"
+    },
+    "currencyUnitTrillion": "triliun",
+    "@currencyUnitTrillion": {
+        "description": "Satuan untuk 1 triliun dalam tampilan rupiah compact (contoh: Rp 1,5 triliun)"
+    }
 }

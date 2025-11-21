@@ -515,5 +515,32 @@
     "businessSettingsStoreListSubtitle": "Manage your stores and locations",
     "trackingReportTitle": "Tracking report",
     "trackingReportSalesToday": "Sales today",
-    "trackingReportProductsSoldToday": "Products sold today"
+    "trackingReportProductsSoldToday": "Products sold today",
+    "mainNavHomeLabel": "Home",
+    "@mainNavHomeLabel": {
+        "description": "Bottom navigation label for the Home tab in MainWrapper",
+        "type": "text"
+    },
+    "mainNavChatsLabel": "Chats",
+    "@mainNavChatsLabel": {
+        "description": "Bottom navigation label for the Chats tab in MainWrapper",
+        "type": "text"
+    },
+    "mainNavSettingsLabel": "Setting",
+    "@mainNavSettingsLabel": {
+        "description": "Bottom navigation label for the Settings tab in MainWrapper",
+        "type": "text"
+    },
+    "currencyUnitMillion": "million",
+    "@currencyUnitMillion": {
+        "description": "Unit for 1 million in compact currency format"
+    },
+    "currencyUnitBillion": "billion",
+    "@currencyUnitBillion": {
+        "description": "Unit for 1 billion in compact currency format"
+    },
+    "currencyUnitTrillion": "trillion",
+    "@currencyUnitTrillion": {
+        "description": "Unit for 1 trillion in compact currency format"
+    }
 }

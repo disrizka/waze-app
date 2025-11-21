@@ -7,7 +7,7 @@ import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
 import 'package:wa_blast/widgets/modal_login.dart';
 import 'package:wa_blast/widgets/simple_web_view.dart';
-
+import 'package:package_info_plus/package_info_plus.dart';
 import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
@@ -293,6 +293,27 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  String? _versionLabel; // ⬅️ state untuk simpan versi app
+
+  @override
+  void initState() {
+    super.initState();
+    _initVersion();
+  }
+
+  Future<void> _initVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final v = '${info.version} (${info.buildNumber})';
+      if (!mounted) return;
+      setState(() {
+        _versionLabel = v;
+      });
+    } catch (_) {
+      // kalau gagal, biarkan saja (tidak tampil apa-apa)
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context);
@@ -475,6 +496,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ),
+
+            // ⬇️ TULISAN VERSION DI BAWAH TOMBOL LOGOUT
+            if (_versionLabel != null) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: Text(
+                  'Version App $_versionLabel',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ),
+            ],
+
             const SizedBox(height: 24),
           ],
         ),

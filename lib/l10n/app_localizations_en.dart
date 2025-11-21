@@ -894,4 +894,22 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get trackingReportProductsSoldToday => 'Products sold today';
+
+  @override
+  String get mainNavHomeLabel => 'Home';
+
+  @override
+  String get mainNavChatsLabel => 'Chats';
+
+  @override
+  String get mainNavSettingsLabel => 'Setting';
+
+  @override
+  String get currencyUnitMillion => 'million';
+
+  @override
+  String get currencyUnitBillion => 'billion';
+
+  @override
+  String get currencyUnitTrillion => 'trillion';
 }

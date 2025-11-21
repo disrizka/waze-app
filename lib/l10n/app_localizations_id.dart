@@ -894,4 +894,22 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get trackingReportProductsSoldToday => 'Produk terjual hari ini';
+
+  @override
+  String get mainNavHomeLabel => 'Beranda';
+
+  @override
+  String get mainNavChatsLabel => 'Chat';
+
+  @override
+  String get mainNavSettingsLabel => 'Pengaturan';
+
+  @override
+  String get currencyUnitMillion => 'juta';
+
+  @override
+  String get currencyUnitBillion => 'miliar';
+
+  @override
+  String get currencyUnitTrillion => 'triliun';
 }
