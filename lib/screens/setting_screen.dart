@@ -502,7 +502,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 8),
               Center(
                 child: Text(
-                  'Version App $_versionLabel',
+                  'WaveUp $_versionLabel',
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ),

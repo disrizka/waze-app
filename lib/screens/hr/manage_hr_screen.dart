@@ -35,12 +35,11 @@ class ManageHRScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            // _MenuTile(
-            //   icon: Icons.group_rounded,
-            //   title: 'Employee List',
-            //   onTap: () =>
-            //       Navigator.pushNamed(context, '/hr/employee/invitation'),
-            // ),
+            _MenuTile(
+              icon: Icons.group_rounded,
+              title: 'Employee List',
+              onTap: () => Navigator.pushNamed(context, '/hr/employee/list'),
+            ),
             const SizedBox(height: 8),
             _MenuTile(
               icon: Icons.badge_rounded,

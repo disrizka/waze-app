@@ -6,6 +6,7 @@ import 'package:wa_blast/screens/home_screen.dart';
 import 'package:wa_blast/screens/chat_screen.dart';
 import 'package:wa_blast/providers/role_provider.dart';
 import 'package:wa_blast/screens/setting_screen.dart';
+import 'package:wa_blast/l10n/app_localizations.dart';
 
 class MainWrapper extends StatefulWidget {
   const MainWrapper({super.key});
@@ -85,6 +86,7 @@ class _MainWrapperState extends State<MainWrapper> {
   @override
   Widget build(BuildContext context) {
     final canWaba = context.watch<RoleProvider>().canPage('waba');
+    final loc = AppLocalizations.of(context)!;
 
     final screens = <Widget>[
       const HomeScreen(),
@@ -93,21 +95,21 @@ class _MainWrapperState extends State<MainWrapper> {
     ];
 
     final items = <BottomNavigationBarItem>[
-      const BottomNavigationBarItem(
-        icon: Icon(LucideIcons.layoutGrid),
-        activeIcon: Icon(LucideIcons.layoutGrid),
-        label: 'Home',
+      BottomNavigationBarItem(
+        icon: const Icon(LucideIcons.layoutGrid),
+        activeIcon: const Icon(LucideIcons.layoutGrid),
+        label: loc.mainNavHomeLabel,
       ),
       if (canWaba)
-        const BottomNavigationBarItem(
-          icon: Icon(LucideIcons.messagesSquare),
-          activeIcon: Icon(LucideIcons.messagesSquare),
-          label: 'Chats',
+        BottomNavigationBarItem(
+          icon: const Icon(LucideIcons.messagesSquare),
+          activeIcon: const Icon(LucideIcons.messagesSquare),
+          label: loc.mainNavChatsLabel,
         ),
-      const BottomNavigationBarItem(
-        icon: Icon(LucideIcons.settings),
-        activeIcon: Icon(LucideIcons.settings),
-        label: 'Setting',
+      BottomNavigationBarItem(
+        icon: const Icon(LucideIcons.settings),
+        activeIcon: const Icon(LucideIcons.settings),
+        label: loc.mainNavSettingsLabel,
       ),
     ];
 

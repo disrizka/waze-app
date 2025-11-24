@@ -48,9 +48,11 @@ class _HomeScreenState extends State<HomeScreen> {
       GlobalKey<_HeaderGradientState>();
 
   Future<void> _kickDailyFetch() async {
+    // 🔐 Pastikan state masih mounted sebelum pakai context
+    if (!mounted) return;
+
     final rp = context.read<ReportProviderV2>();
 
-    // Ambil SALES by CUSTOMER untuk granularity = DAY (harian)
     await rp.fetchSales(
       context,
       target: ReportTarget.customer,
@@ -63,12 +65,17 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     Future.microtask(() async {
+      // guard awal
       if (!mounted || _didKickRoleLoad) return;
       _didKickRoleLoad = true;
 
+      // 1) refresh role dulu
       await context.read<RoleProvider>().refreshActiveRoleFromPrefs(context);
 
-      // 🔹 di sini kita pastikan report = daily & fetch
+      // 🔐 Setelah await, cek lagi apakah widget masih hidup
+      if (!mounted) return;
+
+      // 2) baru kick daily fetch
       await _kickDailyFetch();
     });
   }
@@ -121,6 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // 5) Update header dari prefs (label/logo)
             await _headerKey.currentState?.reloadFromPrefs();
 
+            // 🔐 lagi-lagi cek mounted sebelum show snackbar
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -2345,7 +2353,7 @@ class _TrackingReportPanel extends StatelessWidget {
 
         final String salesToday = isLoading
             ? '—'
-            : _formatRpCompact2Digits(totalRevenue);
+            : _formatRpCompact2Digits(totalRevenue, l10n);
 
         // Supaya tidak ada kata Inggris "product" di value, value-nya hanya angka.
         final String productsToday = isLoading ? '—' : '$totalQty';
@@ -2480,20 +2488,24 @@ String _formatRp(num v) {
   return 'Rp $withDots';
 }
 
-String _formatRpCompact2Digits(num v) {
-  final n = v is int ? v.toDouble() : (v.toDouble());
-  if (n < 1_000_000) return _formatRp(n);
+String _formatRpCompact2Digits(num v, AppLocalizations l10n) {
+  final n = v is int ? v.toDouble() : v.toDouble();
+  if (n < 1_000_000) {
+    // < 1 juta masih pakai format penuh
+    return _formatRp(n);
+  }
 
   String unit;
   double base;
+
   if (n < 1_000_000_000) {
-    unit = 'juta';
+    unit = l10n.currencyUnitMillion; // "juta" / "million"
     base = n / 1_000_000;
   } else if (n < 1_000_000_000_000) {
-    unit = 'miliar';
+    unit = l10n.currencyUnitBillion; // "miliar" / "billion"
     base = n / 1_000_000_000;
   } else {
-    unit = 'triliun';
+    unit = l10n.currencyUnitTrillion; // "triliun" / "trillion"
     base = n / 1_000_000_000_000;
   }
 
@@ -2502,8 +2514,12 @@ String _formatRpCompact2Digits(num v) {
     head = base.round().toString();
   } else {
     head = base.toStringAsFixed(1);
-    if (head.endsWith('.0')) head = head.substring(0, head.length - 2);
+    if (head.endsWith('.0')) {
+      head = head.substring(0, head.length - 2);
+    }
   }
+
+  // Kalau nanti mau full multi-currency, bagian "Rp" bisa juga dipindah ke ARB
   return 'Rp $head $unit';
 }
 

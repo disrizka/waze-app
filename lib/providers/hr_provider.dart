@@ -17,6 +17,61 @@ import 'package:wa_blast/screens/register/link/link_register_stepper_wrapper.dar
 /// =========================
 /// MODELS
 /// =========================
+///
+@immutable
+class EmployeeUser {
+  final String idUser;
+  final String firstName;
+  final String lastName;
+  final String phone;
+  final String email;
+  final String photo;
+  final String photoPath;
+  final bool isDeactivated;
+  final String username;
+  final bool hasPage;
+  final String userRoleName;
+  final String roleId;
+
+  const EmployeeUser({
+    required this.idUser,
+    required this.firstName,
+    required this.lastName,
+    required this.phone,
+    required this.email,
+    required this.photo,
+    required this.photoPath,
+    required this.isDeactivated,
+    required this.username,
+    required this.hasPage,
+    required this.userRoleName,
+    required this.roleId,
+  });
+
+  factory EmployeeUser.fromJson(Map<String, dynamic> j) => EmployeeUser(
+    idUser: (j['idUser'] ?? '').toString(),
+    firstName: (j['firstname'] ?? '').toString(),
+    lastName: (j['lastname'] ?? '').toString(),
+    phone: (j['phone'] ?? '').toString(),
+    email: (j['email'] ?? '').toString(),
+    photo: (j['photo'] ?? '').toString(),
+    photoPath: (j['photoPath'] ?? '').toString(),
+    isDeactivated: (j['isDeactivated'] ?? false) == true,
+    username: (j['username'] ?? '').toString(),
+    hasPage: (j['hasPage'] ?? false) == true,
+    userRoleName: (j['userRoleName'] ?? '').toString(),
+    roleId: (j['roleId'] ?? '').toString(),
+  );
+
+  String get fullName {
+    final parts = <String>[
+      firstName.trim(),
+      lastName.trim(),
+    ].where((e) => e.isNotEmpty).toList();
+    if (parts.isEmpty) return '';
+    return parts.join(' ');
+  }
+}
 
 @immutable
 class InviteData {
@@ -286,6 +341,32 @@ class HrProvider extends ChangeNotifier {
   String? get lastError => _lastError;
   String? get lastMessage => _lastMessage;
   bool get submitting => _submitting;
+
+  // ====== STATE: Employees (Employee List dengan infinite pagination) ======
+  final List<EmployeeUser> _employees = [];
+  bool _loadingEmployees = false;
+  bool _loadingMoreEmployees = false;
+  String? _employeesError;
+  int _employeePage = 1;
+  bool _employeesHasMore = true;
+  String _employeeSearch = '';
+
+  List<EmployeeUser> get employees => List.unmodifiable(_employees);
+  bool get loadingEmployees => _loadingEmployees;
+  bool get loadingMoreEmployees => _loadingMoreEmployees;
+  String? get employeesError => _employeesError;
+  bool get employeesHasMore => _employeesHasMore;
+  String get employeeSearch => _employeeSearch;
+
+  void _setEmployeesLoading(bool v) {
+    _loadingEmployees = v;
+    notifyListeners();
+  }
+
+  void _setEmployeesError(String? e) {
+    _employeesError = e;
+    notifyListeners();
+  }
 
   void _setSubmitting(bool v) {
     _submitting = v;
@@ -563,6 +644,95 @@ class HrProvider extends ChangeNotifier {
       return false;
     } finally {
       _setSubmitting(false);
+    }
+  }
+
+  /// =========================
+  /// EMPLOYEE LIST (Infinite Pagination)
+  /// =========================
+  ///
+  /// - Panggil dengan:
+  ///   - `employeeList(context, refresh: true)` untuk load pertama / pull-to-refresh
+  ///   - `employeeList(context)` dalam onScroll untuk load page berikutnya
+  ///   - `employeeList(context, refresh: true, search: 'umar')` untuk cari
+  Future<void> employeeList(
+    BuildContext context, {
+    bool refresh = false,
+    String? search,
+  }) async {
+    final bizId = await _requireBizId();
+    if (bizId == null) return;
+
+    final newSearch = (search ?? _employeeSearch).trim();
+    final isNewSearch = newSearch != _employeeSearch;
+
+    int pageToLoad;
+
+    if (refresh || isNewSearch || _employees.isEmpty) {
+      // Start / restart list dari page 1
+      _employeePage = 1;
+      pageToLoad = 1;
+      _employeeSearch = newSearch;
+      _employeesHasMore = true;
+      _employees.clear();
+      _setEmployeesError(null);
+      _setEmployeesLoading(true);
+    } else {
+      // Load page berikutnya (infinite scroll)
+      if (!_employeesHasMore || _loadingMoreEmployees) return;
+      _loadingMoreEmployees = true;
+      notifyListeners();
+      pageToLoad = _employeePage + 1;
+    }
+
+    const int limit = 30;
+
+    try {
+      final path =
+          '/waveup/$bizId/user?page=$pageToLoad&limit=$limit&search=${Uri.encodeQueryComponent(_employeeSearch)}';
+
+      if (kDebugMode) {
+        debugPrint('[HrProvider] GET $path (employeeList)');
+      }
+
+      final result = await FetchHelper.fetchList<EmployeeUser>(
+        context: context,
+        path: path,
+        parser: (json) =>
+            EmployeeUser.fromJson((json as Map).cast<String, dynamic>()),
+      );
+
+      final items = result?.items ?? const <EmployeeUser>[];
+
+      if (pageToLoad == 1) {
+        _employees
+          ..clear()
+          ..addAll(items);
+      } else {
+        _employees.addAll(items);
+      }
+
+      // Update page yang sudah berhasil di-load
+      _employeePage = pageToLoad;
+
+      // Simple hasMore: kalau jumlah item < limit berarti sudah habis
+      _employeesHasMore = items.length >= limit;
+
+      if (kDebugMode) {
+        debugPrint(
+          '[HrProvider] employees page=$pageToLoad, loaded=${items.length}, totalNow=${_employees.length}, hasMore=$_employeesHasMore',
+        );
+      }
+    } catch (e, st) {
+      _setEmployeesError(e.toString());
+      if (kDebugMode) {
+        debugPrint('[HrProvider] employeeList ERROR: $e');
+        debugPrint('$st');
+      }
+    } finally {
+      _loadingEmployees = false;
+      _loadingMoreEmployees = false;
+      notifyListeners();
     }
   }
 

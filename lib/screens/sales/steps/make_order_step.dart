@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart' as catalog;
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
+import 'package:wa_blast/providers/store_provider.dart' as st;
 import 'package:wa_blast/widgets/show_fancy_bar.dart';
+import 'package:wa_blast/widgets/show_fancy_snack_bar.dart';
 
 import '../../../constants/app_colors.dart';
 import '../../../constants/design_system.dart';
@@ -61,8 +65,42 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
   String? _customerId;
   String? _customerName;
 
+  Future<void> _autoSelectSingleStoreIfNeeded() async {
+    final sales = context.read<SalesProvider>();
+    final alreadySelected = (sales.storeLocationId ?? '').isNotEmpty;
+    if (alreadySelected) return;
+
+    final sp = context.read<st.StoreProvider>();
+    // Pastikan stores sudah tersedia
+    if (sp.stores.isEmpty && !sp.loadingList) {
+      await sp.fetchStoreLocations(context);
+    }
+
+    if (!mounted) return;
+
+    // Kalau cuma 1 store → set otomatis
+    if (sp.stores.length == 1) {
+      final s = sp.stores.first;
+
+      // Set ke SalesProvider
+      sales.setOrderMeta(
+        storeLocationId: s.idStoreLocation,
+        storeLocationName: s.name,
+      );
+
+      // Sinkronkan ProductProvider (paging/filternya)
+      await context.read<ProductProvider>().setInfiniteStoreAndRefresh(
+        context,
+        s.idStoreLocation,
+      );
+
+      if (mounted) setState(() {});
+    }
+  }
+
   Future<void> _pickStore() async {
     final picked = await showStorePickerSheet(
+      autoSelectWhenSingle: true,
       context,
       selectedId: context.read<SalesProvider>().storeLocationId,
     );
@@ -87,13 +125,17 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
     _discountC.text = (prov.discount ?? 0).toString();
     _notesC.text = prov.note ?? '';
 
-    // Prefill customer dari provider (boleh null)
     _customerId = prov.customerId;
     _customerName = prov.customerName ?? '';
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      context.read<SalesProvider>().ensureReferenceInitialized(notify: true);
+      context.read<SalesProvider>()
+        ..ensureReferenceInitialized(notify: true)
+        ..normalizeCart();
+
+      // 🔽 AUTO SELECT STORE kalau cuma ada 1
+      await _autoSelectSingleStoreIfNeeded();
     });
   }
 
@@ -942,63 +984,6 @@ class StickyTotalsBar extends StatelessWidget {
   }
 }
 
-class _ChipBadge extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  const _ChipBadge({required this.icon, required this.label, Key? key})
-    : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.greyBackground,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: AppColors.textSecondary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RowKV extends StatelessWidget {
-  final String label;
-  final int value;
-  final bool bold;
-  const _RowKV({required this.label, required this.value, this.bold = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final style = bold
-        ? DS.tsTitle.copyWith(fontWeight: FontWeight.w700)
-        : DS.tsTitle;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: style),
-          Text(formatRp(value), style: style),
-        ],
-      ),
-    );
-  }
-}
-
 class _EditReferenceDialog extends StatefulWidget {
   final String initial;
   const _EditReferenceDialog({required this.initial});
@@ -1080,9 +1065,9 @@ class _QtyEditor2State extends State<_QtyEditor2> {
   }
 
   @override
-  void didUpdateWidget(covariant _QtyEditor2 old) {
-    super.didUpdateWidget(old);
-    if (old.qty != widget.qty) _c.text = widget.qty.toString();
+  void didUpdateWidget(covariant _QtyEditor2 oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.qty != widget.qty) _c.text = widget.qty.toString();
   }
 
   @override
@@ -1149,28 +1134,11 @@ class _QtyEditor2State extends State<_QtyEditor2> {
 }
 
 // ===============================
-// DATA GROUPING UNTUK GRID PRODUCT
-// ===============================
-class _SalesProductGroup {
-  final Product product; // simpan full Product
-  final String productId;
-  final String productName;
-  final String? thumbUrl;
-  final List<ProductSku> skus; // ProductSku
-  final int minPrice;
-
-  _SalesProductGroup({
-    required this.product,
-    required this.productId,
-    required this.productName,
-    required this.skus,
-    required this.minPrice,
-    this.thumbUrl,
-  });
-}
-
-// ===============================
 // ADD PRODUCT BOTTOM SHEET (minimal tweaks compatible)
+// ===============================
+
+// ===============================
+// SALES VARIANT ATTRIBUTE SHEET (Stock-aware)
 // ===============================
 
 class AddProductSheet extends StatefulWidget {
@@ -1182,134 +1150,195 @@ class AddProductSheet extends StatefulWidget {
 
 class AddProductSheetState extends State<AddProductSheet> {
   final _searchC = TextEditingController();
-
-  ProductProvider? _catalogProv; // cache ref provider (non-listen)
+  final _gridScrollC = ScrollController();
   Timer? _debounce;
+  bool _loadMoreArmed = false;
+  bool _kicked = false;
+  bool _canSellOutOfStock = false;
+  bool _outOfStockFlagLoaded = false;
+
+  ProductProvider? _pp;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _catalogProv ??= Provider.of<ProductProvider>(context, listen: false);
+    _pp ??= Provider.of<ProductProvider>(context, listen: false);
   }
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
+    // Samakan dengan ProductScreen: init → ensure default store → refresh
+    WidgetsBinding.instance.addPostFrameCallback((_) => _kickOnOpen());
+    _loadOutOfStockFlag();
+  }
 
-      _catalogProv ??= Provider.of<ProductProvider>(context, listen: false);
-      final salesProv = Provider.of<SalesProvider>(context, listen: false);
-      final String? storeId = salesProv.storeLocationId;
+  // ⬇️ NEW: baca setting "boleh jual stok kosong" untuk business aktif
+  Future<void> _loadOutOfStockFlag() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
 
-      // Init + set filter store
-      _catalogProv?.initInfinitePaging(context);
-      if (storeId != null && storeId.isNotEmpty) {
-        // prefer method khusus store:
-        // _catalogProv?.setInfiniteStore(context, storeId);
-        _catalogProv?.setStoreLocationForPaging?.call(context, storeId);
+      // 1) kalau AuthProvider sudah simpan langsung
+      bool flag = prefs.getBool('activeBizCanSellOutOfStock') ?? false;
+
+      // 2) fallback: cek di business_full (/user → business[])
+      if (!flag) {
+        final activeBizId = prefs.getString('activeBizId');
+        final rawFull = prefs.getString('business_full');
+        if (activeBizId != null &&
+            activeBizId.isNotEmpty &&
+            rawFull != null &&
+            rawFull.isNotEmpty) {
+          try {
+            final list = (jsonDecode(rawFull) as List);
+            final Map<String, dynamic>? found = list
+                .cast<Map<String, dynamic>?>()
+                .firstWhere(
+                  (e) => (e?['idBusiness'] ?? '').toString() == activeBizId,
+                  orElse: () => null,
+                );
+
+            if (found != null) {
+              flag =
+                  (found['canBeSoldOutOfStock'] ??
+                      found['canSellOutOfStock'] ??
+                      false) ==
+                  true;
+            }
+          } catch (_) {
+            // ignore parse error
+          }
+        }
       }
-      await _catalogProv?.refreshInfinite(context);
 
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      setState(() {
+        _canSellOutOfStock = flag;
+        _outOfStockFlagLoaded = true;
+      });
+    } catch (_) {
+      // diam saja, default false
+    }
+  }
+
+  Future<void> _kickOnOpen() async {
+    if (_kicked || !mounted) return;
+    _kicked = true;
+
+    final prov = context.read<ProductProvider>();
+
+    // 1) pastikan controller ada
+    prov.initInfinitePaging(context, initialSearch: '');
+
+    // 2) pastikan store (aman kalau sudah ada)
+    try {
+      await prov
+          .ensureDefaultStoreLocation(context)
+          .timeout(const Duration(seconds: 6));
+    } catch (_) {}
+
+    // 3) reset → page-1
+    await prov.refreshInfinite(context);
+
+    // 4) ⬅️ WAJIB: minta halaman pertama secara eksplisit
+    prov.pagingController?.fetchNextPage();
+
+    // ✅ Cukup cek koleksi dari provider
+    final hasItems = prov.products.isNotEmpty;
+
+    // 5) safety nudge bila masih belum ke-trigger
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      if ((prov.products.isEmpty) || (hasItems ?? true)) {
+        prov.pagingController?.fetchNextPage();
+      }
     });
+
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _manualRetry() async {
+    final prov = context.read<ProductProvider>();
+    prov.initInfinitePaging(context, initialSearch: _searchC.text.trim());
+    try {
+      await prov
+          .ensureDefaultStoreLocation(context)
+          .timeout(const Duration(seconds: 6));
+    } catch (_) {}
+    await prov.refreshInfinite(context);
+    prov.pagingController?.fetchNextPage(); // ⬅️ penting
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
     _searchC.dispose();
-    _catalogProv?.disposeInfinitePaging();
+    _gridScrollC.dispose();
+    // ⚠️ JANGAN dispose paging di sini kalau ProductProvider dipakai global!
+    // _pp?.disposeInfinitePaging();
     super.dispose();
   }
 
   void _debouncedSearch(String raw) {
     final q = raw.trim();
-
-    // Kosong → langsung trigger search="" supaya tidak nyantol di huruf terakhir
-    if (q.isEmpty) {
-      _debounce?.cancel();
-      _catalogProv?.setInfiniteSearch(context, '');
-      return;
-    }
-
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 250), () {
-      _catalogProv?.setInfiniteSearch(context, q);
+    _debounce = Timer(const Duration(milliseconds: 250), () async {
+      await _pp?.setInfiniteSearch(context, q);
+      await _pp?.refreshInfinite(context);
     });
   }
 
-  void _doSearch() {
-    final q = _searchC.text.trim();
-    _catalogProv?.setInfiniteSearch(context, q);
-  }
-
-  Future<void> _refreshPaging() async {
-    await _catalogProv?.refreshInfinite(context);
-  }
-
-  _SalesProductGroup _toGroup(Product p) {
-    int minPriceOf(Product p) {
-      if (p.productSkus.isNotEmpty) {
-        final prices = p.productSkus.map((s) => s.price).toList()..sort();
-        return prices.first;
-      }
-      if (p.productPrices.isNotEmpty) {
-        final prices = p.productPrices.map((x) => x.price).toList()..sort();
-        return prices.first;
-      }
-      return p.basePrice ?? 0;
-    }
-
-    return _SalesProductGroup(
-      product: p,
-      productId: p.idProduct,
-      productName: p.name,
-      thumbUrl: p.primaryImageUrl,
-      skus: p.productSkus,
-      minPrice: minPriceOf(p),
-    );
+  void _armLoadMore() {
+    if (_loadMoreArmed) return;
+    _loadMoreArmed = true;
+    Future.delayed(const Duration(milliseconds: 200), () {
+      _loadMoreArmed = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final salesProv = context.watch<SalesProvider>();
-    final productProv = context.watch<ProductProvider>();
-    final controller = productProv.pagingController;
+    final prov = context.watch<ProductProvider>();
+    final controller = prov.pagingController;
 
     if (controller == null) {
-      return const SafeArea(
-        minimum: EdgeInsets.fromLTRB(16, 12, 16, 16),
+      return SafeArea(
+        minimum: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         child: SizedBox(
           height: 240,
-          child: Center(child: CircularProgressIndicator()),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  onPressed: _manualRetry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
 
-    final state = controller.value;
-    next() {
-      final pm = productProv.pageProducts;
-      final cur = pm?.currentPage;
-      final tot = pm?.totalPages;
+    // ==== DATA ====
+    final all = prov.products;
 
-      // ⛔️ stop kalau sudah halaman terakhir
-      if (cur != null && tot != null && cur >= tot) {
-        debugPrint('[NEXT] blocked by meta cur=$cur tot=$tot');
-        return;
-      } else {
-        controller.fetchNextPage();
-      }
-    }
+    // DEBUG: tampilkan semua dulu untuk memastikan fetch jalan.
+    // Nanti kalau sudah OK, ganti kembali ke filter stok:
+    // final visible = all.where((p) => !p.isOutOfStock && p.totalStockQty > 0).toList();
+    final visible = all;
 
-    // Pakai data provider, bukan state.itemList
-    final firstPageEmptyAndDone = productProv.isFirstPageDoneEmpty;
-    final reachedEnd = productProv.reachedEnd;
-
-    final pm = productProv.pageProducts;
-    final isAtEnd = (pm?.currentPage != null && pm?.totalPages != null)
+    // meta untuk “load more”
+    final pm = prov.pageProducts;
+    final bool isAtEnd = (pm?.currentPage != null && pm?.totalPages != null)
         ? (pm!.currentPage! >= pm.totalPages!)
-        : productProv.reachedEnd; // fallback
+        : prov.reachedEnd;
 
     final selectedItems = salesProv.cartItems.length;
     final selectedQty = salesProv.cartItems.fold<int>(0, (s, it) => s + it.qty);
@@ -1331,9 +1360,12 @@ class AddProductSheetState extends State<AddProductSheet> {
               child: TextField(
                 controller: _searchC,
                 textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _doSearch(),
+                onSubmitted: (_) async {
+                  await _pp?.setInfiniteSearch(context, _searchC.text.trim());
+                  await _pp?.refreshInfinite(context);
+                },
                 onChanged: (t) {
-                  setState(() {}); // update ikon clear
+                  setState(() {});
                   _debouncedSearch(t);
                 },
                 decoration: InputDecoration(
@@ -1342,10 +1374,11 @@ class AddProductSheetState extends State<AddProductSheet> {
                   suffixIcon: (_searchC.text.trim().isEmpty)
                       ? null
                       : IconButton(
-                          onPressed: () {
+                          onPressed: () async {
                             _searchC.clear();
-                            _doSearch(); // langsung search=""
-                            setState(() {});
+                            await _pp?.setInfiniteSearch(context, '');
+                            await _pp?.refreshInfinite(context);
+                            if (mounted) setState(() {});
                           },
                           icon: const Icon(Icons.close_rounded),
                         ),
@@ -1359,74 +1392,110 @@ class AddProductSheetState extends State<AddProductSheet> {
             ),
             const SizedBox(height: 8),
 
-            // GRID (pagination menggunakan state & fetchNextPage)
+            // GRID
             Expanded(
-              child: firstPageEmptyAndDone
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text('No products found'),
+              child: (visible.isEmpty)
+                  ? RefreshIndicator(
+                      onRefresh: _manualRetry,
+                      child: ListView(
+                        children: const [
+                          SizedBox(height: 80),
+                          Center(child: Text('No products found')),
+                          SizedBox(height: 400),
+                        ],
                       ),
                     )
-                  : PagedGridView<int, Product>(
-                      state: state,
-                      fetchNextPage: next,
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                            childAspectRatio: 0.62,
-                          ),
-                      builderDelegate: PagedChildBuilderDelegate<Product>(
-                        itemBuilder: (_, p, __) {
+                  : NotificationListener<ScrollNotification>(
+                      onNotification: (n) {
+                        if (n is ScrollUpdateNotification) {
+                          final max = _gridScrollC.position.maxScrollExtent;
+                          final cur = _gridScrollC.position.pixels;
+                          if (!isAtEnd && max > 0 && cur / max > 0.80) {
+                            if (!_loadMoreArmed) {
+                              _armLoadMore();
+                              controller.fetchNextPage();
+                            }
+                          }
+                        }
+                        return false;
+                      },
+                      child: GridView.builder(
+                        controller: _gridScrollC,
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              crossAxisSpacing: 12,
+                              mainAxisSpacing: 12,
+                              childAspectRatio: 0.62,
+                            ),
+                        itemCount: visible.length + (isAtEnd ? 0 : 1),
+                        itemBuilder: (_, i) {
+                          if (i >= visible.length) {
+                            return const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(8),
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+                          }
+                          final p = visible[i];
                           final g = _toGroup(p);
-                          final qtyOfProduct = salesProv.cartItems
+                          final selectedForProduct = salesProv.cartItems
                               .where((it) => it.sku.productId == g.productId)
                               .fold<int>(0, (s, it) => s + it.qty);
 
-                          return _SalesProductCard(
-                            group: g,
-                            selectedQty: qtyOfProduct,
-                            onChoose: () async {
-                              final changed = await showModalBottomSheet<bool>(
-                                context: context,
-                                isScrollControlled: true,
-                                useSafeArea: true,
-                                backgroundColor: Colors.white,
-                                shape: const RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.vertical(
-                                    top: Radius.circular(16),
+                          final bool isOut = p.totalStockQty <= 0;
+                          final bool hardBlock = isOut && !_canSellOutOfStock;
+                          final double cardOpacity = hardBlock
+                              ? 0.6
+                              : 1.0; // abu-abu jika blocked
+
+                          return Stack(
+                            children: [
+                              AbsorbPointer(
+                                absorbing: hardBlock,
+                                child: Opacity(
+                                  opacity: cardOpacity,
+                                  child: _SalesProductCard(
+                                    group: g,
+                                    selectedQty: selectedForProduct,
+                                    allowOutOfStock:
+                                        _canSellOutOfStock, // ⬅️ penting
+                                    onChoose: () {
+                                      showModalBottomSheet<bool>(
+                                        context: context,
+                                        isScrollControlled: true,
+                                        useSafeArea: true,
+                                        backgroundColor: Colors.white,
+                                        shape: const RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.vertical(
+                                            top: Radius.circular(16),
+                                          ),
+                                        ),
+                                        builder: (_) =>
+                                            ChangeNotifierProvider<
+                                              SalesProvider
+                                            >.value(
+                                              value: salesProv,
+                                              child: _SalesVariantAttributeSheet(
+                                                group: g,
+                                                allowOutOfStock:
+                                                    _canSellOutOfStock, // ⬅️ penting
+                                              ),
+                                            ),
+                                      ).then((changed) {
+                                        if (mounted && changed == true) {
+                                          setState(() {});
+                                        }
+                                      });
+                                    },
                                   ),
                                 ),
-                                builder: (_) =>
-                                    ChangeNotifierProvider<SalesProvider>.value(
-                                      value: salesProv,
-                                      child: _SalesVariantAttributeSheet(
-                                        group: g,
-                                      ),
-                                    ),
-                              );
-                              if (mounted && changed == true) setState(() {});
-                            },
+                              ),
+                            ],
                           );
                         },
-                        firstPageProgressIndicatorBuilder: (_) => const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: CircularProgressIndicator(),
-                          ),
-                        ),
-                        newPageProgressIndicatorBuilder: (_) =>
-                            const SizedBox.shrink(),
-                        firstPageErrorIndicatorBuilder: (_) =>
-                            _ErrorRetry(onRetry: _refreshPaging),
-                        newPageErrorIndicatorBuilder: (_) =>
-                            _ErrorRetry(onRetry: next),
-                        // tetap boleh, tapi kita juga pasang footer manual di bawah
-                        noMoreItemsIndicatorBuilder: (_) =>
-                            const SizedBox.shrink(),
                       ),
                     ),
             ),
@@ -1484,35 +1553,350 @@ class AddProductSheetState extends State<AddProductSheet> {
       ),
     );
   }
+
+  _SalesProductGroup _toGroup(Product p) {
+    int minPriceOf(Product p) {
+      // PRIORITAS:
+      // 1) Kalau ada harga grosir (productPrices) → ambil yang paling murah
+      // 2) Kalau tidak, pakai harga SKU termurah
+      // 3) Kalau dua-duanya tidak ada, fallback ke basePrice
+      if (p.productPrices.isNotEmpty) {
+        final prices = p.productPrices.map((x) => x.price).toList()..sort();
+        return prices.first;
+      }
+
+      if (p.productSkus.isNotEmpty) {
+        final prices = p.productSkus.map((s) => s.price).toList()..sort();
+        return prices.first;
+      }
+
+      return p.basePrice ?? 0;
+    }
+
+    return _SalesProductGroup(
+      product: p,
+      productId: p.idProduct,
+      productName: p.name,
+      thumbUrl: p.primaryImageUrl,
+      skus: p.productSkus,
+      minPrice: minPriceOf(p),
+    );
+  }
 }
 
-class _ErrorRetry extends StatelessWidget {
-  final VoidCallback onRetry;
-  const _ErrorRetry({required this.onRetry});
+class _SheetHeader extends StatelessWidget {
+  final String title;
+  final String? caption;
+  const _SheetHeader({required this.title, this.caption});
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.error_outline, color: Colors.redAccent),
-          const SizedBox(height: 8),
-          const Text('Something went wrong'),
-          const SizedBox(height: 8),
-          OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE5E7EB),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    if (caption != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        caption!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded, color: Colors.black54),
+                tooltip: 'Close',
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 }
 
-// ===============================
-// VARIANT SHEETS
-// ===============================
+class _CountBadge extends StatelessWidget {
+  final int count;
+  const _CountBadge({required this.count, Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    if (count <= 0) return const SizedBox.shrink();
+    return Semantics(
+      label: 'Selected $count',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: const Color(0xFF4069E6),
+          borderRadius: BorderRadius.circular(999),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              blurRadius: 6,
+              offset: Offset(0, 2),
+            ),
+          ],
+          border: Border.all(color: Colors.white, width: 1),
+        ),
+        child: Text(
+          '$count',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 12,
+            height: 1.0,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SalesProductGroup {
+  final Product product;
+  final String productId;
+  final String productName;
+  final String? thumbUrl;
+  final List<ProductSku> skus;
+  final int minPrice;
+
+  _SalesProductGroup({
+    required this.product,
+    required this.productId,
+    required this.productName,
+    required this.skus,
+    required this.minPrice,
+    this.thumbUrl,
+  });
+}
+
+class _SalesProductCard extends StatelessWidget {
+  final _SalesProductGroup group;
+  final int selectedQty;
+  final VoidCallback onChoose;
+  final bool allowOutOfStock; // ⬅️ NEW
+
+  const _SalesProductCard({
+    Key? key,
+    required this.group,
+    required this.selectedQty,
+    required this.onChoose,
+    this.allowOutOfStock = false, // ⬅️ default
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final p = group.product;
+    final name = group.productName;
+    final minPrice = group.minPrice;
+    final thumb = group.thumbUrl;
+
+    final bool isOut = p.totalStockQty <= 0;
+    final bool disabled = isOut && !allowOutOfStock;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ---- GAMBAR PRODUK ----
+          AspectRatio(
+            aspectRatio: 1,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(14),
+                  ),
+                  child: thumb != null && thumb.isNotEmpty
+                      ? Image.network(
+                          thumb,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Center(
+                            child: Icon(Icons.image_not_supported),
+                          ),
+                        )
+                      : Container(
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: Icon(Icons.image_outlined, size: 30),
+                          ),
+                        ),
+                ),
+
+                // === BADGE JUMLAH TERPILIH ===
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: _CountBadge(count: selectedQty),
+                ),
+
+                // === OVERLAY EMPTY STOCK (jika perlu tetap tampil) ===
+                if (isOut)
+                  Container(
+                    color: Colors.white.withOpacity(0.5),
+                    alignment: Alignment.center,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      margin: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.65),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'Empty Stock',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // ---- INFORMASI PRODUK ----
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Nama produk (ellipsis)
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                      fontSize: 14,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+
+                  // Harga
+                  Text(
+                    'from Rp ${_formatCurrency(minPrice)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF475569),
+                      fontWeight: FontWeight.w500,
+                      fontSize: 12,
+                      height: 1.2,
+                    ),
+                  ),
+                  const Spacer(),
+
+                  // Tombol Choose
+                  SizedBox(
+                    width: double.infinity,
+                    height: 36,
+                    child: ElevatedButton(
+                      onPressed: disabled ? null : onChoose,
+                      style: ElevatedButton.styleFrom(
+                        elevation: 0,
+                        backgroundColor: disabled
+                            ? Colors.grey[300]
+                            : const Color(0xFF4069E6),
+                        foregroundColor: disabled
+                            ? Colors.grey[600]
+                            : Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: Text(
+                        disabled ? 'Unavailable' : 'Choose',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatCurrency(int value) {
+    String s = value.toString();
+    if (s.length <= 3) return s;
+    final buffer = StringBuffer();
+    int count = 0;
+    for (int i = s.length - 1; i >= 0; i--) {
+      buffer.write(s[i]);
+      count++;
+      if (count == 3 && i != 0) {
+        buffer.write('.');
+        count = 0;
+      }
+    }
+    return buffer.toString().split('').reversed.join();
+  }
+}
+
 class _SalesVariantAttributeSheet extends StatefulWidget {
   final _SalesProductGroup group; // kumpulan SKU utk 1 Product
-  const _SalesVariantAttributeSheet({required this.group});
+  final bool allowOutOfStock; // ⬅️ NEW
+
+  const _SalesVariantAttributeSheet({
+    required this.group,
+    this.allowOutOfStock = false,
+  });
 
   @override
   State<_SalesVariantAttributeSheet> createState() =>
@@ -1531,11 +1915,42 @@ class _SalesVariantAttributeSheetState
     super.initState();
     _p = widget.group.product;
 
-    // preselect kalau atribut hanya punya 1 nilai
+    // Preselect otomatis bila atribut hanya 1 nilai
     final attrsMap = _extractAttributes(_p.productSkus);
     for (final e in attrsMap.entries) {
       if (e.value.length == 1) _selected[e.key] = e.value.first;
     }
+  }
+
+  int _qtyInCartOfSku(SalesProvider prov, String skuId) {
+    return prov.cartItems
+        .where((it) => it.sku.skuId == skuId)
+        .fold<int>(0, (s, it) => s + it.qty);
+  }
+
+  /// Hitung harga per pcs dengan mempertimbangkan harga grosir (productPrices).
+  /// Rule:
+  /// - Kalau productPrices kosong → pakai basePrice apa adanya.
+  /// - Kalau tidak kosong:
+  ///     Ambil tier dengan minQty terbesar yang masih <= qty.
+  ///     Kalau qty belum mencapai tier mana pun → tetap pakai basePrice.
+  int _computeUnitPriceWithWholesale(int basePrice, int qty) {
+    if (qty <= 0) return basePrice;
+
+    final List<ProductPrice> tiers = List<ProductPrice>.from(_p.productPrices);
+    if (tiers.isEmpty) return basePrice;
+
+    tiers.sort((a, b) => a.minQty.compareTo(b.minQty));
+
+    int result = basePrice;
+    for (final t in tiers) {
+      if (qty >= t.minQty) {
+        result = t.price;
+      } else {
+        break;
+      }
+    }
+    return result;
   }
 
   @override
@@ -1552,8 +1967,46 @@ class _SalesVariantAttributeSheetState
       }
     }
 
-    final price = matched?.price ?? _p.basePrice ?? 0;
     final money = NumberFormat.decimalPattern('id_ID');
+
+    // Hitung stok & sisa berdasarkan cart
+    final bool allowOversell = widget.allowOutOfStock;
+
+    // Hitung stok & sisa berdasarkan cart (boleh minus kalau oversell)
+    final int stockRaw = matched?.stockQty ?? _p.totalStockQty;
+    final int alreadyInCart = (matched == null)
+        ? 0
+        : _qtyInCartOfSku(prov, matched.idProductSku);
+    final int leftRaw = stockRaw - alreadyInCart;
+
+    // Kalau TIDAK boleh oversell, qty dibatasi sampai stok tersisa (tidak minus)
+    if (!allowOversell) {
+      final int maxLeft = leftRaw.clamp(0, 1 << 31);
+      if (_qty > maxLeft && maxLeft >= 0) {
+        _qty = maxLeft;
+      }
+    }
+
+    // Harga dasar SKU (tanpa grosir)
+    final int basePrice = matched?.price ?? _p.basePrice ?? 0;
+    // Harga per pcs setelah grosir (tergantung qty yang lagi diset user)
+    final int unitPrice = _computeUnitPriceWithWholesale(basePrice, _qty);
+    final int lineTotal = unitPrice * _qty;
+
+    final int displayStock = leftRaw; // boleh 0, -1, -2, dst
+    final bool nonPositive = displayStock <= 0;
+    final Color stockColor = (allowOversell && nonPositive)
+        ? Colors
+              .red // kalau bisnis boleh oversell & stok <= 0 → merah
+        : AppColors.textSecondary;
+
+    final bool ctaDisabled = widget.allowOutOfStock
+        ? (matched == null || _qty <= 0)
+        : (matched == null || leftRaw <= 0 || _qty <= 0);
+
+    final List<ProductPrice> wholesaleTiers = List<ProductPrice>.from(
+      _p.productPrices,
+    )..sort((a, b) => a.minQty.compareTo(b.minQty));
 
     return Container(
       color: Colors.white,
@@ -1561,10 +2014,10 @@ class _SalesVariantAttributeSheetState
         minimum: const EdgeInsets.fromLTRB(16, 12, 16, 0),
         child: Column(
           children: [
-            _SheetHeader(title: 'Choose Variants', caption: _p.name),
+            const _SheetHeader(title: 'Choose Variants'),
             const SizedBox(height: 4),
 
-            // HERO
+            // HERO + Info stok + harga grosir
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -1615,12 +2068,56 @@ class _SalesVariantAttributeSheetState
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Rp ${money.format(price)}',
+                          'Rp ${money.format(unitPrice)} / pcs',
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 16,
                           ),
                         ),
+                        if (wholesaleTiers.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Harga normal: Rp ${money.format(basePrice)}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Harga grosir:',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 2,
+                            children: wholesaleTiers.map((t) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.background,
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(color: AppColors.divider),
+                                ),
+                                child: Text(
+                                  '≥ ${t.minQty} : Rp ${money.format(t.price)}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
                         if (matched != null) ...[
                           const SizedBox(height: 4),
                           Text(
@@ -1631,6 +2128,26 @@ class _SalesVariantAttributeSheetState
                             ),
                           ),
                         ],
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.inventory_2_outlined,
+                              size: 16,
+                              color: AppColors.textSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Stock: $displayStock'
+                              '${alreadyInCart > 0 ? "  •  In cart: $alreadyInCart" : ""}',
+                              style: TextStyle(
+                                color: stockColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -1718,7 +2235,7 @@ class _SalesVariantAttributeSheetState
               ),
             ),
 
-            // QTY + CTA
+            // QTY + CTA (guard stok)
             Container(
               decoration: const BoxDecoration(
                 color: Colors.white,
@@ -1766,7 +2283,11 @@ class _SalesVariantAttributeSheetState
                               ),
                               IconButton(
                                 visualDensity: VisualDensity.compact,
-                                onPressed: () => setState(() => _qty++),
+                                onPressed: allowOversell
+                                    ? () => setState(() => _qty++)
+                                    : (leftRaw > 0 && _qty < leftRaw)
+                                    ? () => setState(() => _qty++)
+                                    : null,
                                 icon: const Icon(Icons.add_rounded),
                               ),
                             ],
@@ -1778,28 +2299,30 @@ class _SalesVariantAttributeSheetState
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed:
-                            (_selected.length == attrsMap.length &&
-                                matched != null)
-                            ? () {
-                                final inStock =
-                                    !_p.isHide; // kebalikan dari isHide
+                        onPressed: ctaDisabled
+                            ? null
+                            : () {
+                                final int toAdd = widget.allowOutOfStock
+                                    ? _qty.clamp(0, 1 << 31)
+                                    : _qty.clamp(0, leftRaw.clamp(0, 1 << 31));
+
                                 final posSku = PosSku(
                                   skuId: matched!.idProductSku,
                                   skuCode: matched.code,
-                                  price: matched.price,
+                                  // harga SKU di cart sudah ikut harga grosir (per pcs)
+                                  price: unitPrice,
                                   productId: _p.idProduct,
                                   productName: _p.name,
                                   imageUrl: _p.primaryImageUrl ?? '',
-                                  inStock: inStock,
+                                  inStock: !_p.isHide,
                                 );
 
-                                for (var i = 0; i < _qty; i++) {
-                                  prov.add(posSku);
-                                }
+                                // ⬇️ merge by sku, no double line
+                                prov.addQuantity(posSku, toAdd);
+                                prov.normalizeCart();
+
                                 Navigator.pop<bool>(context, true);
-                              }
-                            : null,
+                              },
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white,
@@ -1809,10 +2332,11 @@ class _SalesVariantAttributeSheetState
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                         child: Text(
-                          (_selected.length == attrsMap.length &&
-                                  matched != null)
-                              ? 'Add to cart — Rp ${money.format(price)}'
-                              : 'Pilih semua varian',
+                          (matched == null)
+                              ? 'Pilih semua varian'
+                              : (!widget.allowOutOfStock && leftRaw <= 0)
+                              ? 'Stok habis'
+                              : 'Add to cart — Rp ${money.format(lineTotal)}',
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
@@ -2293,6 +2817,64 @@ class _PSheetHeader extends StatelessWidget {
   }
 }
 
+/// Gambar network yang aman:
+/// - error: ganti ikon crash
+/// - loading: SizedBox.shrink() (tanpa spinner)
+class SafeNetImage extends StatelessWidget {
+  final String? url;
+  final double? width;
+  final double? height;
+  final BoxFit fit;
+  final BorderRadius? borderRadius;
+  final Widget? crashIcon; // opsional override fallback
+
+  const SafeNetImage({
+    super.key,
+    required this.url,
+    this.width,
+    this.height,
+    this.fit = BoxFit.cover,
+    this.borderRadius,
+    this.crashIcon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget fallback = Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: borderRadius ?? BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Icon(Icons.broken_image_rounded, color: const Color(0xFFA3A3A3)),
+      ),
+    );
+
+    if (url == null || url!.isEmpty) {
+      return fallback;
+    }
+
+    Widget img = Image.network(
+      url!,
+      width: width,
+      height: height,
+      fit: fit,
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return SizedBox(width: width, height: height);
+      },
+      errorBuilder: (_, __, ___) => crashIcon ?? fallback,
+    );
+
+    if (borderRadius != null) {
+      img = ClipRRect(borderRadius: borderRadius!, child: img);
+    }
+    return img;
+  }
+}
+
 class _PSection extends StatelessWidget {
   final String? title;
   final Widget? titleWidget;
@@ -2358,174 +2940,6 @@ class _LabeledField extends StatelessWidget {
         const SizedBox(height: 6),
         child,
       ],
-    );
-  }
-}
-
-class _SalesProductCard extends StatelessWidget {
-  final _SalesProductGroup group;
-  final int selectedQty;
-  final VoidCallback onChoose;
-
-  const _SalesProductCard({
-    required this.group,
-    required this.selectedQty,
-    required this.onChoose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    Widget image() {
-      final url = group.thumbUrl;
-      final fallback = Container(
-        decoration: BoxDecoration(
-          color: AppColors.greyBackground,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Center(
-          child: Icon(Icons.image, color: AppColors.disabledFg),
-        ),
-      );
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: (url != null && url.isNotEmpty)
-            ? Image.network(
-                url,
-                height: 110,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
-                    SizedBox(height: 110, child: fallback),
-              )
-            : SizedBox(height: 110, child: fallback),
-      );
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 16,
-            offset: Offset(0, 6),
-          ),
-        ],
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                image(),
-                if (selectedQty > 0)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: const [
-                          BoxShadow(color: Color(0x1A000000), blurRadius: 10),
-                        ],
-                      ),
-                      child: Text(
-                        '$selectedQty',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              group.productName,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: AppColors.primaryText,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text('from ${formatRp(group.minPrice)}', style: DS.tsPrice),
-            const Spacer(),
-            SizedBox(
-              height: 40,
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: onChoose,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text('Choose'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ===== Sticky header untuk sheets (MINIMAL) =====
-class _SheetHeader extends StatelessWidget {
-  final String title;
-  final String? caption;
-  const _SheetHeader({required this.title, this.caption});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: UI.line,
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(title, style: UI.tsH6),
-                    if (caption != null) ...[
-                      const SizedBox(height: 4),
-                      Text(caption!, style: UI.tsSub),
-                    ],
-                  ],
-                ),
-              ),
-              IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded, color: UI.sub),
-                tooltip: 'Close',
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }

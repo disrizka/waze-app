@@ -21,6 +21,7 @@ import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/change_password_screen.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.dart';
+import 'package:wa_blast/screens/hr/employee_list_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
 import 'package:wa_blast/screens/report/manage_report_screen.dart';
@@ -597,6 +598,13 @@ class MyApp extends StatelessWidget {
             return _platformRouteAnimated(
               settings,
               const RoleScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/hr/employee/list':
+            return _platformRouteAnimated(
+              settings,
+              const EmployeeListScreen(),
               android: AndroidTransition.slideRight,
             );
 

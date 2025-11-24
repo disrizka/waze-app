@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/constants/app_colors.dart';
+import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 import 'package:wa_blast/widgets/simple_web_view.dart';
 
@@ -53,6 +54,8 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
   String _deviceName = '';
   String _fcmToken = '';
   bool _initDone = false;
+
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
 
   @override
   void initState() {
@@ -129,11 +132,7 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
   Future<void> _submitRegistration() async {
     if (!_initDone) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'We are still preparing your device. Please try again in a moment.',
-          ),
-        ),
+        SnackBar(content: Text(l10n.register_step1_device_not_ready)),
       );
       return;
     }
@@ -157,7 +156,9 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(auth.error ?? 'Registration failed. Please try again.'),
+          content: Text(
+            auth.error ?? l10n.register_step1_registration_failed_default,
+          ),
         ),
       );
     }
@@ -173,17 +174,13 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
       // Final sub-step: wajib centang Privacy Policy
       if (!_agreePrivacy) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please agree to the Privacy Policy to continue.'),
+          SnackBar(
+            content: Text(l10n.register_step1_privacy_not_agreed_snackbar),
           ),
         );
         return;
       }
 
-      // Untuk sekarang: langsung loncat ke Step 2 (Profile) tanpa submit ke backend
-      // widget.onSuccessNext();
-
-      // Nanti kalau mau aktifkan submit lagi, cukup ganti jadi:
       _submitRegistration();
     }
   }
@@ -191,42 +188,40 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
   String get _primaryButtonLabel {
     switch (_currentStep) {
       case 1:
-        return 'Continue';
       case 2:
-        return 'Continue';
       case 3:
-        return 'Continue';
+        return l10n.register_step1_primary_continue;
       case 4:
       default:
-        return 'Create account';
+        return l10n.register_step1_primary_create_account;
     }
   }
 
   String get _stepTitle {
     switch (_currentStep) {
       case 1:
-        return 'What is your email?';
+        return l10n.register_step1_step1_title;
       case 2:
-        return 'Tell us about you';
+        return l10n.register_step1_step2_title;
       case 3:
-        return 'Create a secure password';
+        return l10n.register_step1_step3_title;
       case 4:
       default:
-        return 'Review and confirm';
+        return l10n.register_step1_step4_title;
     }
   }
 
   String get _stepDescription {
     switch (_currentStep) {
       case 1:
-        return 'We will use this email to create your WaveUp account and send important notifications.';
+        return l10n.register_step1_step1_desc;
       case 2:
-        return 'We only need your name to personalize your experience and help your team recognize you.';
+        return l10n.register_step1_step2_desc;
       case 3:
-        return 'Choose a strong password to keep your account and business data safe.';
+        return l10n.register_step1_step3_desc;
       case 4:
       default:
-        return 'Please review your details below before we create your account.';
+        return l10n.register_step1_step4_desc;
     }
   }
 
@@ -244,21 +239,24 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
         const SizedBox(height: 4),
         Text(
           _stepTitle,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 6),
         Text(
           _stepDescription,
-          style: TextStyle(fontSize: 13, color: const Color(0xFF6B7280)),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
         ),
         const SizedBox(height: 20),
-        Text('Email', style: TextStyle(fontWeight: FontWeight.w600)),
+        Text(
+          l10n.register_step1_email_label,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 6),
         TextFormField(
           controller: _emailC,
           keyboardType: TextInputType.emailAddress,
           decoration: InputDecoration(
-            hintText: 'e.g. yourmail@mail.com',
+            hintText: l10n.register_step1_email_hint,
             hintStyle: TextStyle(color: hintGray),
             filled: true,
             fillColor: Colors.white,
@@ -272,10 +270,10 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
           ),
           validator: (v) {
             if (v == null || v.trim().isEmpty) {
-              return 'Email is required';
+              return l10n.register_step1_email_required;
             }
             final ok = RegExp(r'^\S+@\S+\.\S+$').hasMatch(v.trim());
-            if (!ok) return 'Please enter a valid email address';
+            if (!ok) return l10n.register_step1_email_invalid;
             return null;
           },
         ),
@@ -294,21 +292,24 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
         const SizedBox(height: 4),
         Text(
           _stepTitle,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 6),
         Text(
           _stepDescription,
-          style: TextStyle(fontSize: 13, color: const Color(0xFF6B7280)),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
         ),
         const SizedBox(height: 20),
-        Text('First name', style: TextStyle(fontWeight: FontWeight.w600)),
+        Text(
+          l10n.register_step1_first_name_label,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 6),
         TextFormField(
           controller: _firstNameC,
           textCapitalization: TextCapitalization.words,
           decoration: InputDecoration(
-            hintText: 'e.g. John',
+            hintText: l10n.register_step1_first_name_hint,
             hintStyle: TextStyle(color: hintGray),
             filled: true,
             fillColor: Colors.white,
@@ -322,22 +323,25 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
           ),
           validator: (v) {
             if (v == null || v.trim().isEmpty) {
-              return 'First name is required';
+              return l10n.register_step1_first_name_required;
             }
             if (v.trim().length < 2) {
-              return 'Please enter at least 2 characters';
+              return l10n.register_step1_first_name_min_length;
             }
             return null;
           },
         ),
         const SizedBox(height: 16),
-        Text('Last name', style: TextStyle(fontWeight: FontWeight.w600)),
+        Text(
+          l10n.register_step1_last_name_label,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 6),
         TextFormField(
           controller: _lastNameC,
           textCapitalization: TextCapitalization.words,
           decoration: InputDecoration(
-            hintText: 'e.g. Doe',
+            hintText: l10n.register_step1_last_name_hint,
             hintStyle: TextStyle(color: hintGray),
             filled: true,
             fillColor: Colors.white,
@@ -351,10 +355,10 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
           ),
           validator: (v) {
             if (v == null || v.trim().isEmpty) {
-              return 'Last name is required';
+              return l10n.register_step1_last_name_required;
             }
             if (v.trim().length < 2) {
-              return 'Please enter at least 2 characters';
+              return l10n.register_step1_last_name_min_length;
             }
             return null;
           },
@@ -374,23 +378,26 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
         const SizedBox(height: 4),
         Text(
           _stepTitle,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 6),
         Text(
           _stepDescription,
-          style: TextStyle(fontSize: 13, color: const Color(0xFF6B7280)),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
         ),
         const SizedBox(height: 20),
 
         // Password
-        Text('Password', style: TextStyle(fontWeight: FontWeight.w600)),
+        Text(
+          l10n.register_step1_password_label,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 6),
         TextFormField(
           controller: _passwordC,
           obscureText: !_showPwd,
           decoration: InputDecoration(
-            hintText: 'Create a strong password',
+            hintText: l10n.register_step1_password_hint,
             hintStyle: TextStyle(color: hintGray, fontSize: 14),
             filled: true,
             fillColor: Colors.white,
@@ -411,10 +418,10 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
           ),
           validator: (v) {
             if (v == null || v.isEmpty) {
-              return 'Password is required';
+              return l10n.register_step1_password_required;
             }
             if (v.length < 8) {
-              return 'Password must be at least 8 characters long';
+              return l10n.register_step1_password_min_length;
             }
             final hasUpper = RegExp(r'[A-Z]').hasMatch(v);
             final hasLower = RegExp(r'[a-z]').hasMatch(v);
@@ -424,7 +431,7 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
             ).hasMatch(v);
 
             if (!hasUpper || !hasLower || !hasDigit || !hasSpecial) {
-              return 'Password must contain uppercase, lowercase, number, and special character';
+              return l10n.register_step1_password_rule_not_satisfied;
             }
             return null;
           },
@@ -433,13 +440,16 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
         const SizedBox(height: 12),
 
         // Confirm password (hanya validasi lokal, tidak disubmit)
-        Text('Confirm password', style: TextStyle(fontWeight: FontWeight.w600)),
+        Text(
+          l10n.register_step1_confirm_password_label,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 6),
         TextFormField(
           controller: _confirmPasswordC,
           obscureText: !_showPwd,
           decoration: InputDecoration(
-            hintText: 'Confirm your password',
+            hintText: l10n.register_step1_confirm_password_hint,
             hintStyle: TextStyle(color: hintGray, fontSize: 14),
             filled: true,
             fillColor: Colors.white,
@@ -453,10 +463,10 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
           ),
           validator: (v) {
             if (v == null || v.isEmpty) {
-              return 'Please confirm your password';
+              return l10n.register_step1_confirm_password_required;
             }
             if (v != _passwordC.text) {
-              return 'Passwords do not match';
+              return l10n.register_step1_confirm_password_not_match;
             }
             return null;
           },
@@ -473,14 +483,14 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              _PasswordInfoHeader(),
-              SizedBox(height: 6),
-              _BulletText('At least 8 characters'),
-              _BulletText('At least 1 uppercase letter (A–Z)'),
-              _BulletText('At least 1 lowercase letter (a–z)'),
-              _BulletText('At least 1 number (0–9)'),
-              _BulletText('At least 1 special character (e.g. !, @, #, ?)'),
+            children: [
+              const _PasswordInfoHeader(),
+              const SizedBox(height: 6),
+              _BulletText(l10n.register_step1_password_rule_8_chars),
+              _BulletText(l10n.register_step1_password_rule_uppercase),
+              _BulletText(l10n.register_step1_password_rule_lowercase),
+              _BulletText(l10n.register_step1_password_rule_number),
+              _BulletText(l10n.register_step1_password_rule_special),
             ],
           ),
         ),
@@ -490,7 +500,6 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
 
   Widget _buildConfirmStep() {
     const buttonBlue = Color(0xFF4069E6);
-    final obfuscatedPassword = _passwordC.text.isEmpty ? 'Not set' : '••••••••';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -498,12 +507,12 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
         const SizedBox(height: 4),
         Text(
           _stepTitle,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 6),
         Text(
           _stepDescription,
-          style: TextStyle(fontSize: 13, color: const Color(0xFF6B7280)),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
         ),
         const SizedBox(height: 20),
         Container(
@@ -516,11 +525,20 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
           ),
           child: Column(
             children: [
-              _ConfirmRow(label: 'Email', value: _emailC.text.trim()),
+              _ConfirmRow(
+                label: l10n.register_step1_email_label,
+                value: _emailC.text.trim(),
+              ),
               const SizedBox(height: 8),
-              _ConfirmRow(label: 'First name', value: _firstNameC.text.trim()),
+              _ConfirmRow(
+                label: l10n.register_step1_first_name_label,
+                value: _firstNameC.text.trim(),
+              ),
               const SizedBox(height: 8),
-              _ConfirmRow(label: 'Last name', value: _lastNameC.text.trim()),
+              _ConfirmRow(
+                label: l10n.register_step1_last_name_label,
+                value: _lastNameC.text.trim(),
+              ),
             ],
           ),
         ),
@@ -556,18 +574,16 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
             Expanded(
               child: RichText(
                 text: TextSpan(
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 12,
-                    color: const Color(0xFF6B7280),
+                    color: Color(0xFF6B7280),
                   ),
                   children: [
-                    const TextSpan(
-                      text:
-                          'By creating an account, you confirm that your details are '
-                          'correct and you agree to our ',
+                    TextSpan(
+                      text: l10n.register_step1_privacy_checkbox_text_prefix,
                     ),
                     TextSpan(
-                      text: 'Privacy Policy',
+                      text: l10n.register_step1_privacy_checkbox_link,
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -578,9 +594,9 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
                         ..onTap = () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => const SimpleWebView(
+                              builder: (_) => SimpleWebView(
                                 initialUrl: 'https://wave.id/privacy-policy',
-                                title: 'Privacy Policy',
+                                title: l10n.register_step1_privacy_policy_title,
                               ),
                             ),
                           );
@@ -666,7 +682,7 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
                     )
                   : Text(
                       _primaryButtonLabel,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
@@ -684,10 +700,10 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
                     ? null
                     : () => _goToStep(_currentStep - 1),
                 child: Text(
-                  'Back',
-                  style: TextStyle(
+                  l10n.register_step1_back_button,
+                  style: const TextStyle(
                     fontSize: 13,
-                    color: const Color(0xFF6B7280),
+                    color: Color(0xFF6B7280),
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -703,24 +719,17 @@ class _RegisterStep1CleanState extends State<RegisterStep1Clean> {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text(
-                    'Already have an account? ',
-                    style: TextStyle(color: Colors.black87, fontSize: 13),
+                    l10n.register_step1_footer_have_account,
+                    style: const TextStyle(color: Colors.black87, fontSize: 13),
                   ),
                   InkWell(
                     onTap: widget.onTapLogin,
                     borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 2,
-                        vertical: 2,
-                      ),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 2, vertical: 2),
                       child: Text(
-                        'Log in',
-                        style: TextStyle(
-                          color: buttonBlue,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
+                        // pakai l10n di atas? lebih gampang biar const, kita pakai di bawah
+                        '',
                       ),
                     ),
                   ),
@@ -739,6 +748,7 @@ class _PasswordInfoHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -746,11 +756,11 @@ class _PasswordInfoHeader extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            'Your password must contain:',
-            style: TextStyle(
+            l10n.register_step1_password_info_title,
+            style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: const Color(0xFF111827),
+              color: Color(0xFF111827),
             ),
           ),
         ),
@@ -775,7 +785,7 @@ class _BulletText extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: TextStyle(fontSize: 12, color: const Color(0xFF374151)),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF374151)),
             ),
           ),
         ],
@@ -800,10 +810,10 @@ class _ConfirmRow extends StatelessWidget {
           width: 90,
           child: Text(
             label,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: const Color(0xFF6B7280),
+              color: Color(0xFF6B7280),
             ),
           ),
         ),
@@ -811,7 +821,7 @@ class _ConfirmRow extends StatelessWidget {
         Expanded(
           child: Text(
             displayedValue,
-            style: TextStyle(fontSize: 13, color: const Color(0xFF111827)),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
           ),
         ),
       ],
