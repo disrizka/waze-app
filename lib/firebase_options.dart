@@ -64,7 +64,9 @@ class DefaultFirebaseOptions {
     messagingSenderId: '1094236657957',
     projectId: 'wave-biz',
     storageBucket: 'wave-biz.firebasestorage.app',
-    iosBundleId: 'com.wave.up',
+    androidClientId: '1094236657957-i6d3ihcv3mcmqktr2resn8ts38mn41qf.apps.googleusercontent.com',
+    iosClientId: '1094236657957-5s63dhut8d49aomv91gefd9srg5pl23k.apps.googleusercontent.com',
+    iosBundleId: 'com.wave.updev',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -73,6 +75,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '1094236657957',
     projectId: 'wave-biz',
     storageBucket: 'wave-biz.firebasestorage.app',
+    androidClientId: '1094236657957-i6d3ihcv3mcmqktr2resn8ts38mn41qf.apps.googleusercontent.com',
+    iosClientId: '1094236657957-jab6lsa4tcdtpl9u1s0ppt7o34ujk8kb.apps.googleusercontent.com',
     iosBundleId: 'com.example.waBlast',
   );
 
@@ -85,4 +89,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'wave-biz.firebasestorage.app',
     measurementId: 'G-8F3DQ5T0FL',
   );
+
 }

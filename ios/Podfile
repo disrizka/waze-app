@@ -1,17 +1,14 @@
-# Uncomment this line to define a global platform for your project
 platform :ios, '14.0'
-
-# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 project 'Runner', {
-  'Debug' => :debug,
-  'Profile' => :release,
-  'Release' => :release,
-  'Debug-dev'   => :debug,
-  'Release-dev' => :release,
-  'Debug-prod'  => :debug,
-  'Release-prod'=> :release,
+  'Debug'        => :debug,
+  'Profile'      => :release,
+  'Release'      => :release,
+  'Debug-dev'    => :debug,
+  'Release-dev'  => :release,
+  'Debug-prod'   => :debug,
+  'Release-prod' => :release,
 }
 
 def flutter_root
@@ -19,7 +16,6 @@ def flutter_root
   unless File.exist?(generated_xcode_build_settings_path)
     raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
   end
-
   File.foreach(generated_xcode_build_settings_path) do |line|
     matches = line.match(/FLUTTER_ROOT\=(.*)/)
     return matches[1].strip if matches
@@ -28,16 +24,16 @@ def flutter_root
 end
 
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
-
 flutter_ios_podfile_setup
 
 target 'Runner' do
+  # Static frameworks: aman untuk FlutterFire terbaru & kebanyakan pods
   use_frameworks! :linkage => :static
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
-  # Midtrans
+  # Midtrans (punyamu) — biarkan apa adanya
   pod 'MidtransKit',     :git => 'https://github.com/veritrans/Veritrans-ios-sdk.git', :tag => '1.28.0'
   pod 'MidtransCoreKit', :git => 'https://github.com/veritrans/Veritrans-ios-sdk.git', :tag => '1.28.0'
 end
@@ -51,13 +47,11 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
 
     target.build_configurations.each do |config|
-      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
-        '$(inherited)',
-        'PERMISSION_CAMERA=1',
-        'PERMISSION_PHOTOS=1',
-        'PERMISSION_NOTIFICATIONS=1',
-        'PERMISSION_BLUETOOTH=1',
-      ]
+      # Paksa semua Pods ikut iOS 14.0 (sinkron dengan baris platform di atas)
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+
+      # (Opsional) kalau simulator arm64 bermasalah, aktifkan baris berikut:
+      # config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
     end
   end
 end

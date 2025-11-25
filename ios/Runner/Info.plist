@@ -22,6 +22,7 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -32,11 +33,22 @@
 				<string>waveup</string>
 			</array>
 		</dict>
+		  <dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+			<string>com.googleusercontent.apps.1094236657957-5s63dhut8d49aomv91gefd9srg5pl23k</string>
+			</array>
+		</dict>
 	</array>
+
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
+
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>shopeepay</string>
@@ -51,35 +63,57 @@
 		<string>http</string>
 		<string>https</string>
 	</array>
+
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+
+	<!-- Bluetooth (iOS 13+) -->
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Aplikasi ini memerlukan akses Bluetooth untuk terhubung dengan printer atau perangkat lain.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Aplikasi ini memerlukan akses Bluetooth untuk berkomunikasi dengan perangkat printer.</string>
-	<key>NSBluetoothWhileInUseUsageDescription</key>
-	<string>Aplikasi ini menggunakan Bluetooth untuk menemukan dan mencetak ke printer thermal.</string>
+
+	<!-- Local Network (iOS 14+) -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Aplikasi ini memerlukan akses jaringan lokal untuk terhubung ke printer dan layanan debug Flutter.</string>
+
+	<!-- Bonjour service untuk Flutter VM (penting agar debug tidak gagal) -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dartobservatory._tcp</string>
+		<string>_dartVmService._tcp</string>
+	</array>
+
+	<!-- Media permissions -->
 	<key>NSCameraUsageDescription</key>
 	<string>Aplikasi ini memerlukan akses kamera untuk mengambil foto logo bisnis Anda.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Aplikasi ini memerlukan izin untuk menyimpan gambar ke galeri Anda.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Aplikasi ini memerlukan akses galeri untuk memilih foto logo bisnis Anda.</string>
+
+	<!-- Notifications -->
 	<key>NSUserNotificationUsageDescription</key>
 	<string>Aplikasi ini memerlukan izin untuk mengirimkan notifikasi kepada Anda.</string>
+
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- Background modes -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
 		<string>bluetooth-central</string>
 	</array>
+
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+
 	<key>UIStatusBarHidden</key>
 	<false/>
+
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -93,10 +127,12 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:wave-up.eon.id</string>
 	</array>
+
 	<key>io.flutter.embedded_views_preview</key>
 	<true/>
 </dict>

@@ -7,8 +7,11 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/app_nav.dart';
+import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/splash_provider.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+
 // HAPUS: import 'package:wa_blast/utils/core_permission.dart';
 import '../providers/auth_provider.dart';
 
@@ -149,6 +152,52 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  /// === LOGIN DENGAN GOOGLE ===
+  Future<void> _handleLoginWithGoogle() async {
+    final t = AppLocalizations.of(context)!;
+
+    // FCM token
+    String fcmToken = 'unknown_fcm_token';
+    try {
+      fcmToken =
+          (await FirebaseMessaging.instance.getToken()) ?? 'unknown_fcm_token';
+    } catch (_) {}
+
+    // Device info
+    String deviceId = 'unknown_device_id';
+    String deviceName = 'unknown_device';
+    try {
+      final deviceInfo = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final info = await deviceInfo.androidInfo;
+        deviceId = info.id ?? info.model ?? 'android_device';
+        deviceName = '${info.manufacturer} ${info.model}';
+      } else if (Platform.isIOS) {
+        // Secara requirement kamu Google login hanya Android,
+        // tapi kalau suatu saat dipakai di iOS, ini tetap aman.
+        final info = await deviceInfo.iosInfo;
+        deviceId = info.identifierForVendor ?? 'ios_device';
+        deviceName = info.utsname.machine ?? info.name ?? 'iPhone';
+      }
+    } catch (_) {}
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final success = await authProvider.loginWithGoogle(
+      context: context,
+      deviceId: deviceId,
+      deviceName: deviceName,
+      fcmToken: fcmToken,
+    );
+
+    if (!mounted) return;
+    if (!success) {
+      final errorMsg = authProvider.error ?? t.login_failed;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMsg)));
+    }
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -170,7 +219,6 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Banner
-              // ===== Ganti bagian header lama dengan ini =====
               Container(
                 width: double.infinity,
                 height: 180,
@@ -288,6 +336,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 24),
 
+                    // Tombol login biasa
                     isLoading
                         ? const _LoginShimmerButton()
                         : SizedBox(
@@ -311,6 +360,74 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           ),
+
+                    const SizedBox(height: 16),
+
+                    // Separator "or"
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            color: Colors.grey.shade300,
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8.0),
+                          child: Text(
+                            'or',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ),
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            color: Colors.grey.shade300,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Tombol Continue with Google (minimalis & elegan)
+                    // Tombol Continue with Google (icon Google biru, teks hitam)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: isLoading ? null : _handleLoginWithGoogle,
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black87,
+                          side: BorderSide(color: Colors.grey.shade300),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.max,
+                          children: [
+                            const FaIcon(
+                              FontAwesomeIcons.google, // icon Google "G" resmi
+                              size: 20,
+                              color: AppColors.black, // biru, bisa disesuaikan
+                            ),
+                            const SizedBox(width: 10),
+                            const Text(
+                              'Continue with Google',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87, // teks hitam, elegan
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
 
                     const SizedBox(height: 24),
                     Row(

@@ -8,8 +8,10 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/app_nav.dart';
+import 'package:wa_blast/firebase_options.dart';
 import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/services/api_service.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:path/path.dart' as p;
 
 /// =========================
@@ -1025,6 +1027,7 @@ class AuthProvider with ChangeNotifier {
   Future<void> logoutWithoutNavigation() async {
     final prefs = await SharedPreferences.getInstance();
 
+    // 1) Bersihkan state di memori
     _accessToken = null;
     _refreshToken = null;
     _name = null;
@@ -1032,13 +1035,14 @@ class AuthProvider with ChangeNotifier {
     _isActivated = false;
     _error = null;
 
+    // 2) Hapus data dasar dari SharedPreferences
     await prefs.remove('accessToken');
     await prefs.remove('refreshToken');
     await prefs.remove('name');
     await prefs.remove('email');
     await prefs.remove('isActivated');
 
-    // Bersihkan pointer active biz & role
+    // 3) Bersihkan pointer active biz & role
     await prefs.remove('activeBizId');
     await prefs.remove('activeBizName');
     await prefs.remove('activeBizUsername');
@@ -1047,6 +1051,14 @@ class AuthProvider with ChangeNotifier {
     await prefs.remove(kActiveBizRoleNameKey);
     await prefs.remove(kActiveBizRoleIsPrimaryKey);
 
+    // 4) Sign out dari Google (kalau ada sesi)
+    try {
+      await _ensureGoogleSignInInitialized();
+      await _googleSignIn.signOut();
+    } catch (e, st) {
+      debugPrint('Google sign out (logoutWithoutNavigation) error: $e\n$st');
+    }
+
     notifyListeners();
   }
 
@@ -1054,15 +1066,18 @@ class AuthProvider with ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
+      // 1) Ambil email akun sekarang & daftar akun tersimpan
       final currentEmail = _email;
       final accounts = prefs.getStringList(kAccountsKey) ?? [];
 
+      // 2) Hapus akun ini dari daftar multi-account
       accounts.remove(currentEmail);
       await prefs.setStringList(kAccountsKey, accounts);
       if (currentEmail != null) {
         await prefs.remove('account_$currentEmail');
       }
 
+      // 3) Reset state di memori
       _accessToken = null;
       _refreshToken = null;
       _name = null;
@@ -1070,6 +1085,7 @@ class AuthProvider with ChangeNotifier {
       _isActivated = false;
       _error = null;
 
+      // 4) Bersihkan token & info dasar di SharedPreferences
       await prefs.remove('accessToken');
       await prefs.remove('refreshToken');
       await prefs.remove('name');
@@ -1077,7 +1093,7 @@ class AuthProvider with ChangeNotifier {
       await prefs.remove('isActivated');
       await prefs.remove(kActiveAccountKey);
 
-      // Bersihkan active biz & role
+      // 5) Bersihkan active business & role
       await prefs.remove('activeBizId');
       await prefs.remove('activeBizName');
       await prefs.remove('activeBizUsername');
@@ -1086,12 +1102,22 @@ class AuthProvider with ChangeNotifier {
       await prefs.remove(kActiveBizRoleNameKey);
       await prefs.remove(kActiveBizRoleIsPrimaryKey);
 
+      // 6) Sign out dari Google
+      try {
+        await _ensureGoogleSignInInitialized();
+        await _googleSignIn.signOut();
+      } catch (e, st) {
+        debugPrint('Google sign out (logout) error: $e\n$st');
+      }
+
       notifyListeners();
 
+      // 7) Reset guard & deep link di Splash
       final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
       sp?.resetNavigationGuards();
       sp?.abortDeepLink();
 
+      // 8) Kalau masih ada akun lain, auto-switch ke akun pertama
       if (accounts.isNotEmpty) {
         final nextEmail = accounts.first;
         final success = await switchAccount(nextEmail);
@@ -1101,9 +1127,210 @@ class AuthProvider with ChangeNotifier {
         }
       }
 
+      // 9) Kalau sudah tidak ada akun lain → kembali ke splash
       nav?.pushNamedAndRemoveUntil('/splash', (r) => false);
     } catch (e) {
       debugPrint("Gagal logout: $e");
+    }
+  }
+
+  /// =========================================
+  /// Login dengan Google
+  /// - Jika akun SUDAH ada → panggil login() biasa
+  /// - Jika akun BELUM ada → otomatis panggil registerStep1()
+  /// =========================================
+  ///
+  /// Password pseudo untuk akun Google.
+  /// Penting: untuk user yang sama, password harus konsisten,
+  /// supaya di sisi server login berikutnya tetap cocok.
+  String _buildGooglePassword(String seed) {
+    // Kamu bisa ganti format ini, yang penting konsisten dan
+    // *tidak mudah ditebak* kalau mau lebih aman.
+    return 'GOOGLE_LOGIN::$seed';
+  }
+
+  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
+  bool _isGoogleSignInInitialized = false;
+
+  Future<void> _ensureGoogleSignInInitialized() async {
+    if (_isGoogleSignInInitialized) return;
+
+    try {
+      // ambil options sesuai platform (android / ios)
+      final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
+
+      String? clientId;
+
+      if (Platform.isIOS) {
+        // pakai iOS client ID dari firebase_options.dart
+        clientId = firebaseOptions.iosClientId;
+      } else if (Platform.isAndroid) {
+        // kalau mau explicit, pakai androidClientId
+        // (kalau kamu sudah pakai google-services.json, biasanya boleh null juga)
+        clientId = firebaseOptions.androidClientId;
+      }
+
+      await _googleSignIn.initialize(
+        clientId: clientId,
+        // kalau kamu butuh server auth code untuk backend:
+        // serverClientId: 'WEB_CLIENT_ID_DARI_GOOGLE_CLOUD.apps.googleusercontent.com',
+      );
+
+      _isGoogleSignInInitialized = true;
+    } catch (e, st) {
+      debugPrint('GoogleSignIn.initialize error: $e\n$st');
+      rethrow;
+    }
+  }
+
+  /// =========================================
+  /// Login dengan Google (google_sign_in 7.2.0)
+  /// - Kalau akun SUDAH ada → login() biasa
+  /// - Kalau akun BELUM ada → auto registerStep1()
+  /// =========================================
+  Future<bool> loginWithGoogle({
+    required BuildContext context,
+    required String deviceId,
+    required String deviceName,
+    required String fcmToken,
+    String referralCode = "",
+  }) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      // 1) Pastikan GoogleSignIn sudah di-initialize
+      try {
+        await _ensureGoogleSignInInitialized();
+      } catch (e) {
+        _error = 'Failed to initialize Google Sign-In: $e';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      // 2) Mulai flow login Google
+      GoogleSignInAccount? googleUser;
+
+      try {
+        if (_googleSignIn.supportsAuthenticate()) {
+          googleUser = await _googleSignIn.authenticate();
+        } else {
+          googleUser =
+              await _googleSignIn.attemptLightweightAuthentication(
+                reportAllExceptions: true,
+              ) ??
+              await _googleSignIn.authenticate();
+        }
+      } on GoogleSignInException catch (e, st) {
+        debugPrint('Google sign-in error: $e\n$st');
+        if (e.code == GoogleSignInExceptionCode.canceled) {
+          _error = 'Google sign-in dibatalkan.';
+        } else {
+          _error =
+              'Google sign-in gagal: ${e.description ?? e.code.toString()}';
+        }
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      } catch (e, st) {
+        debugPrint('Unexpected Google sign-in error: $e\n$st');
+        _error = 'Terjadi kesalahan saat Google sign-in: $e';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      if (googleUser == null) {
+        _error = 'Google sign-in dibatalkan.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      final email = googleUser.email;
+      final displayName = googleUser.displayName ?? '';
+      final googleId = googleUser.id;
+
+      // 3) Pecah displayName jadi first_name & last_name
+      String firstName = '';
+      String lastName = '';
+      if (displayName.trim().isNotEmpty) {
+        final parts = displayName.trim().split(' ');
+        firstName = parts.first;
+        if (parts.length > 1) {
+          lastName = parts.sublist(1).join(' ');
+        }
+      }
+
+      if (firstName.isEmpty) {
+        firstName = email.split('@').first;
+      }
+
+      // 4) Password pseudo khusus Google (konsisten per user)
+      final googleSeed = googleId.isNotEmpty ? googleId : email;
+      final googlePassword = _buildGooglePassword(googleSeed);
+
+      // Reset loading dulu; login() akan ngatur state-nya lagi
+      _isLoading = false;
+      notifyListeners();
+
+      // 5) Coba LOGIN biasa pakai email + googlePassword
+      final loginSuccess = await login(
+        context: context,
+        email: email,
+        password: googlePassword,
+        fcmToken: fcmToken,
+        deviceId: deviceId,
+        deviceName: deviceName,
+      );
+
+      // 6) Kalau login gagal → cek text error-nya
+      final errLower = (_error ?? '').toLowerCase();
+
+      // ✅ Tambahan: khusus message dari server ini kita anggap "akun belum ada"
+      final bool isInvalidCredentialMsg = errLower.contains(
+        'invalid e-mail / phone / password',
+      );
+
+      final bool userNotFound =
+          isInvalidCredentialMsg || // <— ini tambahan
+          errLower.contains('not found') ||
+          errLower.contains('belum terdaftar') ||
+          errLower.contains('no account') ||
+          errLower.contains('user does not exist') ||
+          errLower.contains('email tidak terdaftar');
+
+      if (!userNotFound) {
+        // Bukan kasus "akun belum ada" → jangan register
+        return false;
+      }
+
+      // 7) Bersihkan error lama sebelum register
+      _error = null;
+      notifyListeners();
+
+      // 8) Jalankan REGISTER dengan payload seperti registerStep1
+      final registerOk = await registerStep1(
+        email: email,
+        first_name: firstName,
+        last_name: lastName,
+        password: googlePassword,
+        referralCode: referralCode,
+        deviceId: deviceId,
+        deviceName: deviceName,
+        fcmToken: fcmToken,
+      );
+
+      return false;
+    } catch (e, st) {
+      _error = 'Terjadi kesalahan saat login dengan Google: $e';
+      debugPrint('LOGIN WITH GOOGLE ❌ $e\n$st');
+
+      _isLoading = false;
+      notifyListeners();
+      return false;
     }
   }
 

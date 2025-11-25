@@ -150,9 +150,7 @@ class ChangePasswordProvider extends SafeChangeNotifier {
         return null;
       }
 
-      final otp = j['otp']?.toString();
-      _setOtp(otp);
-      return otp;
+      return null;
     } catch (e, st) {
       if (kDebugMode) debugPrint('[ForgotPassword1] exception: $e\n$st');
       _setOtp(null);
