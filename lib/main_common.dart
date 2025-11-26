@@ -18,6 +18,7 @@ import 'package:wa_blast/providers/locale_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
+import 'package:wa_blast/providers/subscription_provider.dart';
 import 'package:wa_blast/screens/change_password_screen.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.dart';
@@ -42,6 +43,7 @@ import 'package:wa_blast/screens/settings/business/business_edit_screen.dart';
 import 'package:wa_blast/screens/settings/business/business_settings_screen.dart';
 import 'package:wa_blast/screens/settings/thermal_printer_setting.dart';
 import 'package:wa_blast/screens/store_list_screen.dart';
+import 'package:wa_blast/screens/subscription/subscription_screen.dart';
 import 'package:wa_blast/services/deep_link_service.dart';
 import 'firebase_options.dart';
 
@@ -155,6 +157,10 @@ class _AppShell extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => RoleProvider(), lazy: true),
         ChangeNotifierProvider(create: (_) => ReportProviderV2(), lazy: true),
+        ChangeNotifierProvider(
+          create: (_) => SubscriptionProvider(),
+          lazy: true,
+        ),
         ChangeNotifierProvider(
           create: (_) => NotificationProvider(),
           lazy: true,
@@ -675,6 +681,13 @@ class MyApp extends StatelessWidget {
               settings,
               const ThermalPrinterSettingsScreen(),
               android: AndroidTransition.slideUp,
+            );
+          // ===== SALES =====
+          case '/subscription':
+            return _platformRouteAnimated(
+              settings,
+              const SubscriptionScreen(),
+              android: AndroidTransition.slideRight,
             );
 
           case '/business':

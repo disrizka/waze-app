@@ -397,6 +397,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: ListView(
           children: [
             _SectionTitle(t.profile_section_setting),
+            // _MenuTile(
+            //   title: 'Subscription',
+            //   icon: LucideIcons.creditCard,
+            //   subtitle: null,
+            //   onTap: () async {
+            //     Navigator.pushNamed(context, '/subscription');
+            //   },
+            // ),
             _MenuTile(
               title: t.profile_menu_account,
               icon: LucideIcons.user,

@@ -560,7 +560,6 @@ class AuthProvider with ChangeNotifier {
   }
 
   // Ganti seluruh method login(...) dengan versi ini
-  // Ganti seluruh method login(...) dengan versi ini
   Future<bool> login({
     required BuildContext context,
     required String email,
@@ -1195,36 +1194,47 @@ class AuthProvider with ChangeNotifier {
     required String fcmToken,
     String referralCode = "",
   }) async {
+    debugPrint('====== [LOGIN_GOOGLE] START ======');
+    debugPrint('[LOGIN_GOOGLE] deviceId=$deviceId, deviceName=$deviceName');
+
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      // 1) Pastikan GoogleSignIn sudah di-initialize
+      // 1) Init Google Sign-In
       try {
+        debugPrint('[LOGIN_GOOGLE] Initializing GoogleSignIn...');
         await _ensureGoogleSignInInitialized();
-      } catch (e) {
+        debugPrint('[LOGIN_GOOGLE] GoogleSignIn initialized OK');
+      } catch (e, st) {
         _error = 'Failed to initialize Google Sign-In: $e';
         _isLoading = false;
         notifyListeners();
+        debugPrint('[LOGIN_GOOGLE] ERROR init GoogleSignIn: $e\n$st');
         return false;
       }
 
       // 2) Mulai flow login Google
       GoogleSignInAccount? googleUser;
-
       try {
+        debugPrint('[LOGIN_GOOGLE] Starting Google sign-in...');
         if (_googleSignIn.supportsAuthenticate()) {
+          debugPrint('[LOGIN_GOOGLE] Using authenticate()');
           googleUser = await _googleSignIn.authenticate();
         } else {
+          debugPrint('[LOGIN_GOOGLE] Using attemptLightweightAuthentication()');
           googleUser =
               await _googleSignIn.attemptLightweightAuthentication(
                 reportAllExceptions: true,
               ) ??
               await _googleSignIn.authenticate();
         }
+        debugPrint(
+          '[LOGIN_GOOGLE] Google sign-in finished. user is null? ${googleUser == null}',
+        );
       } on GoogleSignInException catch (e, st) {
-        debugPrint('Google sign-in error: $e\n$st');
+        debugPrint('[LOGIN_GOOGLE] Google sign-in error: $e\n$st');
         if (e.code == GoogleSignInExceptionCode.canceled) {
           _error = 'Google sign-in dibatalkan.';
         } else {
@@ -1235,7 +1245,7 @@ class AuthProvider with ChangeNotifier {
         notifyListeners();
         return false;
       } catch (e, st) {
-        debugPrint('Unexpected Google sign-in error: $e\n$st');
+        debugPrint('[LOGIN_GOOGLE] Unexpected Google sign-in error: $e\n$st');
         _error = 'Terjadi kesalahan saat Google sign-in: $e';
         _isLoading = false;
         notifyListeners();
@@ -1243,6 +1253,9 @@ class AuthProvider with ChangeNotifier {
       }
 
       if (googleUser == null) {
+        debugPrint(
+          '[LOGIN_GOOGLE] googleUser == null (kemungkinan dibatalkan user)',
+        );
         _error = 'Google sign-in dibatalkan.';
         _isLoading = false;
         notifyListeners();
@@ -1252,6 +1265,11 @@ class AuthProvider with ChangeNotifier {
       final email = googleUser.email;
       final displayName = googleUser.displayName ?? '';
       final googleId = googleUser.id;
+
+      debugPrint(
+        '[LOGIN_GOOGLE] Google user: '
+        'email=$email, displayName="$displayName", id=$googleId',
+      );
 
       // 3) Pecah displayName jadi first_name & last_name
       String firstName = '';
@@ -1268,15 +1286,24 @@ class AuthProvider with ChangeNotifier {
         firstName = email.split('@').first;
       }
 
+      debugPrint(
+        '[LOGIN_GOOGLE] Parsed name: firstName="$firstName", lastName="$lastName"',
+      );
+
       // 4) Password pseudo khusus Google (konsisten per user)
       final googleSeed = googleId.isNotEmpty ? googleId : email;
       final googlePassword = _buildGooglePassword(googleSeed);
+      debugPrint(
+        '[LOGIN_GOOGLE] googleSeed="$googleSeed", generated googlePassword(***hidden***)',
+      );
 
       // Reset loading dulu; login() akan ngatur state-nya lagi
       _isLoading = false;
       notifyListeners();
+      debugPrint('[LOGIN_GOOGLE] _isLoading set to false sebelum call login()');
 
       // 5) Coba LOGIN biasa pakai email + googlePassword
+      debugPrint('[LOGIN_GOOGLE] Calling login() with email=$email');
       final loginSuccess = await login(
         context: context,
         email: email,
@@ -1285,29 +1312,53 @@ class AuthProvider with ChangeNotifier {
         deviceId: deviceId,
         deviceName: deviceName,
       );
+      debugPrint(
+        '[LOGIN_GOOGLE] login() returned: $loginSuccess, _error="${_error ?? '(null)'}"',
+      );
+
+      // ✅ PERBAIKAN: kalau login sukses, langsung return true
+      if (loginSuccess) {
+        debugPrint('====== [LOGIN_GOOGLE] SUCCESS (LOGIN) ======');
+        return true;
+      }
 
       // 6) Kalau login gagal → cek text error-nya
       final errLower = (_error ?? '').toLowerCase();
+      debugPrint(
+        '[LOGIN_GOOGLE] Checking error for "user not found"... rawError="${_error ?? '(null)'}"',
+      );
 
-      // ✅ Tambahan: khusus message dari server ini kita anggap "akun belum ada"
+      // Message dari server yang dianggep invalid credentials
       final bool isInvalidCredentialMsg = errLower.contains(
         'invalid e-mail / phone / password',
       );
 
       final bool userNotFound =
-          isInvalidCredentialMsg || // <— ini tambahan
+          isInvalidCredentialMsg ||
           errLower.contains('not found') ||
           errLower.contains('belum terdaftar') ||
           errLower.contains('no account') ||
           errLower.contains('user does not exist') ||
           errLower.contains('email tidak terdaftar');
 
+      debugPrint(
+        '[LOGIN_GOOGLE] Parsed flags: '
+        'isInvalidCredentialMsg=$isInvalidCredentialMsg, userNotFound=$userNotFound',
+      );
+
       if (!userNotFound) {
         // Bukan kasus "akun belum ada" → jangan register
+        debugPrint(
+          '[LOGIN_GOOGLE] Login gagal TAPI bukan userNotFound. '
+          'Tidak melakukan register. _error="${_error ?? '(null)'}"',
+        );
         return false;
       }
 
       // 7) Bersihkan error lama sebelum register
+      debugPrint(
+        '[LOGIN_GOOGLE] Detected userNotFound → lanjut ke registerStep1',
+      );
       _error = null;
       notifyListeners();
 
@@ -1323,10 +1374,22 @@ class AuthProvider with ChangeNotifier {
         fcmToken: fcmToken,
       );
 
-      return false;
+      debugPrint(
+        '[LOGIN_GOOGLE] registerStep1() result: $registerOk, _error="${_error ?? '(null)'}"',
+      );
+
+      if (registerOk) {
+        debugPrint(
+          '====== [LOGIN_GOOGLE] SUCCESS (REGISTER + LOGIN GOOGLE) ======',
+        );
+      } else {
+        debugPrint('====== [LOGIN_GOOGLE] FAILED (REGISTER) ======');
+      }
+
+      return registerOk;
     } catch (e, st) {
       _error = 'Terjadi kesalahan saat login dengan Google: $e';
-      debugPrint('LOGIN WITH GOOGLE ❌ $e\n$st');
+      debugPrint('[LOGIN_GOOGLE] ❌ UNCAUGHT ERROR: $e\n$st');
 
       _isLoading = false;
       notifyListeners();

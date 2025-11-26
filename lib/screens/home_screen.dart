@@ -11,6 +11,7 @@ import 'package:wa_blast/providers/auth_provider.dart';
 import 'package:wa_blast/providers/notification_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../l10n/app_localizations.dart';
 
 // Key untuk menyimpan waktu terakhir modal subscription ditampilkan
@@ -342,13 +343,11 @@ class _SubscriptionSheet extends StatelessWidget {
                 const SizedBox(height: 8),
 
                 // 👇 Logo WaveUp
-                SizedBox(
-                  height: 30,
-                  child: Image.asset(
-                    'assets/wave_up_logo_2.png',
-                    fit: BoxFit.contain,
-                  ),
+                SvgPicture.asset(
+                  'assets/subscription-promotion.svg',
+                  width: 250,
                 ),
+
                 const SizedBox(height: 30),
 
                 // Title & subtitle
@@ -464,7 +463,7 @@ class _SubscriptionSheet extends StatelessWidget {
                     ),
                     onPressed: () {
                       // TODO: connect to your premium subscription flow here
-                      Navigator.of(context).pop(true);
+                      Navigator.pushNamed(context, '/subscription');
                     },
                     child: const Text(
                       'Upgrade to Premium',
@@ -475,12 +474,6 @@ class _SubscriptionSheet extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'You can switch plans anytime. No hidden fees.',
-                  style: TextStyle(fontSize: 11, color: _textMuted),
-                  textAlign: TextAlign.center,
                 ),
               ],
             ),
@@ -801,12 +794,6 @@ class _HeaderGradientState extends State<_HeaderGradient> {
 
                   const Spacer(),
 
-                  // BADGE PLAN (FREE / PREMIUM)
-                  _PlanStatusBadge(
-                    planType: currentPlanType,
-                    onTap: _openSubscriptionSheet,
-                  ),
-
                   const SizedBox(width: 6),
 
                   // ICON LONCENG NOTIFIKASI
@@ -1008,89 +995,6 @@ class _HeaderGradientState extends State<_HeaderGradient> {
         // Spacer agar konten di bawah tidak ketimpa kartu
         const SizedBox(height: cardHeight * 0.70 + 3),
       ],
-    );
-  }
-}
-
-/// Badge kecil di header yang menunjukkan status plan (free / premium).
-class _PlanStatusBadge extends StatelessWidget {
-  final String planType; // "free" atau "premium"
-  final VoidCallback onTap;
-
-  const _PlanStatusBadge({required this.planType, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final String normalized = planType.trim().toLowerCase();
-    final bool isPremium = normalized == 'premium';
-
-    // Premium: gradient biru-hijau (tanpa ungu)
-    const Gradient premiumGradient = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        Color(0xFF22C55E), // green
-        Color(0xFF3B82F6), // blue
-      ],
-    );
-
-    // Free: silver/abu, lebih dull
-    const Gradient freeGradient = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFFEEEEEE), Color(0xFFD3D7DD)],
-    );
-
-    final Gradient badgeGradient = isPremium ? premiumGradient : freeGradient;
-    final Color badgeTextColor = isPremium
-        ? Colors.white
-        : const Color(0xFF111827);
-    final Color iconColor = isPremium ? Colors.white : const Color(0xFF4B5563);
-
-    final String titleText = isPremium ? 'Premium plan' : 'Free plan';
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            gradient: badgeGradient,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.white.withOpacity(isPremium ? 0.9 : 0.7),
-              width: isPremium ? 1.2 : 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isPremium ? 0.25 : 0.12),
-                blurRadius: isPremium ? 12 : 6,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.workspace_premium_rounded, size: 16, color: iconColor),
-              const SizedBox(width: 6),
-              Text(
-                titleText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: badgeTextColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.25,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

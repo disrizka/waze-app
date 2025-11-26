@@ -6,10 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
-import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
-import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 // HAPUS: import 'package:wa_blast/utils/core_permission.dart';
@@ -27,11 +25,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _isRequestingPermissions = false;
-
-  // Status permission (opsional)
-  PermissionStatus? _notifStatus;
-  PermissionStatus? _cameraStatus;
-  PermissionStatus? _photosStatus; // iOS only
 
   @override
   void initState() {
@@ -63,32 +56,19 @@ class _LoginScreenState extends State<LoginScreen> {
           final authorized =
               fcm.authorizationStatus == AuthorizationStatus.authorized ||
               fcm.authorizationStatus == AuthorizationStatus.provisional;
-          _notifStatus = authorized
-              ? PermissionStatus.granted
-              : PermissionStatus.denied;
         }
         // Android 13+; di versi lama akan diabaikan oleh OS/plugin
         final notif = await Permission.notification.request();
-        _notifStatus = notif;
       } catch (_) {}
 
       // === Camera ===
-      try {
-        _cameraStatus = await Permission.camera.request();
-      } catch (_) {
-        _cameraStatus = PermissionStatus.denied;
-      }
+      try {} catch (_) {}
 
       // === Photos (iOS saja) ===
       if (Platform.isIOS) {
-        try {
-          _photosStatus = await Permission.photos.request();
-        } catch (_) {
-          _photosStatus = PermissionStatus.denied;
-        }
+        try {} catch (_) {}
       } else {
         // ANDROID → JANGAN minta photos/storage. Gunakan Android Photo Picker saat memilih gambar.
-        _photosStatus = PermissionStatus.granted;
       }
     } finally {
       if (mounted) setState(() => _isRequestingPermissions = false);
