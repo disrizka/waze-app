@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wa_blast/l10n/app_localizations.dart';
 
 class BusinessSettingsScreen extends StatefulWidget {
   const BusinessSettingsScreen({super.key});
@@ -76,6 +77,7 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -83,9 +85,11 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
         backgroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/home'),
+          onPressed: () => Navigator.of(
+            context,
+          ).popUntil((route) => route.settings.name == '/home'),
         ),
-        title: const Text('Business Settings'),
+        title: Text(l10n.businessSettingsTitle),
         centerTitle: false,
         elevation: 0,
       ),
@@ -104,19 +108,32 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
               logoUrl: _businessLogoPath,
               name: _businessName,
               username: _businessUsername,
+              planType: 'free', // TODO: ganti dari data API / prefs
+              onPlanTap: () => Navigator.pushNamed(context, '/subscription'),
             ),
 
             const SizedBox(height: 28),
 
-            // ===== Management: only Store List =====
-            _SectionTitle('Management'),
+            // ===== Management section =====
+            _SectionTitle(l10n.businessSettingsSectionManagement),
+            const SizedBox(height: 8),
+            _ListCard(
+              children: [
+                _MenuTile(
+                  icon: Icons.payment,
+                  title: 'Subscription',
+                  subtitle: 'Manage your business subscription',
+                  onTap: () => Navigator.pushNamed(context, '/subscription'),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             _ListCard(
               children: [
                 _MenuTile(
                   icon: Icons.edit_document,
-                  title: 'Business Edit',
-                  subtitle: 'Manage your business information',
+                  title: l10n.businessSettingsBusinessEditTitle,
+                  subtitle: l10n.businessSettingsBusinessEditSubtitle,
                   onTap: () => Navigator.pushNamed(context, '/business/edit'),
                 ),
               ],
@@ -126,8 +143,8 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
               children: [
                 _MenuTile(
                   icon: Icons.storefront_rounded,
-                  title: 'Store List',
-                  subtitle: 'Manage your stores and locations',
+                  title: l10n.businessSettingsStoreListTitle,
+                  subtitle: l10n.businessSettingsStoreListSubtitle,
                   onTap: () => Navigator.pushNamed(context, '/purchase/store'),
                 ),
               ],
@@ -147,12 +164,16 @@ class _ProfileHeader extends StatelessWidget {
     required this.logoUrl,
     required this.name,
     required this.username,
+    required this.planType, // "free" / "premium"
+    required this.onPlanTap,
   });
 
   final bool loading;
   final String logoUrl;
   final String name;
   final String username;
+  final String planType;
+  final VoidCallback onPlanTap;
 
   @override
   Widget build(BuildContext context) {
@@ -171,8 +192,10 @@ class _ProfileHeader extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _ShimmerBox(width: 150, height: 18, radius: 6),
-                  SizedBox(height: 10),
-                  _ShimmerBox(width: 100, height: 14, radius: 6),
+                  SizedBox(height: 8),
+                  _ShimmerBox(width: 120, height: 14, radius: 6),
+                  SizedBox(height: 8),
+                  _ShimmerBox(width: 90, height: 16, radius: 999),
                 ],
               ),
             ),
@@ -185,6 +208,7 @@ class _ProfileHeader extends StatelessWidget {
       decoration: _profileDecoration(),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Logo avatar
           CircleAvatar(
@@ -202,49 +226,45 @@ class _ProfileHeader extends StatelessWidget {
                   )
                 : _fallbackAvatar(name),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 18),
 
-          // Name & username
+          // Text area kanan
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  name,
-                  style: t.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    color: const Color(0xFF0F172A),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5FF),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFE0E7FF)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.alternate_email_rounded,
-                        color: Color(0xFF4C6EF5),
-                        size: 16,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        username,
-                        style: t.bodyMedium?.copyWith(
-                          color: const Color(0xFF1E293B),
-                          fontWeight: FontWeight.w600,
+                // Baris 1: nama bisnis + badge plan di kanan
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: t.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                          color: const Color(0xFF0F172A),
                         ),
                       ),
-                    ],
+                    ),
+                    const SizedBox(width: 8),
+                    _PlanStatusBadge(planType: planType, onTap: onPlanTap),
+                  ],
+                ),
+
+                const SizedBox(height: 6),
+
+                // Baris 2: username sebagai teks biasa
+                Text(
+                  '@$username',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.bodyMedium?.copyWith(
+                    fontSize: 13,
+                    color: const Color(0xFF6B7280),
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
@@ -391,6 +411,89 @@ BoxDecoration _listDecoration() {
     borderRadius: BorderRadius.circular(14),
     border: Border.all(color: const Color(0xFFE5E7EB)),
   );
+}
+
+/// Badge kecil di header yang menunjukkan status plan (free / premium).
+class _PlanStatusBadge extends StatelessWidget {
+  final String planType; // "free" atau "premium"
+  final VoidCallback onTap;
+
+  const _PlanStatusBadge({required this.planType, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final String normalized = planType.trim().toLowerCase();
+    final bool isPremium = normalized == 'premium';
+
+    // Premium: gradient biru-hijau (tanpa ungu)
+    const Gradient premiumGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Color(0xFF22C55E), // green
+        Color(0xFF3B82F6), // blue
+      ],
+    );
+
+    // Free: silver/abu, lebih dull
+    const Gradient freeGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFFEEEEEE), Color(0xFFD3D7DD)],
+    );
+
+    final Gradient badgeGradient = isPremium ? premiumGradient : freeGradient;
+    final Color badgeTextColor = isPremium
+        ? Colors.white
+        : const Color(0xFF111827);
+    final Color iconColor = isPremium ? Colors.white : const Color(0xFF4B5563);
+
+    final String titleText = isPremium ? 'Premium plan' : 'Free plan';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            gradient: badgeGradient,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.white.withOpacity(isPremium ? 0.9 : 0.7),
+              width: isPremium ? 1.2 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isPremium ? 0.25 : 0.12),
+                blurRadius: isPremium ? 12 : 6,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.workspace_premium_rounded, size: 16, color: iconColor),
+              const SizedBox(width: 6),
+              Text(
+                titleText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: badgeTextColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.25,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ShimmerBox extends StatelessWidget {

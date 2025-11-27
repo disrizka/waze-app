@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 
 class ManageReportScreen extends StatefulWidget {
@@ -66,9 +67,9 @@ class _ManageReportScreenState extends State<ManageReportScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      // optional: bisa pakai snackbar kalau mau
+      final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal memuat ringkasan report: $e')),
+        SnackBar(content: Text('${l10n.manage_report_load_error_prefix}$e')),
       );
     } finally {
       if (!mounted) return;
@@ -76,8 +77,10 @@ class _ManageReportScreenState extends State<ManageReportScreen> {
     }
   }
 
-  String get _monthLabel {
-    final formatter = DateFormat('MMMM yyyy', 'id_ID');
+  String _monthLabel(BuildContext context) {
+    // gunakan locale app saat ini (en/id)
+    final locale = Localizations.localeOf(context).toString();
+    final formatter = DateFormat('MMMM yyyy', locale);
     return formatter.format(_startOfMonth);
   }
 
@@ -89,7 +92,7 @@ class _ManageReportScreenState extends State<ManageReportScreen> {
     }
     final value = summary.totalRevenue ?? 0;
     final f = NumberFormat.currency(
-      locale: 'id_ID',
+      locale: 'id_ID', // format rupiah (bisa disesuaikan kalau perlu)
       symbol: 'Rp ',
       decimalDigits: 0,
     );
@@ -104,6 +107,7 @@ class _ManageReportScreenState extends State<ManageReportScreen> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -115,7 +119,7 @@ class _ManageReportScreenState extends State<ManageReportScreen> {
             context,
           ).popUntil((route) => route.settings.name == '/home'),
         ),
-        title: const Text('Report'),
+        title: Text(l10n.manage_report_appbar_title),
         centerTitle: false,
         elevation: 0,
       ),
@@ -128,8 +132,13 @@ class _ManageReportScreenState extends State<ManageReportScreen> {
               const SizedBox(height: 8),
               // ==== DASHBOARD SUMMARY ====
               _MonthlyReportDashboard(
-                monthLabel: _monthLabel,
+                monthLabel: _monthLabel(context),
                 loading: _loadingSummary,
+                headerTitle: l10n.manage_report_dashboard_title,
+                salesTitle: l10n.manage_report_sales_revenue_title,
+                purchaseTitle: l10n.manage_report_purchase_revenue_title,
+                transactionsLabel: l10n.manage_report_submetric_transactions,
+                qtyLabel: l10n.manage_report_submetric_qty,
                 salesRevenueText: _formatRevenue(_salesSummary),
                 salesTxText: _formatCount(
                   _salesSummary?.totalTransactions ?? 0,
@@ -145,7 +154,7 @@ class _ManageReportScreenState extends State<ManageReportScreen> {
               const SizedBox(height: 24),
               // ==== LIST MENU ====
               Text(
-                'List Menu',
+                l10n.manage_report_section_menu_title,
                 style: textTheme.bodyMedium?.copyWith(
                   color: Colors.black.withOpacity(0.6),
                   fontWeight: FontWeight.w600,
@@ -154,13 +163,13 @@ class _ManageReportScreenState extends State<ManageReportScreen> {
               const SizedBox(height: 8),
               _MenuTile(
                 icon: Icons.query_stats_rounded,
-                title: 'Report Sales',
+                title: l10n.manage_report_menu_sales,
                 onTap: () => Navigator.pushNamed(context, '/report/sales'),
               ),
               const SizedBox(height: 8),
               _MenuTile(
                 icon: Icons.people_alt_rounded,
-                title: 'Report Purchase',
+                title: l10n.manage_report_menu_purchase,
                 onTap: () => Navigator.pushNamed(context, '/report/purchase'),
               ),
             ],
@@ -178,6 +187,11 @@ class _MonthlyReportDashboard extends StatelessWidget {
   const _MonthlyReportDashboard({
     required this.monthLabel,
     required this.loading,
+    required this.headerTitle,
+    required this.salesTitle,
+    required this.purchaseTitle,
+    required this.transactionsLabel,
+    required this.qtyLabel,
     required this.salesRevenueText,
     required this.salesTxText,
     required this.salesQtyText,
@@ -189,6 +203,12 @@ class _MonthlyReportDashboard extends StatelessWidget {
 
   final String monthLabel;
   final bool loading;
+
+  final String headerTitle;
+  final String salesTitle;
+  final String purchaseTitle;
+  final String transactionsLabel;
+  final String qtyLabel;
 
   final String salesRevenueText;
   final String salesTxText;
@@ -224,7 +244,7 @@ class _MonthlyReportDashboard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Report Summary',
+                      headerTitle,
                       style: textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: const Color(0xFF111827),
@@ -262,11 +282,11 @@ class _MonthlyReportDashboard extends StatelessWidget {
                   child: _MiniMetricCard(
                     icon: Icons.trending_up_rounded,
                     iconBg: const Color(0xFFE9F0FF),
-                    title: 'Sales Revenue',
+                    title: salesTitle,
                     value: salesRevenueText,
-                    sub1Label: 'Transaksi',
+                    sub1Label: transactionsLabel,
                     sub1Value: salesTxText,
-                    sub2Label: 'Qty',
+                    sub2Label: qtyLabel,
                     sub2Value: salesQtyText,
                   ),
                 ),
@@ -276,11 +296,11 @@ class _MonthlyReportDashboard extends StatelessWidget {
                   child: _MiniMetricCard(
                     icon: Icons.shopping_bag_rounded,
                     iconBg: const Color(0xFFEFF6FF),
-                    title: 'Purchase',
+                    title: purchaseTitle,
                     value: purchaseRevenueText,
-                    sub1Label: 'Transaksi',
+                    sub1Label: transactionsLabel,
                     sub1Value: purchaseTxText,
-                    sub2Label: 'Qty',
+                    sub2Label: qtyLabel,
                     sub2Value: purchaseQtyText,
                   ),
                 ),

@@ -34,10 +34,86 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
   String _currentUsername = '';
   File? _pickedOrgLogoFile;
 
+  /// Switch: allow selling when stock is empty (out of stock)
+  bool _allowOutOfStock = false;
+
   @override
   void initState() {
     super.initState();
     _loadDefaultsFromPrefs();
+  }
+
+  bool _parseOutOfStockFlag(dynamic raw, bool defaultValue) {
+    if (raw == null) return defaultValue;
+    if (raw is bool) return raw;
+    if (raw is num) return raw != 0;
+    if (raw is String) {
+      final s = raw.toLowerCase();
+      if (s == '1' || s == 'true' || s == 'yes') return true;
+      if (s == '0' || s == 'false' || s == 'no') return false;
+    }
+    return defaultValue;
+  }
+
+  /// Baca flag boleh jual stok kosong dari berbagai sumber prefs
+  bool _readAllowOutOfStockFromPrefs(SharedPreferences prefs, String activeId) {
+    bool? flag;
+
+    // 1) Flag eksplisit di prefs
+    final direct = prefs.getBool('activeBizCanSellOutOfStock');
+    if (direct != null) flag = direct;
+
+    // 2) Fallback: dari business_full
+    if (flag == null) {
+      final rawFull = prefs.getString('business_full');
+      final id = activeId.isNotEmpty
+          ? activeId
+          : (prefs.getString('activeBizId') ?? '').trim();
+      if (rawFull != null && rawFull.isNotEmpty && id.isNotEmpty) {
+        try {
+          final list = (jsonDecode(rawFull) as List)
+              .cast<Map<String, dynamic>>();
+          final match = list.firstWhere(
+            (e) => (e['idBusiness'] ?? '').toString() == id,
+            orElse: () => <String, dynamic>{},
+          );
+          if (match.isNotEmpty) {
+            final raw =
+                match['canBeSoldOutOfStock'] ??
+                match['canSellOutOfStock'] ??
+                match['can_be_sold_out_of_stock'];
+            flag = _parseOutOfStockFlag(raw, false);
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 3) Fallback tambahan: dari list "business"
+    if (flag == null) {
+      final rawBiz = prefs.getString('business');
+      final id = activeId.isNotEmpty
+          ? activeId
+          : (prefs.getString('activeBizId') ?? '').trim();
+      if (rawBiz != null && rawBiz.isNotEmpty && id.isNotEmpty) {
+        try {
+          final list = (jsonDecode(rawBiz) as List)
+              .cast<Map<String, dynamic>>();
+          final match = list.firstWhere(
+            (e) => (e['idBusiness'] ?? '').toString() == id,
+            orElse: () => <String, dynamic>{},
+          );
+          if (match.isNotEmpty) {
+            final raw =
+                match['can_be_sold_out_of_stock'] ??
+                match['canBeSoldOutOfStock'] ??
+                match['canSellOutOfStock'];
+            flag = _parseOutOfStockFlag(raw, false);
+          }
+        } catch (_) {}
+      }
+    }
+
+    return flag ?? false;
   }
 
   Future<void> _loadDefaultsFromPrefs() async {
@@ -84,8 +160,10 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
       businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
     }
 
+    // baca flag out-of-stock dari prefs (mengikuti pola AddProductSheet)
+    final allowOutOfStock = _readAllowOutOfStockFromPrefs(prefs, activeId);
+
     // set default form: name & username dari prefs; about dikosongkan
-    // _nameC.text = businessName;
     _businessNameC.text = businessName;
     _usernameC.text = businessUsername;
 
@@ -94,6 +172,7 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
       _currentName = businessName;
       _currentUsername = businessUsername;
       _currentLogoUrl = businessLogoPath;
+      _allowOutOfStock = allowOutOfStock;
       _loading = false;
     });
   }
@@ -102,6 +181,7 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
   void dispose() {
     _aboutC.dispose();
     _usernameC.dispose();
+    _businessNameC.dispose();
     super.dispose();
   }
 
@@ -161,6 +241,12 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
       businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
     }
 
+    // baca lagi flag terbaru dari prefs (supaya sinkron dengan hasil refresh)
+    final allowOutOfStock = _readAllowOutOfStockFromPrefs(
+      prefs,
+      lockedId.trim(),
+    );
+
     // Terapkan ke controller & state aktif
     _businessNameC.text = businessName;
     _usernameC.text = businessUsername;
@@ -170,10 +256,11 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
       _currentName = businessName;
       _currentUsername = businessUsername;
       _currentLogoUrl = businessLogoPath;
+      _allowOutOfStock = allowOutOfStock;
     });
 
     debugPrint(
-      '🔄 [BusinessEdit] Applied latest prefs: name="$businessName" user="$businessUsername" logo="$businessLogoPath"',
+      '🔄 [BusinessEdit] Applied latest prefs: name="$businessName" user="$businessUsername" logo="$businessLogoPath" allowOutOfStock=$_allowOutOfStock',
     );
   }
 
@@ -188,17 +275,20 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
 
       final (ok, uploadedFilename) = await prov.submitEditBusiness(
         context,
-        // ⬇️ kirim dari field yang benar (Business Name)
         organisationName: _businessNameC.text.trim().isEmpty
             ? null
             : _businessNameC.text.trim(),
         about: _aboutC.text.trim().isEmpty ? null : _aboutC.text.trim(),
         organisationLogoFile: _pickedOrgLogoFile,
+        canBeSoldOutOfStock: _allowOutOfStock,
+      );
+
+      debugPrint(
+        '✅ submitEditBusiness result: ok=$ok, uploaded="$uploadedFilename"',
       );
 
       if (!mounted) return;
 
-      // Notifikasi awal
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
@@ -207,22 +297,21 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
       );
 
       if (ok) {
-        // ✅ REFRESH DATA TERBARU
         final auth = context.read<AuthProvider>();
         final prefs = await SharedPreferences.getInstance();
+
+        // simpan juga ke prefs explicit flag-nya
+        await prefs.setBool('activeBizCanSellOutOfStock', _allowOutOfStock);
 
         // Kunci active id saat ini
         final lockedId = (prefs.getString('activeBizId') ?? '').trim();
         debugPrint('🔐 [BusinessEdit] lockedId="$lockedId" before refresh');
 
-        // Jalankan refresh profil/user yang juga memuat ulang daftar bisnis di prefs
         final refreshed = await auth.refreshCurrentUser(context);
         debugPrint('♻️ [BusinessEdit] refreshCurrentUser -> $refreshed');
 
-        // Terapkan ke UI dari prefs terbaru (apapun hasil refresh, coba apply)
         await _applyLatestBusinessFromPrefs(lockedId);
 
-        // (Opsional) Tampilkan info sukses refresh
         if (refreshed && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -232,7 +321,6 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
           );
         }
 
-        // Tutup halaman setelah UI sudah ter-update
         if (mounted) Navigator.pop(context);
       } else {
         setState(() => _saving = false);
@@ -352,11 +440,107 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
                               maxLines: 5,
                             ),
 
+                            const SizedBox(height: 8),
+
+                            // ===== Switch: allow out-of-stock sales =====
+                            SwitchListTile.adaptive(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text(
+                                'Allow selling products with zero stock',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              value: _allowOutOfStock,
+                              onChanged: (v) async {
+                                setState(() => _allowOutOfStock = v);
+
+                                final prefs =
+                                    await SharedPreferences.getInstance();
+                                await prefs.setBool(
+                                  'activeBizCanSellOutOfStock',
+                                  v,
+                                );
+
+                                final activeId =
+                                    (prefs.getString('activeBizId') ?? '')
+                                        .trim();
+
+                                // update snapshot business_full
+                                try {
+                                  final rawFull = prefs.getString(
+                                    'business_full',
+                                  );
+                                  if (rawFull != null &&
+                                      rawFull.isNotEmpty &&
+                                      activeId.isNotEmpty) {
+                                    final list = (jsonDecode(rawFull) as List)
+                                        .cast<Map<String, dynamic>>();
+                                    bool changed = false;
+                                    for (final b in list) {
+                                      if ((b['idBusiness'] ?? '').toString() ==
+                                          activeId) {
+                                        b['canSellOutOfStock'] = v;
+                                        b['canBeSoldOutOfStock'] = v;
+                                        b['can_be_sold_out_of_stock'] = v;
+                                        changed = true;
+                                        break;
+                                      }
+                                    }
+                                    if (changed) {
+                                      await prefs.setString(
+                                        'business_full',
+                                        jsonEncode(list),
+                                      );
+                                    }
+                                  }
+                                } catch (_) {}
+
+                                // update snapshot business
+                                try {
+                                  final rawBiz = prefs.getString('business');
+                                  if (rawBiz != null &&
+                                      rawBiz.isNotEmpty &&
+                                      activeId.isNotEmpty) {
+                                    final list = (jsonDecode(rawBiz) as List)
+                                        .cast<Map<String, dynamic>>();
+                                    bool changed = false;
+                                    for (final b in list) {
+                                      if ((b['idBusiness'] ?? '').toString() ==
+                                          activeId) {
+                                        b['canSellOutOfStock'] = v;
+                                        b['canBeSoldOutOfStock'] = v;
+                                        b['can_be_sold_out_of_stock'] = v;
+                                        changed = true;
+                                        break;
+                                      }
+                                    }
+                                    if (changed) {
+                                      await prefs.setString(
+                                        'business',
+                                        jsonEncode(list),
+                                      );
+                                    }
+                                  }
+                                } catch (_) {}
+                              },
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'When this option is enabled, products can be sold even if their stock is zero. Your inventory quantity will be allowed to go negative when you sell with no stock available.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.disabledFg,
+                              ),
+                            ),
+
                             const SizedBox(height: 18),
 
                             // ===== Label di atas Logo Picker =====
                             const _FieldLabel('Business Logo'),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 8),
 
                             // ===== Logo Uploader (dotted, sama feel) =====
                             _BusinessLogoPicker(
@@ -370,7 +554,6 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
                               onPick: _pickLogo,
                               onRemovePicked: _removePickedLogo,
                               onClearCurrent: () {
-                                // hanya clear tampilan current url; server akan dapat logo baru jika diupload.
                                 setState(() => _currentLogoUrl = '');
                               },
                             ),
@@ -628,7 +811,6 @@ class _AccountField extends StatelessWidget {
             ),
             decoration: InputDecoration(
               hintText: hint,
-              // styling disabled ringan agar konsisten
               filled: !isEnabled,
               fillColor: !isEnabled ? AppColors.greyBackground : null,
               disabledBorder: OutlineInputBorder(

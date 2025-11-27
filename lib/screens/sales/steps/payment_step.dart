@@ -700,9 +700,10 @@ class _SuccessCardState extends State<_SuccessCard>
 
   void _onClose() {
     Navigator.of(context).pop();
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil('/sales/list', (route) => false);
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/sales/list',
+      (route) => route.settings.name == '/home',
+    );
   }
 
   @override

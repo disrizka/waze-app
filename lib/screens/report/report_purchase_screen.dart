@@ -1,7 +1,10 @@
+// lib/screens/report/purchase_report_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+
+import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 
 class PurchaseReportScreen extends StatelessWidget {
@@ -10,10 +13,14 @@ class PurchaseReportScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _ReportScreenBase(
+    final l10n = AppLocalizations.of(context)!;
+
+    return _ReportScreenBase(
       domain: ReportDomain.purchase,
-      title: 'Purchase Report',
-      customerLikeLabel: 'Supplier',
+      title:
+          l10n.reportPurchaseTitle, // "Purchase report" / "Laporan pembelian"
+      customerLikeLabel:
+          l10n.reportPurchaseSupplierLabel, // "Supplier" / "Pemasok"
     );
   }
 }
@@ -61,6 +68,7 @@ class _ReportScreenBaseState extends State<_ReportScreenBase> {
   }
 
   Future<void> _pickDateRange() async {
+    final l10n = AppLocalizations.of(context)!;
     final now = DateTime.now();
     final initialStart = _startDate ?? DateTime(now.year, now.month, 1);
     final initialEnd = _endDate ?? now;
@@ -70,8 +78,8 @@ class _ReportScreenBaseState extends State<_ReportScreenBase> {
       firstDate: DateTime(2020, 1, 1),
       lastDate: DateTime(now.year + 2, 12, 31),
       initialDateRange: DateTimeRange(start: initialStart, end: initialEnd),
-      helpText: 'Pilih Rentang Tanggal',
-      saveText: 'Pakai Rentang',
+      helpText: l10n.reportDateRangeHelp,
+      saveText: l10n.reportDateRangeApply,
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
           colorScheme: const ColorScheme.light(
@@ -197,6 +205,7 @@ class _ReportScreenBaseState extends State<_ReportScreenBase> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isPeriod = _target == ReportTarget.period;
 
     return Scaffold(
@@ -214,7 +223,7 @@ class _ReportScreenBaseState extends State<_ReportScreenBase> {
         iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: l10n.reportCommonRefresh,
             onPressed: _fetch,
             icon: const Icon(Icons.refresh, color: Color(0xFF0F172A)),
           ),
@@ -276,7 +285,10 @@ class _ReportScreenBaseState extends State<_ReportScreenBase> {
                           side: BorderSide.none,
                           labelStyle: const TextStyle(color: Color(0xFF1D4ED8)),
                           label: Text(
-                            'Range: ${_fmtD(r!.startDate!)} — ${_fmtD(r.endDate!)}',
+                            l10n.reportRangeChipLabel(
+                              _fmtD(r!.startDate!),
+                              _fmtD(r.endDate!),
+                            ),
                           ),
                         ),
                       ],
@@ -358,6 +370,8 @@ class _ReportFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     final targets = <ReportTarget>[
       ReportTarget.customer,
       ReportTarget.product,
@@ -383,7 +397,7 @@ class _ReportFilterBar extends StatelessWidget {
               children: [
                 Expanded(
                   child: _Labeled(
-                    label: 'Target',
+                    label: l10n.reportFilterTarget,
                     child: _FancyDropdown<ReportTarget>(
                       value: target,
                       items: [
@@ -398,7 +412,7 @@ class _ReportFilterBar extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _Labeled(
-                    label: 'Granularity',
+                    label: l10n.reportFilterGranularity,
                     child: _FancyDropdown<ReportPeriod>(
                       value: period,
                       items: [
@@ -425,7 +439,7 @@ class _ReportFilterBar extends StatelessWidget {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _Labeled(
-                    label: 'Custom Date Range',
+                    label: l10n.reportFilterCustomRange,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -436,7 +450,9 @@ class _ReportFilterBar extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          useCustomRange ? 'On' : 'Off',
+                          useCustomRange
+                              ? l10n.reportFilterToggleOn
+                              : l10n.reportFilterToggleOff,
                           style: const TextStyle(color: Color(0xFF334155)),
                         ),
                       ],
@@ -454,7 +470,7 @@ class _ReportFilterBar extends StatelessWidget {
                       ),
                       label: Text(
                         startDate == null || endDate == null
-                            ? 'Pick date range'
+                            ? l10n.reportFilterPickDateRange
                             : '${_fmt(startDate!)} — ${_fmt(endDate!)}',
                       ),
                       onPressed: onPickDateRange,
@@ -560,10 +576,12 @@ class _SummaryStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return Column(
       children: [
         _SummaryCard.fullWidth(
-          title: 'Total Purchase',
+          title: l10n.reportPurchaseSummaryTotalPurchase,
           value: totalRevenueFormatted,
           icon: Icons.paid_outlined,
         ),
@@ -572,7 +590,7 @@ class _SummaryStrip extends StatelessWidget {
           children: [
             Expanded(
               child: _SummaryCard(
-                title: 'Total Qty',
+                title: l10n.reportSummaryTotalQty,
                 value: '$totalQty',
                 icon: Icons.stacked_line_chart_outlined,
               ),
@@ -580,7 +598,7 @@ class _SummaryStrip extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: _SummaryCard(
-                title: 'Total Transactions',
+                title: l10n.reportSummaryTotalTransactions,
                 value: '$totalTx',
                 icon: Icons.receipt_long_outlined,
               ),
@@ -811,6 +829,8 @@ class _ReportPieChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     final merged = _buildAggFrom(items, target);
     final entries = merged.values.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
@@ -818,12 +838,12 @@ class _ReportPieChart extends StatelessWidget {
     final totalAll = entries.fold<double>(0, (p, e) => p + e.value);
     if (entries.isEmpty || totalAll <= 0) {
       return _Section(
-        title: 'Purchase Distribution',
+        title: l10n.reportPurchaseDistributionTitle,
         child: SizedBox(
           height: 260,
           child: Center(
             child: Text(
-              'No data to visualize',
+              l10n.reportPurchaseDistributionNoData,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
@@ -834,7 +854,13 @@ class _ReportPieChart extends StatelessWidget {
     final top = entries.take(3).toList();
     final othersSum = entries.skip(3).fold<double>(0, (p, e) => p + e.value);
     if (othersSum > 0) {
-      top.add(_Agg(key: 'others', displayName: 'Others', value: othersSum));
+      top.add(
+        _Agg(
+          key: 'others',
+          displayName: l10n.reportPurchaseDistributionOthers,
+          value: othersSum,
+        ),
+      );
     }
 
     final total = top.fold<double>(0, (p, e) => p + e.value);
@@ -909,7 +935,7 @@ class _ReportPieChart extends StatelessWidget {
     );
 
     return _Section(
-      title: 'Purchase Distribution',
+      title: l10n.reportPurchaseDistributionTitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -948,34 +974,40 @@ class _TopFiveSection extends StatelessWidget {
     required this.customerLikeLabel,
   });
 
-  String _title() {
-    switch (target) {
-      case ReportTarget.customer:
-        return 'Top 5 $customerLikeLabel';
-      case ReportTarget.product:
-        return 'Top 5 Products';
-      case ReportTarget.category:
-        return 'Top 5 Categories';
-      case ReportTarget.brand:
-        return 'Top 5 Brands';
-      case ReportTarget.period:
-        return 'Top 5 Periods';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    String title;
+    switch (target) {
+      case ReportTarget.customer:
+        title = l10n.reportTop5CustomerTitle(customerLikeLabel);
+        break;
+      case ReportTarget.product:
+        title = l10n.reportTop5ProductsTitle;
+        break;
+      case ReportTarget.category:
+        title = l10n.reportTop5CategoriesTitle;
+        break;
+      case ReportTarget.brand:
+        title = l10n.reportTop5BrandsTitle;
+        break;
+      case ReportTarget.period:
+        title = l10n.reportTop5PeriodsTitle;
+        break;
+    }
+
     final agg = _buildAggFrom(items, target);
     final all = agg.values.toList()..sort((a, b) => b.value.compareTo(a.value));
 
     if (all.isEmpty) {
       return _Section(
-        title: _title(),
+        title: title,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 16),
           child: Center(
             child: Text(
-              'Belum ada data',
+              l10n.reportTop5Empty,
               style: Theme.of(
                 context,
               ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF9CA3AF)),
@@ -989,7 +1021,7 @@ class _TopFiveSection extends StatelessWidget {
     final total = all.fold<double>(0, (p, e) => p + e.value);
 
     return _Section(
-      title: _title(),
+      title: title,
       child: Column(
         children: [
           for (int i = 0; i < top.length; i++)
@@ -1023,11 +1055,17 @@ class _TopFiveRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     final isTop1 = rank == 1;
     final badgeColor = isTop1
         ? const Color(0xFF1D4ED8)
         : const Color(0xFFE5E7EB);
     final badgeTextColor = isTop1 ? Colors.white : const Color(0xFF111827);
+
+    final displayName = name.isEmpty
+        ? l10n.reportTopRowUnnamed
+        : name; // "Unnamed"
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -1055,7 +1093,7 @@ class _TopFiveRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name.isEmpty ? 'Unnamed' : name,
+                  displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1065,7 +1103,9 @@ class _TopFiveRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${percentage.toStringAsFixed(1)}% of purchase',
+                  l10n.reportPurchaseTopRowPercentageOfPurchase(
+                    percentage.toStringAsFixed(1),
+                  ),
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF6B7280),
@@ -1138,25 +1178,31 @@ class _ReportDataTable extends StatelessWidget {
     required this.customerLikeLabel,
   });
 
-  String _sectionTitle() {
-    switch (target) {
-      case ReportTarget.customer:
-        return 'Details by $customerLikeLabel';
-      case ReportTarget.product:
-        return 'Details by Product';
-      case ReportTarget.category:
-        return 'Details by Category';
-      case ReportTarget.brand:
-        return 'Details by Brand';
-      case ReportTarget.period:
-        return 'Details by Period';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    String title;
+    switch (target) {
+      case ReportTarget.customer:
+        title = l10n.reportDetailsByCustomerLabel(customerLikeLabel);
+        break;
+      case ReportTarget.product:
+        title = l10n.reportDetailsByProduct;
+        break;
+      case ReportTarget.category:
+        title = l10n.reportDetailsByCategory;
+        break;
+      case ReportTarget.brand:
+        title = l10n.reportDetailsByBrand;
+        break;
+      case ReportTarget.period:
+        title = l10n.reportDetailsByPeriod;
+        break;
+    }
+
     return _Section(
-      title: _sectionTitle(),
+      title: title,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: target == ReportTarget.period
@@ -1167,7 +1213,9 @@ class _ReportDataTable extends StatelessWidget {
   }
 
   Widget _buildEntityTable(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final list = items.whereType<EntityReportItem>().toList();
+
     return DataTable(
       columnSpacing: 24,
       headingTextStyle: const TextStyle(
@@ -1175,16 +1223,14 @@ class _ReportDataTable extends StatelessWidget {
         color: Color(0xFF0F172A),
       ),
       headingRowColor: MaterialStateProperty.resolveWith(
-        (states) => const Color(0xFFF9FAFB),
+        (_) => const Color(0xFFF9FAFB),
       ),
-      dataRowColor: MaterialStateProperty.resolveWith((states) => Colors.white),
+      dataRowColor: MaterialStateProperty.resolveWith((_) => Colors.white),
       columns: [
-        DataColumn(
-          label: Text(customerLikeLabel == 'Supplier' ? 'Supplier' : 'Name'),
-        ),
-        const DataColumn(label: Text('Qty')),
-        const DataColumn(label: Text('Revenue')),
-        const DataColumn(label: Text('Avg/Tx')),
+        DataColumn(label: Text(customerLikeLabel)),
+        DataColumn(label: Text(l10n.reportTableColumnQty)),
+        DataColumn(label: Text(l10n.reportTableColumnRevenue)),
+        DataColumn(label: Text(l10n.reportTableColumnAvgTx)),
       ],
       rows: [
         for (final it in list)
@@ -1201,12 +1247,12 @@ class _ReportDataTable extends StatelessWidget {
                     ),
                     if ((it.sku ?? '').isNotEmpty)
                       Text(
-                        'SKU: ${it.sku}',
+                        l10n.reportTableSkuPrefix(it.sku!),
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     if ((it.phone ?? '').isNotEmpty)
                       Text(
-                        'Phone: ${it.phone}',
+                        l10n.reportTablePhonePrefix(it.phone!),
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                   ],
@@ -1231,7 +1277,9 @@ class _ReportDataTable extends StatelessWidget {
   }
 
   Widget _buildPeriodTable(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final list = items.whereType<PeriodSeriesItem>().toList();
+
     return DataTable(
       columnSpacing: 24,
       headingTextStyle: const TextStyle(
@@ -1239,14 +1287,14 @@ class _ReportDataTable extends StatelessWidget {
         color: Color(0xFF0F172A),
       ),
       headingRowColor: MaterialStateProperty.resolveWith(
-        (states) => const Color(0xFFF9FAFB),
+        (_) => const Color(0xFFF9FAFB),
       ),
-      dataRowColor: MaterialStateProperty.resolveWith((states) => Colors.white),
-      columns: const [
-        DataColumn(label: Text('Period')),
-        DataColumn(label: Text('Transactions')),
-        DataColumn(label: Text('Qty')),
-        DataColumn(label: Text('Revenue')),
+      dataRowColor: MaterialStateProperty.resolveWith((_) => Colors.white),
+      columns: [
+        DataColumn(label: Text(l10n.reportTableColumnPeriod)),
+        DataColumn(label: Text(l10n.reportTableColumnTransactions)),
+        DataColumn(label: Text(l10n.reportTableColumnQty)),
+        DataColumn(label: Text(l10n.reportTableColumnRevenue)),
       ],
       rows: [
         for (final it in list)
@@ -1280,23 +1328,28 @@ class _SortBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     final keys = target == ReportTarget.period
         ? <String, String>{
-            'period': 'Period',
-            'tx': 'Transactions',
-            'qty': 'Qty',
-            'revenue': 'Revenue',
+            'period': l10n.reportSortPeriod,
+            'tx': l10n.reportSortTransactions,
+            'qty': l10n.reportSortQty,
+            'revenue': l10n.reportSortRevenue,
           }
         : <String, String>{
-            'label': 'Name',
-            'tx': 'Transactions',
-            'qty': 'Qty',
-            'revenue': 'Revenue',
+            'label': l10n.reportSortName,
+            'tx': l10n.reportSortTransactions,
+            'qty': l10n.reportSortQty,
+            'revenue': l10n.reportSortRevenue,
           };
 
     return Row(
       children: [
-        const Text('Sort:', style: TextStyle(color: Color(0xFF334155))),
+        Text(
+          l10n.reportSortLabel,
+          style: const TextStyle(color: Color(0xFF334155)),
+        ),
         const SizedBox(width: 8),
         Expanded(
           child: _FancyDropdown<String>(
@@ -1315,7 +1368,9 @@ class _SortBar extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         IconButton(
-          tooltip: sortDesc ? 'Descending' : 'Ascending',
+          tooltip: sortDesc
+              ? l10n.reportSortDescendingTooltip
+              : l10n.reportSortAscendingTooltip,
           onPressed: () => onChange(sortKey, !sortDesc),
           icon: Icon(sortDesc ? Icons.south : Icons.north),
         ),
@@ -1360,15 +1415,11 @@ class _ShimmerState extends State<_Shimmer>
 
         return ShaderMask(
           shaderCallback: (rect) {
-            return LinearGradient(
-              begin: begin,
-              end: end,
-              colors: const [
-                Color(0xFFEFF1F5),
-                Color(0xFFF7F8FA),
-                Color(0xFFEFF1F5),
-              ],
-              stops: const [0.1, 0.5, 0.9],
+            return const LinearGradient(
+              begin: Alignment(-1, 0),
+              end: Alignment(1, 0),
+              colors: [Color(0xFFEFF1F5), Color(0xFFF7F8FA), Color(0xFFEFF1F5)],
+              stops: [0.1, 0.5, 0.9],
             ).createShader(rect);
           },
           blendMode: BlendMode.srcATop,
@@ -1456,8 +1507,10 @@ class _PieShimmer extends StatelessWidget {
   const _PieShimmer({super.key});
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return _Section(
-      title: 'Purchase Distribution',
+      title: l10n.reportPurchaseDistributionTitle,
       child: Column(
         children: [
           const SizedBox(height: 8),
@@ -1493,8 +1546,10 @@ class _TableShimmer extends StatelessWidget {
   const _TableShimmer({super.key});
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return _Section(
-      title: 'Details',
+      title: l10n.reportDetailsTitle,
       child: Column(
         children: List.generate(
           6,
