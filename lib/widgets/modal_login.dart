@@ -83,11 +83,6 @@ void showAddAccountModal(BuildContext context) {
           '/splash',
           (r) => false,
         );
-      } else {
-        final msg = auth.error ?? 'Login failed';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(msg)));
       }
     }
 

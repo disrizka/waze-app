@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 
 class RegisterStep2Clean extends StatefulWidget {
@@ -25,6 +26,8 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
   final _picker = ImagePicker();
 
   static const int _maxBytes = 10 * 1024 * 1024; // 10 MB
+
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
 
   @override
   void dispose() {
@@ -63,14 +66,12 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
       if (st.isGranted) return true;
       if (st.isPermanentlyDenied) {
         if (!mounted) return false;
-        await openAppSettings();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Camera permission is permanently denied. Please enable it from Settings.',
-            ),
+          SnackBar(
+            content: Text(l10n.register_step2_camera_perm_permanently_denied),
           ),
         );
+        await openAppSettings();
         return false;
       }
       final req = await Permission.camera.request();
@@ -104,7 +105,10 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'Image size is too large (${_fmtBytes(len)}). Maximum allowed is ${_fmtBytes(_maxBytes)}.',
+                '${l10n.register_step2_image_too_large_prefix} '
+                '(${_fmtBytes(len)}). '
+                '${l10n.register_step2_image_too_large_suffix} '
+                '${_fmtBytes(_maxBytes)}.',
               ),
             ),
           );
@@ -122,44 +126,54 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to pick image: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${l10n.register_step2_pick_image_failed_prefix}$e'),
+        ),
+      );
     }
   }
 
   Future<void> _chooseLogoSource() async {
-    showModalBottomSheet(
+    // pakai context dari builder supaya l10n tetap mengikuti locale bottom sheet
+    await showModalBottomSheet(
       context: context,
       showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choose from gallery'),
-              subtitle: const Text('Recommended for existing photos'),
-              onTap: () async {
-                Navigator.pop(context);
-                await _pick(ImageSource.gallery);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Take a photo'),
-              subtitle: const Text('Use your camera to capture a logo'),
-              onTap: () async {
-                Navigator.pop(context);
-                await _pick(ImageSource.camera);
-              },
-            ),
-          ],
-        ),
-      ),
+      builder: (ctx) {
+        final l10nSheet = AppLocalizations.of(ctx)!;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: Text(l10nSheet.register_step2_logo_from_gallery_title),
+                subtitle: Text(
+                  l10nSheet.register_step2_logo_from_gallery_subtitle,
+                ),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _pick(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: Text(l10nSheet.register_step2_logo_take_photo_title),
+                subtitle: Text(
+                  l10nSheet.register_step2_logo_take_photo_subtitle,
+                ),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _pick(ImageSource.camera);
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -185,7 +199,9 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
     if (!mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.error ?? 'Step 2 registration failed')),
+        SnackBar(
+          content: Text(auth.error ?? l10n.register_step2_failed_default),
+        ),
       );
     }
   }
@@ -200,36 +216,39 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ===== Intro =====
-          const Text(
-            'Set up your business',
-            style: TextStyle(
+          Text(
+            l10n.register_step2_title,
+            style: const TextStyle(
               fontWeight: FontWeight.w700,
               fontSize: 20,
               color: _textGray,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Tell us more about your business. This helps us personalise reports and how your brand appears to your customers.',
-            style: TextStyle(fontSize: 13, color: _hintGray),
+          Text(
+            l10n.register_step2_desc,
+            style: const TextStyle(fontSize: 13, color: _hintGray),
           ),
           const SizedBox(height: 20),
 
           // ===== Business Name =====
-          const Text(
-            'Business name',
-            style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
+          Text(
+            l10n.register_step2_business_name_label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: _textGray,
+            ),
           ),
           const SizedBox(height: 6),
           TextFormField(
             controller: _orgC,
-            decoration: _inputDec('e.g. Berjaya Selalu Grocery'),
+            decoration: _inputDec(l10n.register_step2_business_name_hint),
             validator: (v) {
               if (v == null || v.trim().isEmpty) {
-                return 'Business name is required';
+                return l10n.register_step2_business_name_required;
               }
               if (v.trim().length < 2) {
-                return 'Please enter at least 2 characters';
+                return l10n.register_step2_business_name_min_length;
               }
               return null;
             },
@@ -237,37 +256,41 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
           const SizedBox(height: 16),
 
           // ===== About (optional) =====
-          const Text(
-            'About',
-            style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
+          Text(
+            l10n.register_step2_about_label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: _textGray,
+            ),
           ),
           const SizedBox(height: 6),
           TextFormField(
             controller: _aboutC,
             maxLines: 3,
-            decoration: _inputDec(
-              'e.g. Modern mini market focused on fresh groceries and daily needs.',
-            ),
+            decoration: _inputDec(l10n.register_step2_about_hint),
             // optional: no validator
           ),
           const SizedBox(height: 16),
 
           // ===== Business Logo =====
-          const Text(
-            'Business logo',
-            style: TextStyle(fontWeight: FontWeight.w600, color: _textGray),
+          Text(
+            l10n.register_step2_logo_label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: _textGray,
+            ),
           ),
           const SizedBox(height: 8),
 
           GestureDetector(
             onTap: _chooseLogoSource,
             child: DottedBorder(
-              options: RoundedRectDottedBorderOptions(
+              options: const RoundedRectDottedBorderOptions(
                 color: _blue,
-                dashPattern: const [8, 6],
+                dashPattern: [8, 6],
                 strokeWidth: 2,
-                radius: const Radius.circular(12),
-                padding: const EdgeInsets.all(0),
+                radius: Radius.circular(12),
+                padding: EdgeInsets.all(0),
               ),
               child: Container(
                 height: 110,
@@ -311,16 +334,20 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                               children: [
                                 TextSpan(
                                   text: _logo == null
-                                      ? 'Add your business logo'
-                                      : 'Selected: ${_logoX?.name ?? _logo!.path.split('/').last}',
+                                      ? l10n.register_step2_logo_add
+                                      : '${l10n.register_step2_logo_selected_prefix}'
+                                            '${_logoX?.name ?? _logo!.path.split('/').last}',
                                 ),
                               ],
                             ),
                           ),
                           const SizedBox(height: 4),
-                          const Text(
-                            'JPG or PNG, up to 10MB. A clear square logo works best.',
-                            style: TextStyle(fontSize: 12, color: _hintGray),
+                          Text(
+                            l10n.register_step2_logo_hint,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: _hintGray,
+                            ),
                           ),
                         ],
                       ),
@@ -329,9 +356,9 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                     if (_logo != null)
                       TextButton(
                         onPressed: _removeLogo,
-                        child: const Text(
-                          'Remove',
-                          style: TextStyle(
+                        child: Text(
+                          l10n.register_step2_logo_remove,
+                          style: const TextStyle(
                             color: _blue,
                             fontWeight: FontWeight.w600,
                           ),
@@ -340,9 +367,9 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                     else
                       TextButton(
                         onPressed: _chooseLogoSource,
-                        child: const Text(
-                          'Upload',
-                          style: TextStyle(
+                        child: Text(
+                          l10n.register_step2_logo_upload,
+                          style: const TextStyle(
                             color: _blue,
                             fontWeight: FontWeight.w600,
                           ),
@@ -377,9 +404,9 @@ class _RegisterStep2CleanState extends State<RegisterStep2Clean> {
                         color: Colors.white,
                       ),
                     )
-                  : const Text(
-                      'Finish setup',
-                      style: TextStyle(
+                  : Text(
+                      l10n.register_step2_finish_button,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
                       ),

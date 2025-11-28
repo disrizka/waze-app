@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:wa_blast/l10n/app_localizations.dart';
 
 /// ============
 /// COLOR STYLE
@@ -29,9 +30,10 @@ class RegisterWelcomeStep extends StatelessWidget {
     final isNarrow = w < 380;
     const contentMax = 560.0;
 
+    final l10n = AppLocalizations.of(context)!;
+
     return Scaffold(
       backgroundColor: Colors.white,
-      // Tidak menggunakan AppBar agar dekor tidak terpotong di atas
       body: Stack(
         children: [
           // ===== Background lembut (nyambung ke atas layar) =====
@@ -41,7 +43,6 @@ class RegisterWelcomeStep extends StatelessWidget {
           Align(
             alignment: Alignment.topCenter,
             child: SafeArea(
-              // tetap jaga area aman notch/status bar
               bottom: false,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 720),
@@ -51,6 +52,7 @@ class RegisterWelcomeStep extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       SizedBox(height: isNarrow ? 30 : 70),
+
                       // ===== Wordmark: logo + WaveUp =====
                       Row(
                         mainAxisSize: MainAxisSize.min,
@@ -76,9 +78,9 @@ class RegisterWelcomeStep extends StatelessWidget {
                           width: double.infinity,
                         ),
                         child: Text(
-                          "Let’s sign up a new account!",
+                          l10n.register_welcome_title,
                           textAlign: TextAlign.left,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.w800,
                             color: RegisterColors.blue,
@@ -93,10 +95,9 @@ class RegisterWelcomeStep extends StatelessWidget {
                       ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: contentMax),
                         child: Text(
-                          "Create your account in just a few easy steps. "
-                          "We’ll guide you through a friendly, simple setup.",
+                          l10n.register_welcome_description,
                           textAlign: TextAlign.left,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 14.5,
                             height: 1.6,
                             color: RegisterColors.subText,
@@ -107,12 +108,12 @@ class RegisterWelcomeStep extends StatelessWidget {
                       SizedBox(height: isNarrow ? 22 : 28),
 
                       // ===== Hint Card (opsional) =====
-                      const _HintCard(
-                        title: "Why create a WaveUp account?",
+                      _HintCard(
+                        title: l10n.register_welcome_hint_title,
                         points: [
-                          "Access your business data anywhere",
-                          "Track your report accurately",
-                          "Faster checkout and insights",
+                          l10n.register_welcome_hint_point1,
+                          l10n.register_welcome_hint_point2,
+                          l10n.register_welcome_hint_point3,
                         ],
                       ),
 
@@ -126,16 +127,13 @@ class RegisterWelcomeStep extends StatelessWidget {
           ),
 
           // ===== Tombol back custom (glass button) =====
-          // Ditaruh di atas SafeArea supaya tidak ketabrak notch/status bar
           Positioned(
             left: 12,
-            top: mq.padding.top + 10, // tetap aman dari notch
+            top: mq.padding.top + 10,
             child: Container(
-              margin: const EdgeInsets.only(
-                bottom: 30,
-              ), // “jarak” bawah dari logo
+              margin: const EdgeInsets.only(bottom: 30),
               child: _GlassIconButton(
-                tooltip: 'Back to login',
+                tooltip: l10n.register_welcome_back_tooltip,
                 icon: Icons.arrow_back_ios_new_rounded,
                 onTap: () => Navigator.of(
                   context,

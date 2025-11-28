@@ -109,18 +109,18 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
 
     // baca waktu terakhir modal muncul
-    final lastStr = prefs.getString(kLastSubscriptionShownAtKey);
-    if (lastStr != null) {
-      final last = DateTime.tryParse(lastStr);
-      if (last != null) {
-        final diff = DateTime.now().difference(last);
+    // final lastStr = prefs.getString(kLastSubscriptionShownAtKey);
+    // if (lastStr != null) {
+    //   final last = DateTime.tryParse(lastStr);
+    //   if (last != null) {
+    //     final diff = DateTime.now().difference(last);
 
-        // kalau belum 5 jam, jangan tampilkan lagi
-        if (diff < const Duration(hours: 1)) {
-          return;
-        }
-      }
-    }
+    //     // kalau belum 5 jam, jangan tampilkan lagi
+    //     if (diff < const Duration(hours: 1)) {
+    //       return;
+    //     }
+    //   }
+    // }
 
     if (!mounted) return;
 
