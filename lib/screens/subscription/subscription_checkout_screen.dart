@@ -1,10 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:wa_blast/constants/app_colors.dart';
 
+import '../../models/premium_plan_model.dart';
 import '../../providers/subscription_provider.dart';
 
 class SubscriptionCheckoutScreen extends StatefulWidget {
@@ -24,10 +25,24 @@ class _SubscriptionCheckoutScreenState
   String _businessLogoPath = '';
   bool _isLoadingHeader = true;
 
+  final NumberFormat _idrFormatter = NumberFormat('#,###', 'id_ID');
+
+  // 🔹 3 = One-time payment, 2 = Recurring card
+  int _selectedPaymentMethod = 3;
+
+  // 🔹 Plan yang benar-benar dipilih user (bisa 1/3/6/12 bulan, dsb)
+  PremiumPlan? _selectedPlan;
+
   @override
   void initState() {
     super.initState();
     _loadBusinessFromPrefs();
+
+    // setelah build pertama, fetch list premium plan dari API
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final subscription = context.read<SubscriptionProvider>();
+      subscription.fetchPremiumPlans(context);
+    });
   }
 
   Future<void> _loadBusinessFromPrefs() async {
@@ -93,6 +108,13 @@ class _SubscriptionCheckoutScreenState
         .toUpperCase();
   }
 
+  /// Helper label untuk period teks (month/year/X months)
+  String _periodLabelForMonths(int months) {
+    if (months == 1) return 'month';
+    if (months == 12) return 'year';
+    return '$months months';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -100,6 +122,71 @@ class _SubscriptionCheckoutScreenState
       body: SafeArea(
         child: Consumer<SubscriptionProvider>(
           builder: (context, subscription, _) {
+            final List<PremiumPlan> plans = subscription.plans;
+
+            // 🔹 Cari plan 1 bulan (monthly), meski di API tidak ada → tetap bikin card
+            PremiumPlan? monthlyPlan;
+            final List<PremiumPlan> otherPlans = [];
+
+            for (final p in plans) {
+              if (!p.isActive) continue;
+
+              if (p.months == 1 && monthlyPlan == null) {
+                monthlyPlan = p;
+              } else {
+                otherPlans.add(p);
+              }
+            }
+
+            // Sort other plans berdasarkan months (3,6,12,dst)
+            otherPlans.sort((a, b) => a.months.compareTo(b.months));
+
+            // 🔹 Set default _selectedPlan sekali saja, setelah data plan masuk
+            if (!subscription.isLoadingPlans &&
+                _selectedPlan == null &&
+                (monthlyPlan != null || otherPlans.isNotEmpty)) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                setState(() {
+                  _selectedPlan = monthlyPlan ?? otherPlans.first;
+                });
+              });
+            }
+
+            // ---------- LABEL HARGA MONTHLY CARD ----------
+            String monthlyPriceLabel;
+            final bool monthlyAvailable = monthlyPlan != null;
+
+            if (subscription.isLoadingPlans) {
+              monthlyPriceLabel = 'Loading...';
+            } else {
+              if (monthlyAvailable) {
+                final formatted = _idrFormatter.format(
+                  monthlyPlan!.price.round(),
+                );
+                monthlyPriceLabel = 'Rp. $formatted /month';
+              } else {
+                monthlyPriceLabel = 'Not available yet';
+              }
+            }
+
+            final bool canProceed =
+                !subscription.isProcessing && _selectedPlan != null;
+
+            // ---------- TEKS BAWAH TOMBOL (BOTTOM INFO) ----------
+            String bottomInfoText;
+            if (_selectedPlan == null) {
+              bottomInfoText = 'Choose a plan to see how you will be charged.';
+            } else if (_selectedPaymentMethod == 3) {
+              // One-time payment
+              bottomInfoText =
+                  'You will be charged once for this ${_periodLabelForMonths(_selectedPlan!.months)} plan.';
+            } else {
+              // Recurring card payment
+              bottomInfoText =
+                  'You will be charged every ${_periodLabelForMonths(_selectedPlan!.months)}. Auto-renews unless canceled.';
+            }
+
             return Column(
               children: [
                 // ---------- HEADER ----------
@@ -156,7 +243,6 @@ class _SubscriptionCheckoutScreenState
                               ),
                             ),
                             const SizedBox(height: 2),
-
                             if (_businessUsername != '—' &&
                                 _businessUsername.isNotEmpty) ...[
                               const SizedBox(height: 2),
@@ -202,77 +288,109 @@ class _SubscriptionCheckoutScreenState
                           style: TextStyle(fontSize: 13, color: Colors.black54),
                         ),
 
-                        // const SizedBox(height: 16),
-
-                        // // small info pill
-                        // Container(
-                        //   padding: const EdgeInsets.symmetric(
-                        //     horizontal: 10,
-                        //     vertical: 6,
-                        //   ),
-                        //   decoration: BoxDecoration(
-                        //     color: const Color(0xFFE5EDFF),
-                        //     borderRadius: BorderRadius.circular(999),
-                        //   ),
-                        //   child: const Row(
-                        //     mainAxisSize: MainAxisSize.min,
-                        //     children: [
-                        //       Icon(
-                        //         Icons.shield_rounded,
-                        //         size: 14,
-                        //         color: AppColors.primary,
-                        //       ),
-                        //       SizedBox(width: 6),
-                        //       Text(
-                        //         'Secure payments • Cancel anytime',
-                        //         style: TextStyle(
-                        //           fontSize: 11,
-                        //           fontWeight: FontWeight.w500,
-                        //           color: AppColors.primary,
-                        //         ),
-                        //       ),
-                        //     ],
-                        //   ),
-                        // ),
                         const SizedBox(height: 25),
 
-                        // Monthly card
+                        // ---------- MONTHLY CARD (SELALU ADA) ----------
                         _PlanCard(
                           title: 'Monthly',
-                          priceLabel:
-                              '\$${subscription.monthlyPrice.toStringAsFixed(2)} /month',
+                          priceLabel: monthlyPriceLabel,
                           isSelected:
-                              subscription.selectedCycle ==
-                              BillingCycle.monthly,
-                          onTap: () =>
-                              subscription.selectCycle(BillingCycle.monthly),
+                              monthlyAvailable &&
+                              _selectedPlan?.idPlan == monthlyPlan?.idPlan,
+                          onTap: monthlyAvailable
+                              ? () {
+                                  setState(() {
+                                    _selectedPlan = monthlyPlan;
+                                  });
+                                }
+                              : null,
                           highlightColor:
                               SubscriptionCheckoutScreen._primaryBlue,
+                          enabled: monthlyAvailable,
+                          disabledCaption: 'Unavailable',
                         ),
 
                         const SizedBox(height: 12),
 
-                        // Yearly card
-                        _PlanCard(
-                          title: 'Annually',
-                          priceLabel:
-                              '\$${subscription.yearlyPrice.toStringAsFixed(2)} /year',
-                          isSelected:
-                              subscription.selectedCycle == BillingCycle.yearly,
-                          onTap: () =>
-                              subscription.selectCycle(BillingCycle.yearly),
-                          highlightColor:
-                              SubscriptionCheckoutScreen._primaryBlue,
-                          badgeText:
-                              'Save ${subscription.yearlyDiscountPercent.toStringAsFixed(0)}%',
+                        // ---------- PLAN LAIN DARI API (3, 6, 12 BULAN, DST) ----------
+                        if (subscription.isLoadingPlans && plans.isEmpty) ...[
+                          const Text(
+                            'Loading plans...',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black45,
+                            ),
+                          ),
+                        ] else ...[
+                          for (final plan in otherPlans) ...[
+                            const SizedBox(height: 8),
+                            _PlanCard(
+                              title: '${plan.months} months',
+                              priceLabel:
+                                  'Rp. ${_idrFormatter.format(plan.price.round())} for ${plan.months} months',
+                              isSelected: _selectedPlan?.idPlan == plan.idPlan,
+                              onTap: () {
+                                setState(() {
+                                  _selectedPlan = plan;
+                                });
+                              },
+                              highlightColor:
+                                  SubscriptionCheckoutScreen._primaryBlue,
+                            ),
+                          ],
+                        ],
+
+                        const SizedBox(height: 20),
+
+                        // ---------- PLAN SUMMARY ----------
+                        _PlanSummaryTile(
+                          selectedPlan: _selectedPlan,
+                          formatter: _idrFormatter,
                         ),
 
                         const SizedBox(height: 20),
 
-                        // ---------- PLAN SUMMARY (lebih informatif) ----------
-                        _PlanSummaryTile(subscription: subscription),
+                        // ---------- PAYMENT METHOD ----------
+                        if (_selectedPlan != null) ...[
+                          const Text(
+                            'Payment method',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
 
-                        const SizedBox(height: 24),
+                          // One-time payment (payment_method = 3)
+                          _PaymentMethodOption(
+                            title: 'One-time payment',
+                            subtitle:
+                                'Pay once for this premium period. No automatic renewal.',
+                            value: 3,
+                            groupValue: _selectedPaymentMethod,
+                            onChanged: (v) {
+                              setState(() {
+                                _selectedPaymentMethod = v!;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Recurring card payment (payment_method = 2)
+                          _PaymentMethodOption(
+                            title: 'Recurring card payment',
+                            subtitle:
+                                'Automatically billed every ${_periodLabelForMonths(_selectedPlan!.months)}.',
+                            value: 2,
+                            groupValue: _selectedPaymentMethod,
+                            onChanged: (v) {
+                              setState(() {
+                                _selectedPaymentMethod = v!;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 24),
+                        ],
 
                         // ---------- FEATURES ----------
                         const Text(
@@ -286,9 +404,6 @@ class _SubscriptionCheckoutScreenState
                         const _FeatureList(),
 
                         const SizedBox(height: 16),
-
-                        // // extra info
-                        // const _SmallInfoSection(),
                       ],
                     ),
                   ),
@@ -319,9 +434,7 @@ class _SubscriptionCheckoutScreenState
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          subscription.selectedCycle == BillingCycle.yearly
-                              ? 'You will be charged yearly. Auto-renews unless canceled.'
-                              : 'You will be charged monthly. Auto-renews unless canceled.',
+                          bottomInfoText,
                           style: const TextStyle(
                             fontSize: 11,
                             color: Colors.black54,
@@ -339,9 +452,16 @@ class _SubscriptionCheckoutScreenState
                                 borderRadius: BorderRadius.circular(28),
                               ),
                             ),
-                            onPressed: subscription.isProcessing
+                            onPressed: !canProceed
                                 ? null
-                                : () => subscription.goToPayment(context),
+                                : () {
+                                    final planId = _selectedPlan!.idPlan;
+                                    subscription.goToPayment(
+                                      context: context,
+                                      planId: planId,
+                                      paymentMethod: _selectedPaymentMethod,
+                                    );
+                                  },
                             child: subscription.isProcessing
                                 ? const SizedBox(
                                     height: 22,
@@ -376,15 +496,98 @@ class _SubscriptionCheckoutScreenState
 }
 
 // -------------------------------------------------------------
-// WIDGET: Plan Card
+// WIDGET: Payment Method Option (radio row)
+// -------------------------------------------------------------
+class _PaymentMethodOption extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final int value;
+  final int groupValue;
+  final ValueChanged<int?> onChanged;
+
+  const _PaymentMethodOption({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.groupValue,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool selected = value == groupValue;
+
+    return InkWell(
+      onTap: () => onChanged(value),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected
+                ? SubscriptionCheckoutScreen._primaryBlue
+                : Colors.grey.withOpacity(0.35),
+            width: 1.5,
+          ),
+          color: selected
+              ? SubscriptionCheckoutScreen._primaryBlue.withOpacity(0.03)
+              : Colors.white,
+        ),
+        child: Row(
+          children: [
+            Radio<int>(
+              value: value,
+              groupValue: groupValue,
+              activeColor: SubscriptionCheckoutScreen._primaryBlue,
+              onChanged: onChanged,
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? Colors.black : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.black54,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// -------------------------------------------------------------
+// WIDGET: Plan Card (support disabled + "Not available yet")
 // -------------------------------------------------------------
 class _PlanCard extends StatelessWidget {
   final String title;
   final String priceLabel;
   final bool isSelected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Color highlightColor;
   final String? badgeText;
+
+  /// kalau false → kartu abu2, tidak bisa di-tap, dan bisa pakai disabledCaption
+  final bool enabled;
+  final String? disabledCaption;
 
   const _PlanCard({
     required this.title,
@@ -393,19 +596,31 @@ class _PlanCard extends StatelessWidget {
     required this.onTap,
     required this.highlightColor,
     this.badgeText,
+    this.enabled = true,
+    this.disabledCaption,
   });
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = isSelected
-        ? highlightColor
-        : Colors.grey.withOpacity(0.35);
-    final bgColor = isSelected
-        ? highlightColor.withOpacity(0.04)
-        : Colors.white;
+    final bool effectiveSelected = isSelected && enabled;
+
+    final borderColor = !enabled
+        ? Colors.grey.withOpacity(0.4)
+        : (effectiveSelected ? highlightColor : Colors.grey.withOpacity(0.35));
+
+    final bgColor = !enabled
+        ? Colors.grey.shade100
+        : (effectiveSelected ? highlightColor.withOpacity(0.04) : Colors.white);
+
+    final titleColor = enabled ? Colors.black : Colors.black38;
+    final priceColor = enabled ? Colors.black87 : Colors.black45;
+
+    final String shownPrice = enabled
+        ? priceLabel
+        : (disabledCaption ?? priceLabel);
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -425,13 +640,14 @@ class _PlanCard extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 16,
+                          color: titleColor,
                         ),
                       ),
                       const SizedBox(width: 8),
-                      if (badgeText != null)
+                      if (badgeText != null && enabled)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
@@ -454,8 +670,8 @@ class _PlanCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    priceLabel,
-                    style: const TextStyle(fontSize: 14, color: Colors.black87),
+                    shownPrice,
+                    style: TextStyle(fontSize: 14, color: priceColor),
                   ),
                 ],
               ),
@@ -468,7 +684,7 @@ class _PlanCard extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: isSelected ? highlightColor : Colors.grey,
+                  color: effectiveSelected ? highlightColor : Colors.grey,
                   width: 2,
                 ),
               ),
@@ -478,7 +694,9 @@ class _PlanCard extends StatelessWidget {
                   height: 12,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isSelected ? highlightColor : Colors.transparent,
+                    color: effectiveSelected
+                        ? highlightColor
+                        : Colors.transparent,
                   ),
                 ),
               ),
@@ -491,24 +709,62 @@ class _PlanCard extends StatelessWidget {
 }
 
 // -------------------------------------------------------------
-// WIDGET: Plan Summary (lebih informatif)
+// WIDGET: Plan Summary (pakai Rp + titik, berdasarkan selectedPlan)
 // -------------------------------------------------------------
 class _PlanSummaryTile extends StatelessWidget {
-  final SubscriptionProvider subscription;
+  final PremiumPlan? selectedPlan;
+  final NumberFormat formatter;
 
-  const _PlanSummaryTile({required this.subscription});
+  const _PlanSummaryTile({required this.selectedPlan, required this.formatter});
 
   @override
   Widget build(BuildContext context) {
-    final isMonthly = subscription.selectedCycle == BillingCycle.monthly;
-    final mainPrice = isMonthly
-        ? subscription.monthlyPrice
-        : subscription.yearlyPrice;
-    final period = isMonthly ? 'month' : 'year';
+    if (selectedPlan == null) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFF),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE0E7FF)),
+        ),
+        child: Row(
+          children: const [
+            Icon(
+              Icons.receipt_long_rounded,
+              size: 20,
+              color: SubscriptionCheckoutScreen._primaryBlue,
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'No plan selected yet. Choose one of the premium plans above to see the billing summary.',
+                style: TextStyle(fontSize: 12, color: Colors.black87),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
-    final effectiveMonthly = subscription.yearlyPrice > 0
-        ? subscription.yearlyPrice / 12
-        : 0;
+    final months = selectedPlan!.months;
+    final mainPrice = 'Rp. ${formatter.format(selectedPlan!.price.round())}';
+
+    String periodLabel;
+    String titleLabel;
+
+    if (months == 1) {
+      periodLabel = 'month';
+      titleLabel = 'Monthly billing selected';
+    } else if (months == 12) {
+      periodLabel = 'year';
+      titleLabel = '12-month plan selected';
+    } else {
+      periodLabel = '$months months';
+      titleLabel = '$months-month plan selected';
+    }
+
+    final effectiveMonthly = selectedPlan!.price / months;
+    final effectiveText = 'Rp. ${formatter.format(effectiveMonthly.round())}';
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -530,9 +786,7 @@ class _PlanSummaryTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isMonthly
-                      ? 'Monthly billing selected'
-                      : 'Annual billing selected',
+                  titleLabel,
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -540,16 +794,14 @@ class _PlanSummaryTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'You’ll pay \$${mainPrice.toStringAsFixed(2)} per $period.',
+                  'You’ll pay $mainPrice every $periodLabel.',
                   style: const TextStyle(fontSize: 12, color: Colors.black87),
                 ),
-                if (!isMonthly && effectiveMonthly > 0) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    'Effective monthly cost ~ \$${effectiveMonthly.toStringAsFixed(2)}.',
-                    style: const TextStyle(fontSize: 11, color: Colors.black54),
-                  ),
-                ],
+                const SizedBox(height: 2),
+                Text(
+                  'Effective monthly cost ~ $effectiveText.',
+                  style: const TextStyle(fontSize: 11, color: Colors.black54),
+                ),
               ],
             ),
           ),
@@ -596,54 +848,6 @@ class _FeatureList extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-        ],
-      ],
-    );
-  }
-}
-
-// -------------------------------------------------------------
-// WIDGET: Extra info kecil di bawah
-// -------------------------------------------------------------
-class _SmallInfoSection extends StatelessWidget {
-  const _SmallInfoSection();
-
-  @override
-  Widget build(BuildContext context) {
-    const items = [
-      (Icons.lock_rounded, 'We don’t store your card details on device.'),
-      (
-        Icons.refresh_rounded,
-        'Your plan will renew automatically unless you cancel.',
-      ),
-      (
-        Icons.support_agent_rounded,
-        'Need help? You can contact support at any time.',
-      ),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final i in items) ...[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(i.$1, size: 16, color: Colors.black45),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  i.$2,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Colors.black54,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
         ],
       ],
     );

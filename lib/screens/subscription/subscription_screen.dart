@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import '../../providers/subscription_provider.dart';
@@ -14,6 +15,21 @@ class SubscriptionScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final subscription = Provider.of<SubscriptionProvider>(context);
+
+    // formatter Rupiah dengan titik setiap 3 digit
+    final NumberFormat _idrFormatter = NumberFormat('#,###', 'id_ID');
+
+    String unlockSubtitle;
+    if (subscription.isLoadingPlans) {
+      unlockSubtitle = 'Fetching plan price...';
+    } else if (subscription.monthlyPrice > 0) {
+      final formatted = _idrFormatter.format(
+        subscription.monthlyPrice.round(),
+      ); // 650000 -> 650.000
+      unlockSubtitle = 'Rp. $formatted/month – cancel anytime';
+    } else {
+      unlockSubtitle = 'See premium plans for pricing details';
+    }
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -39,7 +55,7 @@ class SubscriptionScreen extends StatelessWidget {
               Center(
                 child: Container(
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: Colors.white),
+                  decoration: const BoxDecoration(color: Colors.white),
                   child: SvgPicture.asset(
                     'assets/subscription-page.svg',
                     width: 320,
@@ -73,39 +89,12 @@ class SubscriptionScreen extends StatelessWidget {
 
               const SizedBox(height: 16),
 
-              // // Small blue pill / tag
-              // Container(
-              //   padding: const EdgeInsets.symmetric(
-              //     horizontal: 12,
-              //     vertical: 6,
-              //   ),
-              //   decoration: BoxDecoration(
-              //     color: _primaryBlue.withOpacity(0.12),
-              //     borderRadius: BorderRadius.circular(20),
-              //   ),
-              //   child: const Row(
-              //     mainAxisSize: MainAxisSize.min,
-              //     children: [
-              //       Icon(Icons.stars_rounded, size: 16, color: _primaryBlue),
-              //       SizedBox(width: 6),
-              //       Text(
-              //         'Best value for businesses',
-              //         style: TextStyle(
-              //           fontSize: 11,
-              //           fontWeight: FontWeight.w600,
-              //           color: _primaryBlue,
-              //         ),
-              //       ),
-              //     ],
-              //   ),
-              // ),
               const Spacer(),
 
               // Big button: unlock all
               _PrimaryButton(
-                label: 'Unlock all features',
-                subtitle:
-                    '\$${subscription.monthlyPrice.toStringAsFixed(0)}/mo – cancel anytime',
+                label: 'Upgrade your business',
+                subtitle: unlockSubtitle,
                 color: _primaryBlue,
                 onPressed: () {
                   Navigator.of(context).push(

@@ -24,22 +24,50 @@ class BusinessInfo {
   final String username;
   final String logoPath;
   final bool isActive;
+
+  // ⬇️ tambahkan field premium
+  final bool isPremium;
+  final String? premiumStartAt;
+  final String? premiumExpiresAt;
+
   const BusinessInfo({
     required this.idBusiness,
     required this.name,
     required this.username,
     required this.logoPath,
     this.isActive = false,
+    this.isPremium = false,
+    this.premiumStartAt,
+    this.premiumExpiresAt,
   });
 
   factory BusinessInfo.fromJson(Map<String, dynamic> j, {String? activeId}) {
     final id = (j['idBusiness'] ?? '').toString();
+
+    // Baca flag premium dari beberapa kemungkinan key
+    final rawPremium = j['isPremium'] ?? j['is_premium'];
+    bool premiumFlag = false;
+    if (rawPremium is bool) {
+      premiumFlag = rawPremium;
+    } else if (rawPremium is num) {
+      premiumFlag = rawPremium != 0;
+    } else if (rawPremium is String) {
+      final s = rawPremium.toLowerCase();
+      if (s == '1' || s == 'true' || s == 'yes') premiumFlag = true;
+      if (s == '0' || s == 'false' || s == 'no') premiumFlag = false;
+    }
+
     return BusinessInfo(
       idBusiness: id,
       name: (j['name'] ?? '').toString(),
       username: (j['username'] ?? '').toString(),
       logoPath: (j['logoPath'] ?? j['logo'] ?? '').toString(),
       isActive: activeId != null && activeId == id,
+      isPremium: premiumFlag,
+      premiumStartAt: (j['premiumStartAt'] ?? j['premium_start_at'])
+          ?.toString(),
+      premiumExpiresAt: (j['premiumExpiresAt'] ?? j['premium_expires_at'])
+          ?.toString(),
     );
   }
 
@@ -48,6 +76,9 @@ class BusinessInfo {
     'name': name,
     'username': username,
     'logoPath': logoPath,
+    'isPremium': isPremium,
+    'premiumStartAt': premiumStartAt,
+    'premiumExpiresAt': premiumExpiresAt,
   };
 }
 
@@ -144,6 +175,18 @@ class AuthProvider with ChangeNotifier {
     return prefs.getBool(kActiveBizRoleIsPrimaryKey) ?? false;
   }
 
+  bool _parseBoolLike(dynamic raw) {
+    if (raw == null) return false;
+    if (raw is bool) return raw;
+    if (raw is num) return raw != 0;
+    if (raw is String) {
+      final s = raw.toLowerCase();
+      if (s == '1' || s == 'true' || s == 'yes') return true;
+      if (s == '0' || s == 'false' || s == 'no') return false;
+    }
+    return false;
+  }
+
   bool _parseOutOfStockFlagForBiz(dynamic raw) {
     if (raw == null) return false;
     if (raw is bool) return raw;
@@ -169,12 +212,20 @@ class AuthProvider with ChangeNotifier {
     final canFlag = _parseOutOfStockFlagForBiz(
       j['can_be_sold_out_of_stock'] ?? j['canBeSoldOutOfStock'],
     );
+
+    final isPremiumFlag = _parseBoolLike(j['isPremium']);
+
     return <String, dynamic>{
       'idBusiness': (j['idBusiness'] ?? '').toString(),
       'name': (j['name'] ?? '').toString(),
       'username': (j['username'] ?? '').toString(),
       'logoPath': (j['logoPath'] ?? j['logo'] ?? '').toString(),
       'can_be_sold_out_of_stock': canFlag,
+      'isPremium': isPremiumFlag,
+      'premiumStartAt': (j['premiumStartAt'] ?? j['premium_start_at'])
+          ?.toString(),
+      'premiumExpiresAt': (j['premiumExpiresAt'] ?? j['premium_expires_at'])
+          ?.toString(),
     };
   }
 
@@ -806,6 +857,9 @@ class AuthProvider with ChangeNotifier {
               'logoPath': activeBizLogoPath,
               'can_be_sold_out_of_stock':
                   firstBiz?['can_be_sold_out_of_stock'] ?? false,
+              'isPremium': firstBiz?['isPremium'] ?? false,
+              'premiumStartAt': firstBiz?['premiumStartAt'],
+              'premiumExpiresAt': firstBiz?['premiumExpiresAt'],
             },
           'businessRoles': roleMap,
           if ((rbSnap?['idAdminRole'] ?? '').toString().isNotEmpty)
@@ -1660,7 +1714,11 @@ class AuthProvider with ChangeNotifier {
                 'logoPath': first['logoPath'],
                 'can_be_sold_out_of_stock':
                     first['can_be_sold_out_of_stock'] ?? false,
+                'isPremium': first['isPremium'] ?? false,
+                'premiumStartAt': first['premiumStartAt'],
+                'premiumExpiresAt': first['premiumExpiresAt'],
               };
+
               snap['businessRoles'] = roleMap;
               if ((rb?['idAdminRole'] ?? '').toString().isNotEmpty) {
                 snap['activeBusinessRole'] = {
@@ -1845,6 +1903,9 @@ class AuthProvider with ChangeNotifier {
               'logoPath': activeBizLogoPath,
               'can_be_sold_out_of_stock':
                   firstBiz?['can_be_sold_out_of_stock'] ?? false,
+              'isPremium': firstBiz?['isPremium'] ?? false,
+              'premiumStartAt': firstBiz?['premiumStartAt'],
+              'premiumExpiresAt': firstBiz?['premiumExpiresAt'],
             },
           'businessRoles': roleMap,
           if ((rbSnap?['idAdminRole'] ?? '').toString().isNotEmpty)
@@ -1939,6 +2000,9 @@ class AuthProvider with ChangeNotifier {
           activeBiz['name'] = b.name;
           activeBiz['username'] = b.username;
           activeBiz['logoPath'] = b.logoPath;
+          activeBiz['isPremium'] = b.isPremium;
+          activeBiz['premiumStartAt'] = b.premiumStartAt;
+          activeBiz['premiumExpiresAt'] = b.premiumExpiresAt;
 
           // sinkronkan active role di snapshot juga (bila ada)
           final rb = _resolveRBForBusiness(idBusiness, prefs);
@@ -2129,7 +2193,12 @@ class AuthProvider with ChangeNotifier {
                 'logoPath': selected['logoPath'],
                 'can_be_sold_out_of_stock':
                     selected['can_be_sold_out_of_stock'] ?? false,
+                'isPremium': selected['isPremium'] ?? false,
+                'premiumStartAt': selected['premiumStartAt'],
+                'premiumExpiresAt': selected['premiumExpiresAt'],
               };
+              snap['businessRoles'] = roleMap;
+
               snap['businessRoles'] = roleMap;
               if ((rb?['idAdminRole'] ?? '').toString().isNotEmpty) {
                 snap['activeBusinessRole'] = {
@@ -2229,6 +2298,9 @@ class AuthProvider with ChangeNotifier {
             'name': target.name,
             'username': target.username,
             'logoPath': target.logoPath,
+            'isPremium': target.isPremium,
+            'premiumStartAt': target.premiumStartAt,
+            'premiumExpiresAt': target.premiumExpiresAt,
           };
           final rb = _resolveRBForBusiness(target.idBusiness, prefs);
           if ((rb?['idAdminRole'] ?? '').toString().isNotEmpty) {

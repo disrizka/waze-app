@@ -12,6 +12,9 @@ import 'package:wa_blast/providers/notification_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:intl/intl.dart';
+import 'package:wa_blast/providers/subscription_provider.dart';
+import 'package:wa_blast/models/premium_plan_model.dart';
 import '../l10n/app_localizations.dart';
 
 // Key untuk menyimpan waktu terakhir modal subscription ditampilkan
@@ -104,23 +107,23 @@ class _HomeScreenState extends State<HomeScreen> {
     return ok;
   }
 
-  /// Cek apakah waktunya menampilkan subscription modal (minimal tiap 5 jam sekali)
+  /// Cek apakah waktunya menampilkan subscription modal (minimal tiap 1 jam sekali)
   Future<void> _maybeShowSubscriptionModal() async {
     final prefs = await SharedPreferences.getInstance();
 
     // baca waktu terakhir modal muncul
-    // final lastStr = prefs.getString(kLastSubscriptionShownAtKey);
-    // if (lastStr != null) {
-    //   final last = DateTime.tryParse(lastStr);
-    //   if (last != null) {
-    //     final diff = DateTime.now().difference(last);
+    final lastStr = prefs.getString(kLastSubscriptionShownAtKey);
+    if (lastStr != null) {
+      final last = DateTime.tryParse(lastStr);
+      if (last != null) {
+        final diff = DateTime.now().difference(last);
 
-    //     // kalau belum 5 jam, jangan tampilkan lagi
-    //     if (diff < const Duration(hours: 1)) {
-    //       return;
-    //     }
-    //   }
-    // }
+        // kalau belum 1 jam, jangan tampilkan lagi
+        if (diff < const Duration(hours: 1)) {
+          return;
+        }
+      }
+    }
 
     if (!mounted) return;
 
@@ -164,7 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
 
       // 4) cek apakah perlu tampilkan modal subscription
-      await _maybeShowSubscriptionModal();
+      // await _maybeShowSubscriptionModal();
     });
   }
 
@@ -186,7 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // 2) refresh report harian biar panel tracking ikut update
             await _kickDailyFetch();
 
-            // 3) cek & tampilkan modal subscription (kalau sudah lewat 5 jam)
+            // 3) cek & tampilkan modal subscription (kalau sudah lewat 1 jam)
             await _maybeShowSubscriptionModal();
 
             if (!mounted) return;
@@ -285,7 +288,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _SubscriptionSheet extends StatelessWidget {
+// ===================================================================
+// SUBSCRIPTION SHEET (PAKAI DATA DARI SubscriptionProvider)
+// ===================================================================
+
+class _SubscriptionSheet extends StatefulWidget {
   const _SubscriptionSheet();
 
   // Blue theme (sesuai app)
@@ -296,10 +303,60 @@ class _SubscriptionSheet extends StatelessWidget {
   static const Color _textMuted = Color(0xFF6B7280);
 
   @override
+  State<_SubscriptionSheet> createState() => _SubscriptionSheetState();
+}
+
+class _SubscriptionSheetState extends State<_SubscriptionSheet> {
+  String _formatRp(num v) {
+    final f = NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp. ',
+      decimalDigits: 0,
+    );
+    return f.format(v);
+  }
+
+  String _buildPriceLabel(PremiumPlan plan) {
+    final price = _formatRp(plan.price);
+    final months = plan.months;
+    String period;
+    if (months == null || months <= 0) {
+      period = 'period';
+    } else if (months == 1) {
+      period = 'month';
+    } else if (months == 12) {
+      period = 'year';
+    } else {
+      period = '$months months';
+    }
+    return '$price / $period';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Saat sheet dibuka, langsung fetch premium plan
+    Future.microtask(() async {
+      if (!mounted) return;
+      await context.read<SubscriptionProvider>().fetchPremiumPlans(context);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final bool isTablet = size.shortestSide >= 600;
     final double maxWidth = isTablet ? 420 : size.width;
+
+    final sub = context.watch<SubscriptionProvider>();
+    final bool loading = sub.isLoadingPlans;
+    PremiumPlan? firstPlan = sub.plans.isNotEmpty ? sub.plans.first : null;
+
+    final String premiumPriceText = loading
+        ? 'Loading...'
+        : (firstPlan != null
+              ? _buildPriceLabel(firstPlan)
+              : 'Plan not available');
 
     return SafeArea(
       child: Center(
@@ -333,7 +390,7 @@ class _SubscriptionSheet extends StatelessWidget {
                         child: Icon(
                           Icons.arrow_back_ios_new_rounded,
                           size: 18,
-                          color: _textMuted,
+                          color: _SubscriptionSheet._textMuted,
                         ),
                       ),
                     ),
@@ -356,7 +413,7 @@ class _SubscriptionSheet extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
-                    color: _textDark,
+                    color: _SubscriptionSheet._textDark,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -365,31 +422,62 @@ class _SubscriptionSheet extends StatelessWidget {
                   'Unlock the full power of WaveUp and grow your business with confidence.',
                   style: TextStyle(
                     fontSize: 13,
-                    color: _textMuted,
+                    color: _SubscriptionSheet._textMuted,
                     height: 1.35,
                   ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
 
+                if (sub.errorMessage != null && !loading) ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEE2E2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          size: 16,
+                          color: Color(0xFFB91C1C),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            sub.errorMessage!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFFB91C1C),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
                 // Plan cards (FREE & PREMIUM)
                 Row(
-                  children: const [
-                    Expanded(
+                  children: [
+                    const Expanded(
                       child: _SubscriptionPlanCard(
-                        title: 'Free',
-                        priceText: '\$0 / month',
+                        title: 'Basic Plan',
+                        priceText: 'Rp. 500 / transaction',
                         badgeText: 'Current plan',
                         isHighlighted: false,
                         isCurrent: true,
                       ),
                     ),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: _SubscriptionPlanCard(
                         title: 'Premium',
-                        priceText: '\$9 / month',
-                        badgeText: 'Best value',
+                        priceText: premiumPriceText,
+                        badgeText: firstPlan != null ? 'Best value' : 'Premium',
                         isHighlighted: true,
                         isCurrent: false,
                       ),
@@ -402,27 +490,27 @@ class _SubscriptionSheet extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: _softBlue,
+                    color: _SubscriptionSheet._softBlue,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: _borderGray),
+                    border: Border.all(color: _SubscriptionSheet._borderGray),
                   ),
                   child: const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Free plan',
+                        'Basic plan',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
-                          color: _textDark,
+                          color: _SubscriptionSheet._textDark,
                         ),
                       ),
                       SizedBox(height: 4),
                       Text(
-                        'This is your current plan. You can add up to 10 products only, with limited access to features and insights.',
+                        'This is your current plan. You have to pay Rp. 500 for every sales transaction',
                         style: TextStyle(
                           fontSize: 12,
-                          color: _textMuted,
+                          color: _SubscriptionSheet._textMuted,
                           height: 1.35,
                         ),
                       ),
@@ -432,7 +520,7 @@ class _SubscriptionSheet extends StatelessWidget {
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
-                          color: _textDark,
+                          color: _SubscriptionSheet._textDark,
                         ),
                       ),
                       SizedBox(height: 4),
@@ -440,7 +528,7 @@ class _SubscriptionSheet extends StatelessWidget {
                         'Upgrade to unlock unlimited products, unlimited transactions, and full access to tools designed to scale your business.',
                         style: TextStyle(
                           fontSize: 12,
-                          color: _textMuted,
+                          color: _SubscriptionSheet._textMuted,
                           height: 1.35,
                         ),
                       ),
@@ -454,7 +542,7 @@ class _SubscriptionSheet extends StatelessWidget {
                   width: double.infinity,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _primaryBlue,
+                      backgroundColor: _SubscriptionSheet._primaryBlue,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
@@ -462,7 +550,7 @@ class _SubscriptionSheet extends StatelessWidget {
                       ),
                     ),
                     onPressed: () {
-                      // TODO: connect to your premium subscription flow here
+                      // Tetap arahkan ke halaman subscription utama
                       Navigator.pushNamed(context, '/subscription');
                     },
                     child: const Text(
@@ -558,6 +646,7 @@ class _SubscriptionPlanCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             priceText,
+            textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 12,
               color: _SubscriptionSheet._textMuted,
@@ -611,6 +700,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
   String _businessUsername = '';
   String _photoPath = '';
   String _businessLogoPath = '';
+  bool _isPremium = false;
 
   @override
   void initState() {
@@ -691,6 +781,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     String businessName = '';
     String businessUsername = '';
     String businessLogoPath = '';
+    bool isPremium = false;
 
     final businessJson = prefs.getString('business');
     if (businessJson != null && businessJson.isNotEmpty) {
@@ -711,20 +802,24 @@ class _HeaderGradientState extends State<_HeaderGradient> {
           businessUsername = (match['username'] ?? '').toString();
           businessLogoPath = (match['logoPath'] ?? match['logo'] ?? '')
               .toString();
+          isPremium = (match['isPremium'] ?? false) == true;
         } else {
           businessName = prefs.getString('activeBizName') ?? '';
           businessUsername = prefs.getString('activeBizUsername') ?? '';
           businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
+          isPremium = (prefs.getBool('activeBizIsPremium') ?? false);
         }
       } catch (_) {
         businessName = prefs.getString('activeBizName') ?? '';
         businessUsername = prefs.getString('activeBizUsername') ?? '';
         businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
+        isPremium = (prefs.getBool('activeBizIsPremium') ?? false);
       }
     } else {
       businessName = prefs.getString('activeBizName') ?? '';
       businessUsername = prefs.getString('activeBizUsername') ?? '';
       businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
+      isPremium = (prefs.getBool('activeBizIsPremium') ?? false);
     }
 
     _photoPath = prefs.getString('photoPath') ?? '';
@@ -736,16 +831,13 @@ class _HeaderGradientState extends State<_HeaderGradient> {
       _accountUsername = accountUsername.isNotEmpty ? accountUsername : '—';
       _businessName = businessName.isNotEmpty ? businessName : '—';
       _businessUsername = businessUsername.isNotEmpty ? businessUsername : '—';
+      _isPremium = isPremium;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final t = AppLocalizations.of(context)!;
-
-    // TODO: nanti ambil dari API / prefs, sekarang hardcode dulu:
-    // 'free' atau 'premium'
-    const String currentPlanType = 'free';
 
     // ukuran & posisi agar menimpa 3/4 dari gradient
     const double headerHeight = 150; // tinggi area gradient
@@ -822,7 +914,9 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                               child: Consumer<NotificationProvider>(
                                 builder: (_, np, __) {
                                   final c = np.unreadCount;
-                                  if (c <= 0) return const SizedBox.shrink();
+                                  if (c <= 0) {
+                                    return const SizedBox.shrink();
+                                  }
                                   final text = c > 99 ? '99+' : '$c';
                                   return Container(
                                     padding: const EdgeInsets.symmetric(
@@ -936,7 +1030,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                       color: const Color(0xFFEAEAEA),
                     ),
 
-                    // Business
+                    // Business + badge
                     Expanded(
                       child: _InfoBlock(
                         caption: t.header_business_caption,
@@ -983,6 +1077,48 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                         title: _businessName,
                         subtitle: '@${_shortId(_businessUsername)}',
                         onTap: _openBusinessSwitcher,
+                        trailingBadge: !_isPremium
+                            ? InkWell(
+                                borderRadius: BorderRadius.circular(999),
+                                onTap: _openSubscriptionSheet,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Color(0xFF4C6EF5),
+                                        Color(0xFF22C55E),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(
+                                        LucideIcons.sparkles,
+                                        size: 12,
+                                        color: Colors.white,
+                                      ),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'Upgrade',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : null,
                       ),
                     ),
                   ],
@@ -1012,6 +1148,7 @@ class _InfoBlock extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback? onTap; // optional
+  final Widget? trailingBadge;
 
   const _InfoBlock({
     required this.caption,
@@ -1019,6 +1156,7 @@ class _InfoBlock extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.onTap,
+    this.trailingBadge,
   });
 
   @override
@@ -1074,6 +1212,10 @@ class _InfoBlock extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             const Icon(LucideIcons.info, size: 14, color: Color(0xFFB0B0B0)),
+            if (trailingBadge != null) ...[
+              const SizedBox(width: 8),
+              trailingBadge!,
+            ],
           ],
         ),
         const SizedBox(height: 8),
@@ -1486,14 +1628,6 @@ Future<void> _openNotificationPopup(BuildContext context) async {
 
 // ===============================
 // DROPDOWN NOTIFIKASI DI BAWAH LONCENG
-// ===============================
-
-// ===============================
-// DROPDOWN NOTIFIKASI DI BAWAH LONCENG
-// ===============================
-
-// ===============================
-// DROPDOWN NOTIFIKASI DI BAWAH LONCENG (3 item, scrollable)
 // ===============================
 
 class _NotificationDropdownCard extends StatefulWidget {
