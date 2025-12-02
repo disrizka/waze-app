@@ -2,11 +2,15 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wa_blast/providers/sales_provider.dart';
 import '../../../constants/app_colors.dart';
 import '../../../constants/design_system.dart';
 import '../../../widgets/stepper_header.dart';
+
+// Platform fee untuk user non-premium (per transaksi)
+const int _kPlatformFeeNonPremium = 500;
 
 class PaymentStep extends StatefulWidget {
   final bool withHeader;
@@ -19,7 +23,9 @@ class PaymentStep extends StatefulWidget {
 class _PaymentStepState extends State<PaymentStep> {
   // Controllers
   late final TextEditingController _orderDiscountC; // order-level discount
-  late final TextEditingController _noteC; // Notes (dipindah ke PaymentStep)
+  late final TextEditingController _noteC; // Notes (jika mau dipakai nanti)
+
+  bool _isPremium = false; // flag dari SharedPreferences
 
   @override
   void initState() {
@@ -29,6 +35,17 @@ class _PaymentStepState extends State<PaymentStep> {
       text: (prov.discount ?? 0).toString(),
     );
     _noteC = TextEditingController(text: prov.note ?? '');
+
+    _loadPremiumFlag();
+  }
+
+  Future<void> _loadPremiumFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isPremium = (prefs.getBool('activeBizIsPremium') ?? false);
+    if (!mounted) return;
+    setState(() {
+      _isPremium = isPremium;
+    });
   }
 
   @override
@@ -44,9 +61,14 @@ class _PaymentStepState extends State<PaymentStep> {
     final ok = await prov.submitSales(context);
     if (!mounted) return;
 
-    final subtotal = prov.subtotalEffective;
-    final disc = prov.discount ?? 0;
-    final totalFinal = (subtotal - disc).clamp(0, 1 << 31) as int;
+    // Gunakan grandTotalEffective (sudah termasuk semua diskon, tanpa fee lain)
+    int totalFinal = prov.grandTotalEffective;
+
+    // Tambahkan platform fee untuk non-premium
+    if (!_isPremium) {
+      totalFinal += _kPlatformFeeNonPremium;
+    }
+    if (totalFinal < 0) totalFinal = 0;
 
     if (!ok) {
       final err = prov.consumeLastError() ?? 'Failed to submit order';
@@ -126,17 +148,21 @@ class _PaymentStepState extends State<PaymentStep> {
     final prov = context.watch<SalesProvider>();
     prov.ensureReferenceInitialized(); // pastikan reference ada
 
-    // Subtotal efektif = Σ (price - disc per item) * qty
-    final subtotal = prov.cartItems.fold<int>(0, (sum, it) {
-      final d = prov.perItemDiscountOf(it.sku.skuId);
-      final unitAfter = it.sku.price - d;
-      final safeUnit = unitAfter < 0 ? 0 : unitAfter;
-      return sum + safeUnit * it.qty;
-    });
+    // Subtotal setelah diskon per-item (helper dari SalesProvider)
+    final subtotal = prov.subtotalAfterItemDisc;
 
+    // Diskon order-level (yang diinput user di field Discount)
     final disc = prov.discount ?? 0;
+
+    // Service fee tetap 0
     const serviceFee = 0;
-    final totalFinal = (subtotal + serviceFee - disc);
+
+    // Platform fee hanya untuk non-premium
+    final int platformFee = _isPremium ? 0 : _kPlatformFeeNonPremium;
+
+    // Total efektif dari provider + platform fee
+    final totalFinal = prov.grandTotalEffective + platformFee;
+
     final pmId = prov.paymentMethod ?? 1;
     final pm = _PayMethod.byId(pmId);
 
@@ -151,11 +177,10 @@ class _PaymentStepState extends State<PaymentStep> {
             child: ListView(
               padding: DS.p16,
               children: [
-                // ===== 1) DETAILS (dengan subtitle) =====
+                // ===== 1) DETAILS =====
                 _SectionCard(
                   title: 'Details',
-                  subtitle:
-                      'Store & customer information.', // <-- kembalikan deskripsi
+                  subtitle: 'Store & customer information.',
                   child: Column(
                     children: [
                       if ((prov.storeLocationName ?? '').isNotEmpty)
@@ -167,10 +192,9 @@ class _PaymentStepState extends State<PaymentStep> {
                 ),
                 const SizedBox(height: 14),
 
-                // ===== 3) ADJUSTMENT DISCOUNT (tanpa subtitle / deskripsi) =====
+                // ===== 2) DISCOUNT (order-level) =====
                 _SectionCard(
                   title: 'Discount',
-                  // subtitle: null, // <-- dihapus sesuai permintaan
                   child: TextFormField(
                     controller: _orderDiscountC,
                     keyboardType: TextInputType.number,
@@ -204,11 +228,11 @@ class _PaymentStepState extends State<PaymentStep> {
                 ),
                 const SizedBox(height: 14),
 
-                // ===== 2) PAYMENT SUMMARY (dengan subtitle) =====
+                // ===== 3) PAYMENT SUMMARY =====
                 _SectionCard(
                   title: 'Payment Summary',
                   subtitle:
-                      'Review subtotal, discount, and total.', // <-- kembalikan deskripsi
+                      'Review subtotal, discount, platform fee, and total.',
                   trailing: _MethodBadge(method: pm),
                   child: Column(
                     children: [
@@ -219,6 +243,24 @@ class _PaymentStepState extends State<PaymentStep> {
                           value: -disc,
                           forceColor: const Color(0xFF059669),
                         ),
+
+                      // Platform fee (hanya tampil kalau non-premium)
+                      if (platformFee > 0)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text('Platform fee', style: DS.tsPrice),
+                              ),
+                              Text(
+                                '${formatRp(platformFee)}', // tampil "+Rp 500"
+                                style: DS.tsTitle,
+                              ),
+                            ],
+                          ),
+                        ),
+
                       const Divider(color: AppColors.divider),
                       _RowKV(
                         label: 'Total',
@@ -231,7 +273,7 @@ class _PaymentStepState extends State<PaymentStep> {
                 ),
                 const SizedBox(height: 14),
 
-                // ===== 5) PAYMENT METHOD (tetap ada subtitle) =====
+                // ===== 4) PAYMENT METHOD =====
                 _SectionCard(
                   title: 'Payment Method',
                   subtitle:
@@ -277,7 +319,7 @@ class _PaymentStepState extends State<PaymentStep> {
                         : Text('Pay with ${pm.label}'),
                   ),
                 ),
-                // Jika ingin tombol Cancel ketika submitting, aktifkan:
+                // Kalau mau tombol Cancel payment:
                 // if (prov.submitting) ...[
                 //   const SizedBox(height: 10),
                 //   SizedBox(

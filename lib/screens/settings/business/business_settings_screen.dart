@@ -17,6 +17,9 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
   String _businessUsername = '';
   String _businessLogoPath = '';
 
+  // ⬇️ Tambahan: flag premium
+  bool _isPremium = false;
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +33,7 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
     String businessName = '';
     String businessUsername = '';
     String businessLogoPath = '';
+    bool isPremium = prefs.getBool('activeBizIsPremium') ?? false; // default
 
     final businessJson = prefs.getString('business');
     if (businessJson != null && businessJson.isNotEmpty) {
@@ -49,6 +53,19 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
           businessUsername = (match['username'] ?? '').toString();
           businessLogoPath = (match['logoPath'] ?? match['logo'] ?? '')
               .toString();
+
+          // 🔍 Coba baca premium dari data business
+          final rawPlan = match['isPremium'] ?? match['planType'];
+          if (rawPlan != null) {
+            if (rawPlan is bool) {
+              isPremium = rawPlan;
+            } else if (rawPlan is num) {
+              isPremium = rawPlan == 1;
+            } else if (rawPlan is String) {
+              final v = rawPlan.toLowerCase();
+              isPremium = v == '1' || v == 'premium' || v == 'true';
+            }
+          }
         } else {
           businessName = prefs.getString('activeBizName') ?? '';
           businessUsername = prefs.getString('activeBizUsername') ?? '';
@@ -65,11 +82,16 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
       businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
     }
 
+    // 🔁 Sinkron ke prefs biar konsisten untuk screen lain
+    await prefs.setBool('activeBizIsPremium', isPremium);
+    debugPrint('[BusinessSettings] isPremium (from data) = $isPremium');
+
     if (!mounted) return;
     setState(() {
       _businessName = businessName.isNotEmpty ? businessName : '—';
       _businessUsername = businessUsername.isNotEmpty ? businessUsername : '—';
       _businessLogoPath = businessLogoPath;
+      _isPremium = isPremium;
       _loading = false;
     });
   }
@@ -108,7 +130,8 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
               logoUrl: _businessLogoPath,
               name: _businessName,
               username: _businessUsername,
-              planType: 'free', // TODO: ganti dari data API / prefs
+              // ⬇️ sekarang dinamis: free / premium
+              planType: _isPremium ? 'premium' : 'free',
               onPlanTap: () => Navigator.pushNamed(context, '/subscription'),
             ),
 
@@ -117,17 +140,22 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
             // ===== Management section =====
             _SectionTitle(l10n.businessSettingsSectionManagement),
             const SizedBox(height: 8),
-            _ListCard(
-              children: [
-                _MenuTile(
-                  icon: Icons.payment,
-                  title: 'Subscription',
-                  subtitle: 'Manage your business subscription',
-                  onTap: () => Navigator.pushNamed(context, '/subscription'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
+
+            // ⬇️ TAMPILKAN MENU "Subscription" HANYA KALAU BUKAN PREMIUM
+            if (!_isPremium) ...[
+              _ListCard(
+                children: [
+                  _MenuTile(
+                    icon: Icons.payment,
+                    title: 'Subscription',
+                    subtitle: 'Manage your business subscription',
+                    onTap: () => Navigator.pushNamed(context, '/subscription'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+
             _ListCard(
               children: [
                 _MenuTile(
@@ -414,6 +442,7 @@ BoxDecoration _listDecoration() {
 }
 
 /// Badge kecil di header yang menunjukkan status plan (free / premium).
+/// Badge kecil di header yang menunjukkan status plan (free / premium).
 class _PlanStatusBadge extends StatelessWidget {
   final String planType; // "free" atau "premium"
   final VoidCallback onTap;
@@ -425,7 +454,7 @@ class _PlanStatusBadge extends StatelessWidget {
     final String normalized = planType.trim().toLowerCase();
     final bool isPremium = normalized == 'premium';
 
-    // Premium: gradient biru-hijau (tanpa ungu)
+    // Premium: gradient biru-hijau
     const Gradient premiumGradient = LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
@@ -450,47 +479,56 @@ class _PlanStatusBadge extends StatelessWidget {
 
     final String titleText = isPremium ? 'Premium plan' : 'Free plan';
 
+    // 👉 child utama badge (tanpa InkWell dulu)
+    final Widget badgeContent = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        gradient: badgeGradient,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Colors.white.withOpacity(isPremium ? 0.9 : 0.7),
+          width: isPremium ? 1.2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isPremium ? 0.25 : 0.12),
+            blurRadius: isPremium ? 12 : 6,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.workspace_premium_rounded, size: 16, color: iconColor),
+          const SizedBox(width: 6),
+          Text(
+            titleText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: badgeTextColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.25,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // 👉 Kalau premium: TIDAK bisa dipencet (tanpa InkWell)
+    if (isPremium) {
+      return badgeContent;
+    }
+
+    // 👉 Kalau free: tetap bisa dipencet ke halaman subscription
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(999),
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            gradient: badgeGradient,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.white.withOpacity(isPremium ? 0.9 : 0.7),
-              width: isPremium ? 1.2 : 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isPremium ? 0.25 : 0.12),
-                blurRadius: isPremium ? 12 : 6,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.workspace_premium_rounded, size: 16, color: iconColor),
-              const SizedBox(width: 6),
-              Text(
-                titleText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: badgeTextColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.25,
-                ),
-              ),
-            ],
-          ),
-        ),
+        child: badgeContent,
       ),
     );
   }

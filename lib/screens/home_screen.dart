@@ -572,6 +572,92 @@ class _SubscriptionSheetState extends State<_SubscriptionSheet> {
   }
 }
 
+class _BusinessPlanBadge extends StatelessWidget {
+  final bool isPremium;
+  final VoidCallback onTap;
+
+  const _BusinessPlanBadge({required this.isPremium, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    if (isPremium) {
+      // PREMIUM BADGE
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF4C6EF5), Color(0xFF22C55E)],
+            ),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(LucideIcons.crown, size: 13, color: Colors.white),
+              SizedBox(width: 6),
+              Text(
+                'Premium business',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // BASIC + UPGRADE BADGE (semua dalam 1 badge)
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F4FF),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: const Color(0xFFCBD5FF)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(LucideIcons.store, size: 13, color: Color(0xFF4C6EF5)),
+            SizedBox(width: 6),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Basic business',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1D4ED8),
+                  ),
+                ),
+                Text(
+                  'Tap to upgrade',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF2563EB),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SubscriptionPlanCard extends StatelessWidget {
   final String title;
   final String priceText;
@@ -886,6 +972,56 @@ class _HeaderGradientState extends State<_HeaderGradient> {
 
                   const Spacer(),
 
+                  // 🔷 GET PREMIUM badge – hanya muncul kalau BELUM premium
+                  if (!_isPremium)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(999),
+                          onTap: _openSubscriptionSheet,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [
+                                  Color(0xFF6366F1), // indigo
+                                  Color(0xFFEC4899), // pink
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(
+                                  LucideIcons.gem,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Get premium',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
                   const SizedBox(width: 6),
 
                   // ICON LONCENG NOTIFIKASI
@@ -1077,48 +1213,6 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                         title: _businessName,
                         subtitle: '@${_shortId(_businessUsername)}',
                         onTap: _openBusinessSwitcher,
-                        trailingBadge: !_isPremium
-                            ? InkWell(
-                                borderRadius: BorderRadius.circular(999),
-                                onTap: _openSubscriptionSheet,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        Color(0xFF4C6EF5),
-                                        Color(0xFF22C55E),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: const [
-                                      Icon(
-                                        LucideIcons.sparkles,
-                                        size: 12,
-                                        color: Colors.white,
-                                      ),
-                                      SizedBox(width: 4),
-                                      Text(
-                                        'Upgrade',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              )
-                            : null,
                       ),
                     ),
                   ],
@@ -1197,27 +1291,37 @@ class _InfoBlock extends StatelessWidget {
       ],
     );
 
+    // 🔵 Header di atas avatar:
+    // - Kalau caption kosong & ada trailingBadge → pakai badge saja (business case)
+    // - Kalau tidak, pakai caption + icon info (default)
+    Widget headerRow;
+    if (trailingBadge != null && caption.isEmpty) {
+      headerRow = Align(alignment: Alignment.centerLeft, child: trailingBadge!);
+    } else {
+      headerRow = Row(
+        children: [
+          Text(
+            caption,
+            style: TextStyle(
+              color: captionColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Icon(LucideIcons.info, size: 14, color: Color(0xFFB0B0B0)),
+          if (trailingBadge != null) ...[
+            const SizedBox(width: 8),
+            trailingBadge!,
+          ],
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Text(
-              caption,
-              style: TextStyle(
-                color: captionColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Icon(LucideIcons.info, size: 14, color: Color(0xFFB0B0B0)),
-            if (trailingBadge != null) ...[
-              const SizedBox(width: 8),
-              trailingBadge!,
-            ],
-          ],
-        ),
+        headerRow,
         const SizedBox(height: 8),
         if (onTap == null)
           content
@@ -1228,7 +1332,7 @@ class _InfoBlock extends StatelessWidget {
               onTap: onTap,
               borderRadius: BorderRadius.circular(10),
               child: Padding(
-                padding: const EdgeInsets.only(right: 4), // ruang untuk chevron
+                padding: const EdgeInsets.only(right: 4),
                 child: content,
               ),
             ),
