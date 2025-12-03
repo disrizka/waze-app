@@ -18,19 +18,59 @@ class DeepLinkService {
   StreamSubscription<Uri?>? _sub;
 
   bool _initialTried = false;
-  bool _inited = false; // cegah init ganda
+  bool _inited = false;
 
-  // Dedup & debounce
   Uri? _lastUri;
   String? _lastToken;
   DateTime _lastHandledAt = DateTime.fromMillisecondsSinceEpoch(0);
   Duration _debounce = const Duration(milliseconds: 900);
 
-  // Cegah re-entrancy nav
   bool _navLock = false;
-
-  // Hard timeout untuk seluruh siklus route
   final Duration _routeHardTimeout = const Duration(seconds: 4);
+
+  // =====================================================
+  // SIMPLE APP ROUTES (waveup://...) — contoh: inventory
+  // =====================================================
+
+  /// Mapping deep link internal ke route app.
+  /// Contoh diminta:
+  ///   waveup://inventory  ->  /product/list
+  static bool navigateWaveupUri(BuildContext ctx, Uri uri) {
+    if (uri.scheme != 'waveup') return false;
+
+    // waveup://inventory -> /product/list
+    if (uri.host == 'inventory') {
+      if (kDebugMode) {
+        debugPrint('[DeepLink] waveup://inventory -> /product/list');
+      }
+      // PENTING: jangan pakai rootNavigator di sini,
+      // biar stack-nya ikut navigator yang sama dengan origin.
+      Navigator.of(ctx).pushNamed('/product/list');
+      return true;
+    }
+
+    // Tambah mapping lain di sini kalau perlu
+    return false;
+  }
+
+  /// Helper statis supaya bisa dipanggil dari mana saja.
+  /// Kalau originContext dikirim, pakai navigator dari situ.
+  static Future<void> handleInAppUrl(
+    String rawUrl, {
+    BuildContext? originContext,
+  }) async {
+    final uri = Uri.tryParse(rawUrl);
+    if (uri == null) return;
+
+    // pakai context asal kalau ada, kalau tidak pakai appNavigatorKey
+    final ctx = originContext ?? appNavigatorKey.currentContext;
+    if (ctx == null) return;
+
+    // saat ini kita handle hanya scheme waveup://
+    if (uri.scheme == 'waveup') {
+      navigateWaveupUri(ctx, uri);
+    }
+  }
 
   void init() {
     if (_inited) {
@@ -79,8 +119,9 @@ class DeepLinkService {
         final tokenFromUri = _extractTokenFromUri(uri);
         if (_lastToken == tokenFromUri &&
             now.difference(_lastHandledAt) < _debounce) {
-          if (kDebugMode)
+          if (kDebugMode) {
             debugPrint('[DeepLink] skipped (debounce same token)');
+          }
           return;
         }
 
@@ -100,6 +141,16 @@ class DeepLinkService {
     final ctx = appNavigatorKey.currentContext;
     if (ctx == null) return;
 
+    // =============================
+    // 1) SIMPLE INTERNAL APP ROUTES
+    // =============================
+    // Contoh: waveup://inventory → /product/list
+    if (DeepLinkService.navigateWaveupUri(ctx, uri)) {
+      // sudah di-handle, tidak perlu lanjut ke HR invite flow
+      return;
+    }
+
+    // ========== Mulai HR Invite Flow (seperti sebelumnya) ==========
     final url = uri.toString();
     final token = _extractTokenFromUri(uri);
 
@@ -167,7 +218,9 @@ class DeepLinkService {
 
       if (kDebugMode) {
         debugPrint(
-          '[DeepLink] ✅ invite -> email=${preview.email}, biz=${preview.businessName}, role=${preview.roleName}, isAccountExists=${preview.isAccountExists}',
+          '[DeepLink] ✅ invite -> email=${preview.email}, '
+          'biz=${preview.businessName}, role=${preview.roleName}, '
+          'isAccountExists=${preview.isAccountExists}',
         );
       }
 
@@ -211,35 +264,40 @@ class DeepLinkService {
         debugPrint('[DeepLink] Invite email (from link): $inviteEmail');
         debugPrint('[DeepLink] Email match? $emailMatch');
         debugPrint(
-          '[DeepLink] Access token (from Auth): ${tokenFromAuth?.isNotEmpty == true}',
+          '[DeepLink] Access token (from Auth): '
+          '${tokenFromAuth?.isNotEmpty == true}',
         );
         debugPrint(
-          '[DeepLink] Access token (from Prefs): ${tokenFromPrefs?.isNotEmpty == true}',
+          '[DeepLink] Access token (from Prefs): '
+          '${tokenFromPrefs?.isNotEmpty == true}',
         );
         debugPrint('[DeepLink] Logged in? $loggedIn');
       }
 
       if (!preview.isAccountExists) {
         // === CASE #1: Akun belum ada -> flow registrasi penuh (seperti sekarang)
-        if (kDebugMode)
+        if (kDebugMode) {
           debugPrint(
             '[DeepLink] Case #1: isAccountExists=false → full LinkRegister flow',
           );
+        }
 
         final currentName = ModalRoute.of(
           appNavigatorKey.currentContext!,
         )?.settings.name;
         if (currentName == 'link-register') {
-          if (kDebugMode)
+          if (kDebugMode) {
             debugPrint('[DeepLink] already on LinkRegister; ignore push');
+          }
           splash.finishDeepLink();
           return;
         }
 
         final rootNav = Navigator.of(ctx, rootNavigator: true);
         await Future.microtask(() {});
-        if (kDebugMode)
+        if (kDebugMode) {
           debugPrint('[DeepLink] → pushing LinkRegister (full flow)');
+        }
 
         await rootNav.push(
           MaterialPageRoute(
@@ -251,14 +309,16 @@ class DeepLinkService {
               businessName: preview.businessName,
               businessLogo: (preview.businessLogo.isNotEmpty)
                   ? preview.businessLogo
-                  : 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200',
+                  : 'https://images.unsplash.com/'
+                        'photo-1509042239860-f550ce710b93?w=200',
               inviteRoleName: preview.roleName,
               loginOnlyFlow: false, // full
             ),
           ),
         );
-        if (kDebugMode)
+        if (kDebugMode) {
           debugPrint('[DeepLink] ← popped LinkRegister (case #1)');
+        }
         return;
       } else {
         // isAccountExists == true
@@ -266,7 +326,8 @@ class DeepLinkService {
           // === CASE #3: Sudah login & email cocok → ke /home dulu, lalu dialog accept (tanpa body)
           if (kDebugMode) {
             debugPrint(
-              '[DeepLink] Case #3: logged-in + email match → go /home then confirm & accept (no body)',
+              '[DeepLink] Case #3: logged-in + email match → '
+              'go /home then confirm & accept (no body)',
             );
           }
 
@@ -318,7 +379,8 @@ class DeepLinkService {
         // === CASE #2: Akun ada tapi belum login (atau login dg email berbeda) → LoginOnly flow
         if (kDebugMode) {
           debugPrint(
-            '[DeepLink] Case #2: isAccountExists=true but not logged-in (or email mismatch) → LinkRegister (Welcome+Login)',
+            '[DeepLink] Case #2: isAccountExists=true but not logged-in '
+            '(or email mismatch) → LinkRegister (Welcome+Login)',
           );
         }
 
@@ -326,16 +388,18 @@ class DeepLinkService {
           appNavigatorKey.currentContext!,
         )?.settings.name;
         if (currentName == 'link-register') {
-          if (kDebugMode)
+          if (kDebugMode) {
             debugPrint('[DeepLink] already on LinkRegister; ignore push');
+          }
           splash.finishDeepLink();
           return;
         }
 
         final rootNav = Navigator.of(ctx, rootNavigator: true);
         await Future.microtask(() {});
-        if (kDebugMode)
+        if (kDebugMode) {
           debugPrint('[DeepLink] → pushing LinkRegister (loginOnlyFlow=true)');
+        }
 
         await rootNav.push(
           MaterialPageRoute(
@@ -347,14 +411,16 @@ class DeepLinkService {
               businessName: preview.businessName,
               businessLogo: (preview.businessLogo.isNotEmpty)
                   ? preview.businessLogo
-                  : 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200',
+                  : 'https://images.unsplash.com/'
+                        'photo-1509042239860-f550ce710b93?w=200',
               inviteRoleName: preview.roleName,
               loginOnlyFlow: true, // hanya Welcome + Login
             ),
           ),
         );
-        if (kDebugMode)
+        if (kDebugMode) {
           debugPrint('[DeepLink] ← popped LinkRegister (case #2)');
+        }
         return;
       }
     } catch (e, st) {
@@ -379,7 +445,8 @@ class DeepLinkService {
       }
       if (kDebugMode) {
         debugPrint(
-          '[DeepLink] flags cleared (navLock=false, deeplink=${splash.deeplinkInProgress})',
+          '[DeepLink] flags cleared '
+          '(navLock=false, deeplink=${splash.deeplinkInProgress})',
         );
       }
     }

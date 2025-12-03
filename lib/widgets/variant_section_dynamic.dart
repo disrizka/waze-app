@@ -69,7 +69,6 @@ final TextInputFormatter skuNoSpaceFormatter = TextInputFormatter.withFunction((
 
 String? skuNoSpaceValidator(String? v) {
   final s = (v ?? '').trim();
-  if (s.isEmpty) return 'Required';
   if (RegExp(r'\s').hasMatch(s)) return 'No spaces allowed';
   return null;
 }
@@ -652,7 +651,6 @@ class _SkuPriceCell extends StatelessWidget {
                   vertical: 8,
                 ),
               ),
-              validator: skuNoSpaceValidator,
             ),
           ),
           const SizedBox(width: 8),
