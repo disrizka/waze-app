@@ -428,8 +428,6 @@ class _ProductScreenState extends State<ProductScreen> {
                                   child: _ProductTile(
                                     title: p.name,
                                     priceLabel: priceLabel,
-                                    stockQty: stockQty,
-                                    isOutOfStock: isOut,
                                     image: img,
                                     onTap: () {
                                       Navigator.pushNamed(
@@ -757,8 +755,6 @@ class _ProductTile extends StatelessWidget {
     required this.title,
     required this.priceLabel,
     required this.image,
-    required this.stockQty, // ⬅️ NEW
-    required this.isOutOfStock, // ⬅️ NEW
     this.onTap,
     this.onEdit,
     this.onDelete,
@@ -767,21 +763,18 @@ class _ProductTile extends StatelessWidget {
   final String title;
   final String priceLabel;
   final String image;
-  final int stockQty; // ⬅️ NEW
-  final bool isOutOfStock; // ⬅️ NEW
   final VoidCallback? onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
-    final Color bg = isOutOfStock ? const Color(0xFFF3F4F6) : Colors.white;
-    final Color border = isOutOfStock
-        ? const Color(0xFFE5E7EB)
-        : const Color(0xFFE5E7EB);
+    // Card selalu putih, tidak berubah abu-abu lagi
+    const Color bg = Colors.white;
+    const Color border = Color(0xFFE5E7EB);
 
     return InkWell(
-      onTap: onTap, // tetap clickable walau OOS
+      onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
@@ -793,7 +786,8 @@ class _ProductTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _SquareImage(image: image, dimmed: isOutOfStock), // ⬅️ NEW
+            const SizedBox(width: 0),
+            _SquareImage(image: image),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -804,35 +798,18 @@ class _ProductTile extends StatelessWidget {
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: isOutOfStock
-                          ? const Color(0xFF6B7280)
-                          : const Color(0xFF111827),
+                      color: Color(0xFF111827),
                     ),
                   ),
                   const SizedBox(height: 4),
                   // Price
                   Text(
                     priceLabel,
-                    style: TextStyle(
-                      color: isOutOfStock
-                          ? const Color(0xFF9CA3AF)
-                          : const Color(0xFF6B7280),
-                    ),
+                    style: const TextStyle(color: Color(0xFF6B7280)),
                   ),
-                  const SizedBox(height: 4),
-                  // Stock line
-                  Text(
-                    isOutOfStock ? 'Out of stock' : 'Stock: $stockQty',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: isOutOfStock
-                          ? const Color(0xFFEF4444)
-                          : const Color(0xFF16A34A),
-                    ),
-                  ),
+                  // ⬇️ Stock line DIHAPUS, tidak ditampilkan lagi
                 ],
               ),
             ),
@@ -846,9 +823,8 @@ class _ProductTile extends StatelessWidget {
 }
 
 class _SquareImage extends StatelessWidget {
-  const _SquareImage({required this.image, this.dimmed = false}); // ⬅️ NEW
+  const _SquareImage({required this.image});
   final String image;
-  final bool dimmed; // ⬅️ NEW
 
   @override
   Widget build(BuildContext context) {
@@ -880,42 +856,13 @@ class _SquareImage extends StatelessWidget {
                 )
               : _fallback());
 
-    // ⬅️ NEW: desaturate jika OOS
-    final Widget child = dimmed
-        ? ColorFiltered(
-            colorFilter: const ColorFilter.matrix(<double>[
-              0.2126,
-              0.7152,
-              0.0722,
-              0,
-              0,
-              0.2126,
-              0.7152,
-              0.0722,
-              0,
-              0,
-              0.2126,
-              0.7152,
-              0.0722,
-              0,
-              0,
-              0,
-              0,
-              0,
-              1,
-              0,
-            ]),
-            child: raw,
-          )
-        : raw;
-
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: Container(
         width: 90,
         height: 90,
         color: const Color(0xFFF3F4F6),
-        child: child,
+        child: raw, // tidak di-dim lagi
       ),
     );
   }

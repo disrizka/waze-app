@@ -1,15 +1,27 @@
+// lib/widgets/simple_web_view.dart
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+// WebView (webview_flutter v4+)
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 class SimpleWebView extends StatefulWidget {
-  final String title;
-  final String initialUrl;
-
   const SimpleWebView({
     super.key,
-    required this.title,
     required this.initialUrl,
+    this.title,
+    this.userAgent,
+    this.headers = const <String, String>{},
+    this.backgroundColor = Colors.white,
   });
+
+  final String initialUrl;
+  final String? title;
+  final String? userAgent;
+  final Map<String, String> headers;
+  final Color backgroundColor;
 
   @override
   State<SimpleWebView> createState() => _SimpleWebViewState();
@@ -23,26 +35,92 @@ class _SimpleWebViewState extends State<SimpleWebView> {
   void initState() {
     super.initState();
 
-    _controller = WebViewController()
+    // ===== Platform-specific creation params =====
+    final PlatformWebViewControllerCreationParams params;
+    if (WebViewPlatform.instance is WebKitWebViewPlatform) {
+      // iOS
+      params = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      // Android
+      params = const PlatformWebViewControllerCreationParams();
+    }
+
+    final controller = WebViewController.fromPlatformCreationParams(params);
+
+    // ===== Android tuning (4.10.1 safe) =====
+    if (controller.platform is AndroidWebViewController) {
+      final androidCtrl = controller.platform as AndroidWebViewController;
+      // Mulai 4.10.1: tetap ada, aman dipakai
+      androidCtrl.setMediaPlaybackRequiresUserGesture(false);
+      // JANGAN panggil setOverScrollMode di versi ini (enum-nya tidak diekspos).
+    }
+
+    // ===== iOS tuning =====
+    if (controller.platform is WebKitWebViewController) {
+      final iosCtrl = controller.platform as WebKitWebViewController;
+      iosCtrl.setInspectable(false);
+    }
+
+    // ===== Common settings =====
+    controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0x00000000))
+      ..setBackgroundColor(widget.backgroundColor)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onProgress: (p) => setState(() => _progress = p / 100.0),
-          onWebResourceError: (err) {
-            // opsional: tampilkan snackbar ketika gagal
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Failed to load: ${err.errorCode}'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+          onProgress: (p) => setState(() => _progress = p / 100),
+          onPageStarted: (_) => setState(() => _progress = 0.05),
+          onPageFinished: (_) => setState(() => _progress = 0),
+          onNavigationRequest: (req) {
+            final uri = Uri.tryParse(req.url);
+            // Biarkan http/https di dalam webview
+            if (uri != null &&
+                (uri.scheme == 'http' || uri.scheme == 'https')) {
+              return NavigationDecision.navigate;
             }
+            // Selain itu buka eksternal (mailto, tel, app link)
+            _launchExternal(req.url);
+            return NavigationDecision.prevent;
+          },
+          onWebResourceError: (err) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Failed to load: ${err.description}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            );
           },
         ),
-      )
-      ..loadRequest(Uri.parse(widget.initialUrl));
+      );
+
+    if (widget.userAgent != null && widget.userAgent!.isNotEmpty) {
+      controller.setUserAgent(widget.userAgent!);
+    }
+
+    controller.loadRequest(
+      Uri.parse(widget.initialUrl),
+      headers: widget.headers,
+    );
+
+    _controller = controller;
+  }
+
+  Future<void> _launchExternal(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cannot open external link.')),
+      );
+    }
   }
 
   Future<void> _reload() async {
@@ -51,58 +129,63 @@ class _SimpleWebViewState extends State<SimpleWebView> {
     } catch (_) {}
   }
 
+  Future<void> _openInBrowser() async {
+    final current = await _controller.currentUrl();
+    if (current == null) return;
+    _launchExternal(current);
+  }
+
+  Future<void> _goBackOrPop() async {
+    if (await _controller.canGoBack()) {
+      await _controller.goBack();
+    } else if (mounted) {
+      Navigator.pop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final canPop = Navigator.of(context).canPop();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        leading: canPop
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back_rounded),
-                onPressed: () async {
-                  if (await _controller.canGoBack()) {
-                    _controller.goBack();
-                  } else {
-                    Navigator.of(context).maybePop();
-                  }
-                },
-              )
-            : null,
-        actions: [
-          IconButton(
-            tooltip: 'Reload',
-            onPressed: _reload,
-            icon: const Icon(Icons.refresh_rounded),
+    // Untuk tampilan penuh: WebView diletakkan di Expanded dalam Column.
+    return WillPopScope(
+      onWillPop: () async {
+        if (await _controller.canGoBack()) {
+          await _controller.goBack();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        backgroundColor: widget.backgroundColor,
+        appBar: AppBar(
+          elevation: 0,
+          title: Text(widget.title ?? ''),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+            onPressed: _goBackOrPop,
           ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          // Pull-to-refresh sederhana
-          RefreshIndicator(
-            onRefresh: _reload,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                SizedBox(
-                  height:
-                      MediaQuery.of(context).size.height -
-                      (kToolbarHeight + MediaQuery.of(context).padding.top),
-                  child: WebViewWidget(controller: _controller),
-                ),
-              ],
+          actions: [
+            IconButton(
+              tooltip: 'Reload',
+              onPressed: _reload,
+              icon: const Icon(Icons.refresh),
             ),
+            IconButton(
+              tooltip: 'Open in browser',
+              onPressed: _openInBrowser,
+              icon: const Icon(Icons.open_in_browser),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              if (_progress > 0 && _progress < 1)
+                LinearProgressIndicator(value: _progress, minHeight: 2),
+              Expanded(child: WebViewWidget(controller: _controller)),
+            ],
           ),
-
-          // Progress bar tipis di atas
-          if (_progress < 1.0)
-            Align(
-              alignment: Alignment.topCenter,
-              child: LinearProgressIndicator(value: _progress),
-            ),
-        ],
+        ),
+        resizeToAvoidBottomInset: true,
       ),
     );
   }

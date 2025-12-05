@@ -485,17 +485,6 @@ class _PlanStatusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: badgeGradient,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: Colors.white.withOpacity(isPremium ? 0.9 : 0.7),
-          width: isPremium ? 1.2 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isPremium ? 0.25 : 0.12),
-            blurRadius: isPremium ? 12 : 6,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
