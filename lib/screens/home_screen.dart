@@ -73,13 +73,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final auth = context.read<AuthProvider>();
     final prefs = await SharedPreferences.getInstance();
 
-    // 1) Kunci active id saat ini
     final lockedId = (prefs.getString('activeBizId') ?? '').trim();
-
-    // 2) Jalankan refresh user
     final ok = await auth.refreshCurrentUser(context);
 
-    // 3) Validasi apakah pilihan user berubah “diam-diam”
     String? currentId = (prefs.getString('activeBizId') ?? '').trim();
 
     if (lockedId.isNotEmpty && lockedId != currentId) {
@@ -93,15 +89,16 @@ class _HomeScreenState extends State<HomeScreen> {
               .toList();
 
           if (ids.contains(lockedId)) {
-            // 4) Paksa balik ke pilihan user
             await auth.switchActiveBusiness(lockedId);
-            currentId = lockedId; // sinkron
+            currentId = lockedId;
           }
         } catch (_) {}
       }
     }
 
-    // 5) Update header dari prefs (label/logo)
+    // 🔁 Tambahan: refresh role setelah user refresh
+    await context.read<RoleProvider>().refreshActiveRoleFromPrefs(context);
+
     await _headerKey.currentState?.reloadFromPrefs();
 
     return ok;
@@ -810,7 +807,14 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     );
 
     if (changed == true && mounted) {
+      // 1️⃣ Reload header + info bisnis aktif (nama, username, logo, isPremium)
       await _loadPrefs();
+
+      // 2️⃣ Refresh role & permission untuk bisnis baru
+      //    → ini yang akan memicu _GridMenu rebuild dan load menu terbaru
+      await context.read<RoleProvider>().refreshActiveRoleFromPrefs(context);
+
+      // 3️⃣ Refresh report harian (tracking panel)
       final rp = context.read<ReportProviderV2>();
       await rp.fetchSales(
         context,
@@ -818,7 +822,10 @@ class _HeaderGradientState extends State<_HeaderGradient> {
         period: ReportPeriod.day,
         force: true,
       );
+
       if (!mounted) return;
+
+      // 4️⃣ Snackbar sukses switch
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -910,6 +917,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
 
     _photoPath = prefs.getString('photoPath') ?? '';
     _businessLogoPath = businessLogoPath;
+    await prefs.setBool('activeBizIsPremium', isPremium);
 
     if (!mounted) return;
     setState(() {
@@ -1474,12 +1482,22 @@ class _GridMenu extends StatelessWidget {
       );
     }
 
-    return FutureBuilder<String?>(
-      future: SharedPreferences.getInstance().then(
-        (p) => p.getString('activeBizRoleName'),
-      ),
+    return FutureBuilder<Map<String, dynamic>>(
+      future: SharedPreferences.getInstance().then((p) {
+        final roleName = (p.getString('activeBizRoleName') ?? '')
+            .trim()
+            .toLowerCase();
+        final isPremiumBiz = (p.getBool('activeBizIsPremium') ?? false);
+        return {'roleName': roleName, 'isPremium': isPremiumBiz};
+      }),
       builder: (ctx, snap) {
-        final prefsRoleName = (snap.data ?? '').trim().toLowerCase();
+        if (!snap.hasData) return const SizedBox.shrink();
+
+        final data = snap.data!;
+        final prefsRoleName = (data['roleName'] as String?) ?? '';
+        final bool isBizPremium = (data['isPremium'] as bool?) ?? false;
+        debugPrint('isBizPremium: $isBizPremium');
+
         final providerRoleName = (role.role?.name ?? '').trim().toLowerCase();
         final bool isOwner =
             (prefsRoleName == 'owner') || (providerRoleName == 'owner');
@@ -1504,13 +1522,14 @@ class _GridMenu extends StatelessWidget {
               onTap: () => Navigator.pushNamed(context, '/sales'),
             ),
             // Purchase
-            _MenuItemData(
-              t.grid_purchase,
-              'assets/purchase_icon.png',
-              pageKeys: const ['purchase'],
-              routeName: '/purchase',
-              onTap: () => Navigator.pushNamed(context, '/purchase'),
-            ),
+            if (isBizPremium)
+              _MenuItemData(
+                t.grid_purchase,
+                'assets/purchase_icon.png',
+                pageKeys: const ['purchase'],
+                routeName: '/purchase',
+                onTap: () => Navigator.pushNamed(context, '/purchase'),
+              ),
             // Report
             _MenuItemData(
               t.grid_report,
@@ -1565,6 +1584,14 @@ class _GridMenu extends StatelessWidget {
           // Pages
           final pages = _pagesFromMenu(m);
           if (pages.any((p) => _banPages.contains(p.toLowerCase()))) continue;
+
+          // 🚫 Sembunyikan PURCHASE kalau bisnis tidak premium
+          final hasPurchasePage = pages.any(
+            (p) => p.toLowerCase() == 'purchase',
+          );
+          if (!isBizPremium && hasPurchasePage) {
+            continue;
+          }
 
           // Konsolidasi HR
           final isDataUser = nameL == 'data user';

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
 
+import '../../helper/business_premium_helper.dart';
+
 class ManageProductScreen extends StatelessWidget {
   const ManageProductScreen({super.key});
 
@@ -23,49 +25,69 @@ class ManageProductScreen extends StatelessWidget {
         centerTitle: false,
         elevation: 0,
       ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 8),
-            Text(
-              loc.manageProductListMenuLabel,
-              style: textTheme.bodyMedium?.copyWith(
-                color: Colors.black.withOpacity(0.6),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _MenuTile(
-              icon: Icons.list_alt_rounded,
-              title: loc.manageProductProductList,
-              onTap: () => Navigator.pushNamed(context, '/product/list'),
-            ),
-            const SizedBox(height: 8),
-            _MenuTile(
-              icon: Icons.sell,
-              title: loc.manageProductBrandList,
-              onTap: () => Navigator.pushNamed(context, '/product/brand'),
-            ), // product list dulu
-            const SizedBox(height: 8),
-            _MenuTile(
-              icon: Icons.category,
-              title: loc.manageProductCategoryList,
-              onTap: () => Navigator.pushNamed(context, '/product/category'),
-            ),
+      body: FutureBuilder<bool>(
+        future: BusinessPremiumHelper.isActiveBusinessPremium(),
+        builder: (context, snapshot) {
+          // default: anggap non-premium saat loading / error
+          final bool isPremium = snapshot.data ?? false;
 
-            // const SizedBox(height: 8),
-            // _MenuTile(
-            //   icon: Icons.inventory_2_rounded,
-            //   title: 'Stock Product',
-            //   onTap: () {
-            //     // TODO: wire up when route is ready
-            //     // Navigator.pushNamed(context, '/stock-product');
-            //   },
-            // ),
-          ],
-        ),
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  loc.manageProductListMenuLabel,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: Colors.black.withOpacity(0.6),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _MenuTile(
+                  icon: Icons.list_alt_rounded,
+                  title: loc.manageProductProductList,
+                  onTap: () => Navigator.pushNamed(context, '/product/list'),
+                ),
+                const SizedBox(height: 8),
+                _MenuTile(
+                  icon: Icons.sell,
+                  title: loc.manageProductBrandList,
+                  onTap: () => Navigator.pushNamed(context, '/product/brand'),
+                ),
+                const SizedBox(height: 8),
+                _MenuTile(
+                  icon: Icons.category,
+                  title: loc.manageProductCategoryList,
+                  onTap: () =>
+                      Navigator.pushNamed(context, '/product/category'),
+                ),
+
+                // 🔐 INVENTORY: hanya muncul kalau business PREMIUM
+                if (isPremium) ...[
+                  const SizedBox(height: 8),
+                  _MenuTile(
+                    icon: Icons.inventory,
+                    title: 'Inventory',
+                    onTap: () =>
+                        Navigator.pushNamed(context, '/product/inventory'),
+                  ),
+                ],
+
+                // const SizedBox(height: 8),
+                // _MenuTile(
+                //   icon: Icons.inventory_2_rounded,
+                //   title: 'Stock Product',
+                //   onTap: () {
+                //     // TODO: wire up when route is ready
+                //     // Navigator.pushNamed(context, '/stock-product');
+                //   },
+                // ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

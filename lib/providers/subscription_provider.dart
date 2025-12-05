@@ -307,7 +307,7 @@ class SubscriptionProvider with ChangeNotifier {
 
       _currentTransactionNumber = transactionNumber;
 
-      // Mulai polling status pembayaran
+      // Mulai polling status pembayaran (konfirmasi dari backend)
       _startPaymentStatusPolling(context);
 
       // Jalankan Midtrans Snap UI
@@ -316,6 +316,10 @@ class SubscriptionProvider with ChangeNotifier {
         '🏁 [Subscription] Snap selesai dengan status: ${snapResult?.status}',
       );
 
+      // ⚠️ Tidak langsung navigate di sini.
+      // Redirect ke /splash hanya dilakukan ketika backend mengembalikan status sukses
+      // di _checkPaymentStatus (lebih aman & source of truth).
+      //
       // Catatan:
       // - Walaupun Snap bilang "success", keputusan final tetap dari
       //   /premium/business/payment/check yang kita polling.
@@ -356,7 +360,7 @@ class SubscriptionProvider with ChangeNotifier {
     if (number == null || number.isEmpty) return;
 
     const path = '/premium/business/payment/check';
-
+    //
     debugPrint('[Subscription] Cek payment status untuk number=$number');
 
     try {
@@ -416,9 +420,13 @@ class SubscriptionProvider with ChangeNotifier {
           const SnackBar(content: Text('Payment success. Premium activated!')),
         );
 
-        // TODO:
-        // Kalau ada API get current user / business,
-        // panggil di sini untuk refresh status plan (free -> premium)
+        // 🔹 Setelah backend konfirmasi pembayaran sukses, langsung ke /splash
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil('/splash', (route) => false);
+
+        // (opsional) sebelum redirect, kalau kamu mau refresh data bisnis/user,
+        // bisa panggil API lain di sini dulu.
         return;
       }
 

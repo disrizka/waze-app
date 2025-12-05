@@ -25,6 +25,7 @@ import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.
 import 'package:wa_blast/screens/hr/employee_list_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
+import 'package:wa_blast/screens/inventory/inventory_screen.dart';
 import 'package:wa_blast/screens/report/manage_report_screen.dart';
 import 'package:wa_blast/screens/notification_detail_list.dart';
 import 'package:wa_blast/screens/products/create_edit_screen/add_product_screen.dart';
@@ -459,6 +460,13 @@ class MyApp extends StatelessWidget {
             return _platformRouteAnimated(
               settings,
               const BrandListScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/product/inventory':
+            return _platformRouteAnimated(
+              settings,
+              const InventoryScreen(),
               android: AndroidTransition.slideRight,
             );
 
