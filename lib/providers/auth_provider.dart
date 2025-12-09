@@ -2109,18 +2109,19 @@ class AuthProvider with ChangeNotifier {
       await prefs.setString('idUser', idUser);
       await prefs.setBool('isDeactivated', isDeactivated);
 
-      // 4) Normalisasi BUSINESS + simpan ke prefs.business (dengan flag stok)
-      final List<Map<String, dynamic>> simplifiedBusiness = businessFull
-          .map<Map<String, dynamic>>((e) {
-            final m = (e as Map).cast<String, dynamic>();
-            return _normalizeBizMapForPrefs(m);
-          })
-          .toList();
+      // 4) Normalisasi BUSINESS + simpan ke prefs.business (dengan flag stok & premium)
+      final List<Map<String, dynamic>>
+      simplifiedBusiness = businessFull.map<Map<String, dynamic>>((e) {
+        final m = (e as Map).cast<String, dynamic>();
+        // m ini langsung bentuk seperti response kamu:
+        // { idBusiness, name, logoPath, username, canBeSoldOutOfStock, isPremium, premiumStartAt, premiumExpiresAt, ... }
+        return _normalizeBizMapForPrefs(m);
+      }).toList();
 
       await prefs.setString(
         'business',
         jsonEncode(simplifiedBusiness),
-      ); // legacy + flag
+      ); // legacy + flag can_be_sold_out_of_stock + premium
 
       // Role map dari payload /user (roleId + userRoleName)
       final Map<String, dynamic> roleMap = {};
@@ -2165,6 +2166,18 @@ class AuthProvider with ChangeNotifier {
           roleMap: roleMap,
         );
 
+        // ⬇️ NEW: sinkronkan pref info subscription untuk ACTIVE business
+        final bool activeIsPremium = (selected['isPremium'] ?? false) == true;
+        await prefs.setBool('activeBizIsPremium', activeIsPremium);
+        await prefs.setString(
+          'activeBizPremiumStartAt',
+          (selected['premiumStartAt'] ?? '').toString(),
+        );
+        await prefs.setString(
+          'activeBizPremiumExpiresAt',
+          (selected['premiumExpiresAt'] ?? '').toString(),
+        );
+
         // 6) Sinkronkan snapshot akun aktif (account_<email>)
         final rb = _resolveRBForBusiness(
           (selected['idBusiness'] ?? '').toString(),
@@ -2199,7 +2212,6 @@ class AuthProvider with ChangeNotifier {
               };
               snap['businessRoles'] = roleMap;
 
-              snap['businessRoles'] = roleMap;
               if ((rb?['idAdminRole'] ?? '').toString().isNotEmpty) {
                 snap['activeBusinessRole'] = {
                   'idAdminRole': (rb?['idAdminRole'] ?? '').toString(),
@@ -2214,7 +2226,7 @@ class AuthProvider with ChangeNotifier {
           }
         }
       } else {
-        // tidak punya business → bersihkan pointer active & role
+        // tidak punya business → bersihkan pointer active & role & premium
         await prefs.remove('activeBizId');
         await prefs.remove('activeBizName');
         await prefs.remove('activeBizUsername');
@@ -2222,6 +2234,11 @@ class AuthProvider with ChangeNotifier {
         await prefs.remove(kActiveBizRoleIdKey);
         await prefs.remove(kActiveBizRoleNameKey);
         await prefs.remove(kActiveBizRoleIsPrimaryKey);
+
+        // ⬇️ NEW: bersihkan juga info subscription aktif
+        await prefs.remove('activeBizIsPremium');
+        await prefs.remove('activeBizPremiumStartAt');
+        await prefs.remove('activeBizPremiumExpiresAt');
 
         // bersihkan dari snapshot bila ada
         final emailKey = _email ?? prefs.getString(kActiveAccountKey);

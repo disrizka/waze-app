@@ -13,6 +13,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/env.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
+import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/change_password_provider.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
@@ -26,6 +27,7 @@ import 'package:wa_blast/screens/hr/employee_list_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
 import 'package:wa_blast/screens/inventory/inventory_screen.dart';
+import 'package:wa_blast/screens/inventory/product_stock_history.dart';
 import 'package:wa_blast/screens/report/manage_report_screen.dart';
 import 'package:wa_blast/screens/notification_detail_list.dart';
 import 'package:wa_blast/screens/products/create_edit_screen/add_product_screen.dart';
@@ -469,6 +471,21 @@ class MyApp extends StatelessWidget {
               const InventoryScreen(),
               android: AndroidTransition.slideRight,
             );
+
+          case '/product/inventory/detail':
+            {
+              final args = settings.arguments as ProductStockHistoryArgs?;
+
+              return _platformRouteAnimated(
+                settings,
+                ProductStockHistoryScreen(
+                  productName: args?.productName ?? '',
+                  skus: args?.skus ?? const <ProductSku>[],
+                  initialSkuId: args?.initialSkuId,
+                ),
+                android: AndroidTransition.slideRight,
+              );
+            }
 
           // ===== PURCHASE =====
           case '/purchase':

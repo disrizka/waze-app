@@ -12,6 +12,7 @@ import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
+import 'package:wa_blast/screens/inventory/product_stock_history.dart';
 import 'package:wa_blast/screens/products/create_edit_sheet/add_product_sheet.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
@@ -88,7 +89,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   String _dateShortLabel(DateTimeRange? r) {
     if (r == null) return 'Date';
-    // "12–18 Oct" seperti permintaan kamu
+    // "12–18 Oct"
     final sM = DateFormat('MMM').format(r.start);
     final eM = DateFormat('MMM').format(r.end);
     final sD = r.start.day;
@@ -101,7 +102,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // aman: listen:false
     _prov = Provider.of<ProductProvider>(context, listen: false);
   }
 
@@ -109,7 +109,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // pakai _prov, bukan context.read
       _prov.initInfinitePaging(context, initialSearch: '');
       try {
         await _prov
@@ -122,12 +121,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   @override
   void dispose() {
-    // ⬅️ panggil tanpa pakai context
     _prov.disposeInfinitePaging();
-
-    // kalau kamu buat ScrollController sendiri, jangan lupa dispose:
     _listCtrl.dispose();
-
     _debounce?.cancel();
     _searchC.dispose();
     super.dispose();
@@ -147,20 +142,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
       final composed = _filters
           .copyWith(query: _searchC.text.trim())
           .toSearchString(rawQuery: _searchC.text.trim());
-
-      // // 🔧 Pastikan paging sudah ada; kalau belum, init dulu supaya refresh punya efek
-      // if (prov.pagingController == null) {
-      //   prov.initInfinitePaging(context, initialSearch: composed);
-      //   // siapkan store tanpa nge-block lama
-      //   try {
-      //     await prov
-      //         .ensureDefaultStoreLocation(context)
-      //         .timeout(const Duration(seconds: 6));
-      //   } catch (_) {}
-      //   await prov.refreshInfinite(context); // langsung fetch page-1
-      // } else {
-      //   await prov.setInfiniteSearch(context, composed); // trigger fetch
-      // }
 
       await prov.setInfiniteSearch(context, composed);
       await prov.refreshInfinite(context);
@@ -287,22 +268,18 @@ class _InventoryScreenState extends State<InventoryScreen> {
               );
             }
 
-            // ambil state terbaru dari controller
             final state = controller.value;
 
-            // fungsi ambil halaman berikutnya (patuh meta backend)
             void next() {
               final pm = provider.pageProducts;
               final cur = pm?.currentPage;
               final tot = pm?.totalPages;
               if (cur != null && tot != null && cur >= tot) {
-                // sudah di halaman terakhir
                 return;
               }
               controller.fetchNextPage();
             }
 
-            // header: search + tombol advanced filter
             final topControls = Padding(
               padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
               child: Row(
@@ -385,18 +362,14 @@ class _InventoryScreenState extends State<InventoryScreen> {
               ),
             );
 
-            // saat first page selesai dan kosong → tampilkan empty
             final firstPageDoneEmpty = provider.isFirstPageDoneEmpty;
 
             return Column(
               children: [
-                // header di atas list
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: topControls,
                 ),
-
-                // LIST
                 Expanded(
                   child: firstPageDoneEmpty
                       ? _buildShimmerList()
@@ -412,9 +385,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                               24 + 56,
                             ),
                             builderDelegate: PagedChildBuilderDelegate<Product>(
-                              // item
                               itemBuilder: (_, p, __) {
-                                final priceLabel = _formatRp(_priceOf(p));
                                 final img =
                                     p.primaryImageUrl ?? 'assets/empty_box.png';
 
@@ -431,13 +402,27 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                     stockQty: stockQty,
                                     isOutOfStock: isOut,
                                     image: img,
+                                    skus: p.productSkus,
                                     onTap: () {
+                                      // Kalau produk nggak punya SKU, nggak usah dibawa ke history
+                                      if (p.productSkus.isEmpty) {
+                                        return;
+                                      }
+
+                                      final args = ProductStockHistoryArgs(
+                                        productName: p.name,
+                                        skus: p.productSkus,
+                                        initialSkuId:
+                                            p.productSkus.first.idProductSku,
+                                      );
+
                                       Navigator.pushNamed(
                                         context,
-                                        '/product/list/detail',
-                                        arguments: p.idProduct,
+                                        '/product/inventory/detail',
+                                        arguments: args,
                                       );
                                     },
+
                                     onEdit: () => showEditProductSheetById(
                                       context,
                                       p.idProduct,
@@ -534,27 +519,22 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                   ),
                                 );
                               },
-
-                              // indikator
-                              firstPageProgressIndicatorBuilder: (_) => Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(24),
-                                  child: Center(
-                                    child: const Text(
-                                      'No more products',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.black54,
-                                        fontWeight: FontWeight.w500,
+                              firstPageProgressIndicatorBuilder: (_) =>
+                                  const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(24),
+                                      child: Text(
+                                        'No more products',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.black54,
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ),
                               newPageProgressIndicatorBuilder: (_) =>
                                   const SizedBox.shrink(),
-
-                              // error
                               firstPageErrorIndicatorBuilder: (_) =>
                                   _ErrorRetry(
                                     onRetry: () =>
@@ -562,8 +542,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                   ),
                               newPageErrorIndicatorBuilder: (_) =>
                                   _ErrorRetry(onRetry: next),
-
-                              // “no more items” → biar bersih (pakai footer sendiri kalau mau)
                               noMoreItemsIndicatorBuilder: (_) =>
                                   const SizedBox.shrink(),
                             ),
@@ -575,7 +553,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
           },
         ),
       ),
-
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(12, 8, 12, 30),
         child: SizedBox(
@@ -590,13 +567,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
               ),
             ),
             onPressed: () async {
-              final result = await Navigator.pushNamed(context, '/product/add');
-              if (!mounted) return;
-              // jika halaman add product berhasil simpan (result == true)
-              if (result == true) {
-                await context.read<ProductProvider>().refreshProducts(context);
-                if (_listCtrl.hasClients) _listCtrl.jumpTo(0);
-              }
+              Navigator.pushNamed(context, '/purchase/add');
             },
             child: const Text(
               'Add initial stock',
@@ -682,7 +653,7 @@ class _ProductFilters {
   final int? minPrice; // inclusive
   final int? maxPrice; // inclusive
   final String? storeLocationId; // store filter
-  final DateTimeRange? createdRange; // ⬅️ NEW: filter tanggal dibuat
+  final DateTimeRange? createdRange;
 
   const _ProductFilters({
     this.query,
@@ -691,7 +662,7 @@ class _ProductFilters {
     this.minPrice,
     this.maxPrice,
     this.storeLocationId,
-    this.createdRange, // ⬅️ NEW
+    this.createdRange,
   });
 
   _ProductFilters copyWith({
@@ -705,7 +676,7 @@ class _ProductFilters {
     bool clearBrand = false,
     bool clearCategory = false,
     bool clearStore = false,
-    bool clearDate = false, // ⬅️ NEW
+    bool clearDate = false,
   }) {
     return _ProductFilters(
       query: query ?? this.query,
@@ -728,10 +699,6 @@ class _ProductFilters {
       (minPrice == null && maxPrice == null) &&
       createdRange == null;
 
-  /// Susun string `search` untuk backend kamu.
-  /// Format token kunci:value (gampang di-parse di server). Contoh:
-  ///   q:iphone brand:123 cat:456 min:10000 max:50000 store:abc
-  ///   date_from:2025-10-01 date_to:2025-10-15
   String toSearchString({String rawQuery = ''}) {
     final tokens = <String>[];
     final q = rawQuery.isNotEmpty ? rawQuery : (query ?? '');
@@ -752,13 +719,18 @@ class _ProductFilters {
   }
 }
 
-class _ProductTile extends StatelessWidget {
+///
+/// TILE PRODUK + ACCORDION SKU
+///
+
+class _ProductTile extends StatefulWidget {
   const _ProductTile({
     required this.title,
     required this.priceLabel,
     required this.image,
-    required this.stockQty, // ⬅️ NEW
-    required this.isOutOfStock, // ⬅️ NEW
+    required this.stockQty,
+    required this.isOutOfStock,
+    required this.skus,
     this.onTap,
     this.onEdit,
     this.onDelete,
@@ -767,68 +739,255 @@ class _ProductTile extends StatelessWidget {
   final String title;
   final String priceLabel;
   final String image;
-  final int stockQty; // ⬅️ NEW
-  final bool isOutOfStock; // ⬅️ NEW
+  final int stockQty;
+  final bool isOutOfStock;
+  final List<ProductSku> skus;
   final VoidCallback? onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
   @override
-  Widget build(BuildContext context) {
-    final Color bg = isOutOfStock ? const Color(0xFFF3F4F6) : Colors.white;
-    final Color border = isOutOfStock
-        ? const Color(0xFFE5E7EB)
-        : const Color(0xFFE5E7EB);
+  State<_ProductTile> createState() => _ProductTileState();
+}
 
-    return InkWell(
-      onTap: onTap, // tetap clickable walau OOS
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: border),
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _SquareImage(image: image, dimmed: isOutOfStock), // ⬅️ NEW
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
+class _ProductTileState extends State<_ProductTile>
+    with SingleTickerProviderStateMixin {
+  bool _expanded = false;
+
+  int _stockForSku(ProductSku sku) {
+    final int qty = sku.stockQty ?? 0;
+    return qty > 0 ? qty : 0; // kalau <= 0 tampilkan 0
+  }
+
+  void _toggleExpanded() {
+    if (widget.skus.isEmpty) return;
+    setState(() {
+      _expanded = !_expanded;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isOut = widget.isOutOfStock;
+    final Color bg = isOut ? const Color(0xFFF3F4F6) : Colors.white;
+    final Color border = const Color(0xFFE5E7EB);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        // klik card → ke halaman detail
+        onTap: widget.onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: border),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ===== HEADER: gambar + info + more menu =====
+              Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Title
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: isOutOfStock
-                          ? const Color(0xFF6B7280)
-                          : const Color(0xFF111827),
+                  _SquareImage(image: widget.image, dimmed: isOut),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Title
+                        Text(
+                          widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: isOut
+                                ? const Color(0xFF6B7280)
+                                : const Color(0xFF111827),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        // Stock summary
+                        Text(
+                          isOut ? 'Out of stock' : 'Stock: ${widget.stockQty}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: isOut
+                                ? const Color(0xFFEF4444)
+                                : const Color(0xFF16A34A),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  // Stock line
-                  Text(
-                    isOutOfStock ? 'Out of stock' : 'Stock: $stockQty',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: isOutOfStock
-                          ? const Color(0xFFEF4444)
-                          : const Color(0xFF16A34A),
-                    ),
-                  ),
+                  const SizedBox(width: 12),
+                  // _MoreButtonAnchored(
+                  //   onEdit: widget.onEdit,
+                  //   onDelete: widget.onDelete,
+                  // ),
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            _MoreButtonAnchored(onEdit: onEdit, onDelete: onDelete),
-          ],
+
+              const SizedBox(height: 8),
+
+              // ===== TOMBOL VIEW SUMMARY STOCK (hitam, dengan animasi icon) =====
+              if (widget.skus.isNotEmpty)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: InkWell(
+                    onTap: _toggleExpanded,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 2,
+                        vertical: 4,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnimatedRotation(
+                            turns: _expanded
+                                ? 0.5
+                                : 0.0, // panah muter naik/turun
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            child: const Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              size: 18,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Text(
+                            'View summary stock',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87, // ⬅️ warna hitam
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+              // ===== ACCORDION DENGAN ANIMASI =====
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: (!_expanded || widget.skus.isNotEmpty == false)
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF9FAFB),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFE5E7EB)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // header kecil untuk kolom
+                              Row(
+                                children: const [
+                                  Expanded(
+                                    child: Text(
+                                      'SKU',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF6B7280),
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Stock',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF6B7280),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              ...widget.skus.map((sku) {
+                                final skuStock = _stockForSku(sku);
+                                return Container(
+                                  margin: const EdgeInsets.symmetric(
+                                    vertical: 3,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: const Color(0xFFE5E7EB),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          sku.code,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: Color(0xFF111827),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFE0F2FE),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          skuStock.toString(),
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF0F172A),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -836,9 +995,9 @@ class _ProductTile extends StatelessWidget {
 }
 
 class _SquareImage extends StatelessWidget {
-  const _SquareImage({required this.image, this.dimmed = false}); // ⬅️ NEW
+  const _SquareImage({required this.image, this.dimmed = false});
   final String image;
-  final bool dimmed; // ⬅️ NEW
+  final bool dimmed;
 
   @override
   Widget build(BuildContext context) {
@@ -870,7 +1029,6 @@ class _SquareImage extends StatelessWidget {
                 )
               : _fallback());
 
-    // ⬅️ NEW: desaturate jika OOS
     final Widget child = dimmed
         ? ColorFiltered(
             colorFilter: const ColorFilter.matrix(<double>[
@@ -975,7 +1133,6 @@ Widget _buildShimmerList() {
 Future<void> openEditProductById(BuildContext context, String idProduct) async {
   final prov = context.read<ProductProvider>();
 
-  // Ambil detail + pastikan list dropdown siap dulu
   await Future.wait([prov.fetchProductBrands(context)]);
 
   final detail = await prov.fetchProductDetail(context, idProduct);
@@ -1012,7 +1169,6 @@ Future<void> showEditProductSheetById(
 ) async {
   final prov = context.read<ProductProvider>();
 
-  // Ambil detail dulu agar sheet muncul sudah ter-isi
   final detail = await prov.fetchProductDetail(context, idProduct);
   if (detail == null) {
     if (context.mounted) {
@@ -1026,7 +1182,6 @@ Future<void> showEditProductSheetById(
     return;
   }
 
-  // Buka sheet dengan model detail
   // ignore: use_build_context_synchronously
   await showModalBottomSheet(
     context: context,
@@ -1059,8 +1214,8 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
   final ImagePicker _picker = ImagePicker();
   XFile? _picked;
-  String? _existingImageUrl; // preview
-  String? _existingImageFilename; // kirim saat tidak ganti
+  String? _existingImageUrl;
+  String? _existingImageFilename;
 
   final List<_PriceRow> _prices = [];
   final List<_SkuRow> _skus = [];
@@ -1081,8 +1236,7 @@ class _EditProductSheetState extends State<_EditProductSheet> {
         ..sort((a, b) => a.position.compareTo(b.position));
       final first = imgs.first;
       _existingImageUrl = first.imagePath;
-      _existingImageFilename =
-          first.image; // penting untuk payload bila tidak ganti gambar
+      _existingImageFilename = first.image;
     }
 
     if (p.productPrices.isNotEmpty) {
@@ -1117,7 +1271,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
       _skus.add(_SkuRow());
     }
 
-    // jaga-jaga kalau list brand/category belum ada
     final prov = context.read<ProductProvider>();
     prov.fetchProductBrands(context);
     prov.fetchProductCategories(context);
@@ -1189,8 +1342,8 @@ class _EditProductSheetState extends State<_EditProductSheet> {
       if (picked != null) {
         setState(() {
           _picked = picked;
-          _existingImageUrl = null; // stop preview lama
-          _existingImageFilename = null; // jangan kirim filename lama
+          _existingImageUrl = null;
+          _existingImageFilename = null;
         });
       }
     } catch (e) {
@@ -1229,7 +1382,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
     final provider = context.read<ProductProvider>();
 
-    // (1) Upload image baru (jika user mengganti)
     String? uploadedFilename;
     if (_picked != null) {
       uploadedFilename = await provider.uploadProductImage(
@@ -1247,11 +1399,9 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
     final images = <NewImage>[];
     if (uploadedFilename != null) {
-      // user ganti gambar
       images.add(NewImage(filename: uploadedFilename, position: 1));
     } else if (_existingImageFilename != null &&
         _existingImageFilename!.isNotEmpty) {
-      // user TIDAK ganti gambar -> pakai filename lama dari detail
       images.add(NewImage(filename: _existingImageFilename!, position: 1));
     }
 
@@ -1360,8 +1510,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
                           ),
                         ),
                         const SizedBox(height: 16),
-
-                        // PHOTO (show existing OR picked)
                         const Text(
                           'Product Photo',
                           style: TextStyle(
@@ -1442,7 +1590,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
                         const SizedBox(height: 16),
 
-                        // NAME
                         const Text(
                           'Product Name',
                           style: TextStyle(
@@ -1461,7 +1608,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
                         const SizedBox(height: 16),
 
-                        // DESCRIPTION
                         const Text(
                           'Description',
                           style: TextStyle(
@@ -1501,7 +1647,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
                                 )
                                 .toList();
 
-                            // === BRAND NAME (match ke list; jika belum ada, fallback ke detail) ===
                             String? selectedBrandName;
                             if (_selectedBrandId != null) {
                               final idx = prov.brands.indexWhere(
@@ -1511,14 +1656,11 @@ class _EditProductSheetState extends State<_EditProductSheet> {
                                   prov.brands[idx].name.isNotEmpty) {
                                 selectedBrandName = prov.brands[idx].name;
                               } else {
-                                selectedBrandName = widget
-                                    .product
-                                    .productBrand
-                                    ?.name; // fallback
+                                selectedBrandName =
+                                    widget.product.productBrand?.name;
                               }
                             }
 
-                            // === CATEGORY NAME (match ke list; jika belum ada, fallback ke detail) ===
                             String? selectedCategoryName;
                             if (_selectedCategoryId != null) {
                               final idx = prov.categories.indexWhere(
@@ -1530,10 +1672,8 @@ class _EditProductSheetState extends State<_EditProductSheet> {
                                 selectedCategoryName =
                                     prov.categories[idx].name;
                               } else {
-                                selectedCategoryName = widget
-                                    .product
-                                    .productCategory
-                                    ?.name; // fallback
+                                selectedCategoryName =
+                                    widget.product.productCategory?.name;
                               }
                             }
 
@@ -1554,8 +1694,9 @@ class _EditProductSheetState extends State<_EditProductSheet> {
                                       options: brandOpts,
                                       selectedId: _selectedBrandId,
                                     );
-                                    if (picked != null)
+                                    if (picked != null) {
                                       setState(() => _selectedBrandId = picked);
+                                    }
                                   },
                                   errorText:
                                       (_attemptedSubmit &&
@@ -1579,10 +1720,11 @@ class _EditProductSheetState extends State<_EditProductSheet> {
                                       options: catOpts,
                                       selectedId: _selectedCategoryId,
                                     );
-                                    if (picked != null)
+                                    if (picked != null) {
                                       setState(
                                         () => _selectedCategoryId = picked,
                                       );
+                                    }
                                   },
                                   errorText:
                                       (_attemptedSubmit &&
@@ -1597,7 +1739,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
                         const SizedBox(height: 16),
 
-                        // PRICES (dynamic)
                         const Text(
                           'Prices',
                           style: TextStyle(
@@ -1683,7 +1824,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
 
                         const SizedBox(height: 16),
 
-                        // SKUs (dynamic)
                         const Text(
                           'SKUs',
                           style: TextStyle(
@@ -1845,8 +1985,6 @@ class _EditProductSheetState extends State<_EditProductSheet> {
                   ),
                 ),
               ),
-
-              // FOOTER
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
                 child: SizedBox(
@@ -1958,8 +2096,6 @@ class _IconBtn extends StatelessWidget {
   }
 }
 
-/// ------- Dynamic rows helpers -------
-
 class _PriceRow {
   final TextEditingController minQty = TextEditingController();
   final TextEditingController price = TextEditingController();
@@ -1992,11 +2128,9 @@ Future<String?> showListPicker({
   required String title,
   required List<PickerOption> options,
   String? selectedId,
-
-  // 🔽 parameter baru:
   bool enableCreate = false,
-  String Function(String keyword)? createRowLabel, // teks baris CTA
-  Future<PickerOption?> Function(String keyword)? onCreate, // aksi create
+  String Function(String keyword)? createRowLabel,
+  Future<PickerOption?> Function(String keyword)? onCreate,
 }) async {
   final controller = TextEditingController();
   List<PickerOption> filtered = List.of(options);
@@ -2111,22 +2245,18 @@ Future<String?> showListPicker({
                     ),
                     const SizedBox(height: 8),
                     const Divider(height: 1, color: Color(0xFFE5E7EB)),
-
-                    // 🔽 CTA "Add new ..." ketika tidak ada hasil yang cocok
                     if (canShowCreate)
                       Material(
                         color: Colors.transparent,
                         child: ListTile(
                           onTap: () async {
-                            // panggil onCreate, jika berhasil:
                             final created = await onCreate!(lastQuery);
                             if (created != null) {
                               setState(() {
                                 options.add(created);
                                 filtered.insert(0, created);
-                                selectedId = created.id; // auto-select
+                                selectedId = created.id;
                               });
-                              // tutup sheet dan kembalikan id
                               // ignore: use_build_context_synchronously
                               Navigator.pop(ctx, created.id);
                             }
@@ -2145,7 +2275,6 @@ Future<String?> showListPicker({
                           ),
                         ),
                       ),
-
                     Expanded(
                       child: ListView.separated(
                         controller: sheetCtrl,
@@ -2210,7 +2339,6 @@ Future<String?> pickBrandId(BuildContext context, {String? selectedId}) async {
     onCreate: (kw) async {
       final created = await prov.createBrandNoFetch(context, kw);
       if (created == null) return null;
-      // Masukkan ke list sheet via return PickerOption
       return PickerOption(id: created.idProductBrand, label: created.name);
     },
   );
@@ -2263,7 +2391,7 @@ class _PhotoSlotBox extends StatelessWidget {
       onTap: enabled ? onPick : null,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        height: 72, // sesuaikan bila perlu
+        height: 72,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -2291,7 +2419,6 @@ class _PhotoSlotBox extends StatelessWidget {
                 fit: BoxFit.cover,
                 errorBuilder: (c, e, s) => const _ImageErrorPlaceholder(),
               ),
-
             if (file != null)
               Positioned(
                 top: 6,
@@ -2312,7 +2439,6 @@ class _PhotoSlotBox extends StatelessWidget {
                   ),
                 ),
               ),
-
             if (!enabled) Container(color: Colors.white.withOpacity(0.55)),
           ],
         ),
@@ -2328,7 +2454,7 @@ class _SelectFieldTile extends StatelessWidget {
     required this.valueText,
     required this.onTap,
     this.errorText,
-    this.showLabel = true, // ⬅️ baru
+    this.showLabel = true,
   });
 
   final String label;
@@ -2336,7 +2462,7 @@ class _SelectFieldTile extends StatelessWidget {
   final String? valueText;
   final VoidCallback onTap;
   final String? errorText;
-  final bool showLabel; // ⬅️ baru
+  final bool showLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -2344,7 +2470,7 @@ class _SelectFieldTile extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (showLabel) // ⬅️ tampilkan label hanya jika diminta
+        if (showLabel)
           Text(
             label,
             style: const TextStyle(
@@ -2448,7 +2574,6 @@ class _MoreButtonAnchoredState extends State<_MoreButtonAnchored> {
       builder: (context) {
         return Stack(
           children: [
-            // backdrop tap-outside
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
@@ -2544,7 +2669,7 @@ class _PopoverMenu extends StatelessWidget {
             BoxShadow(
               blurRadius: 20,
               offset: Offset(0, 10),
-              color: Color(0x1A000000), // shadow halus
+              color: Color(0x1A000000),
             ),
           ],
         ),
@@ -2625,7 +2750,7 @@ class _MenuRow extends StatelessWidget {
 }
 
 // =====================
-// Bottom sheet: Advanced Filter (brand & category pakai bottom sheet picker)
+// Bottom sheet: Advanced Filter
 // =====================
 class _AdvancedFilterSheet extends StatefulWidget {
   const _AdvancedFilterSheet({
@@ -2643,16 +2768,14 @@ class _AdvancedFilterSheet extends StatefulWidget {
 }
 
 class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
-  // ===== Existing fields =====
   String? _brandId;
   String? _categoryId;
   late RangeValues _range;
 
-  // ===== NEW: Store filter (wajib) =====
   String? _storeId;
-  DateTimeRange? _created; // NEW
+  DateTimeRange? _created;
   String? _storeName;
-  String? _storeError; // tampilkan error jika belum dipilih (harus wajib)
+  String? _storeError;
 
   @override
   void initState() {
@@ -2676,7 +2799,6 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
     );
     _range = RangeValues(initMin, initMax);
 
-    // Pastikan store default ter-set (wajib), dan isi labelnya
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final pp = context.read<ProductProvider>();
       final id = await pp.ensureDefaultStoreLocation(context);
@@ -2724,16 +2846,14 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
     setState(() => _categoryId = picked);
   }
 
-  // ===== NEW: open reusable store picker & apply to provider =====
   Future<void> _pickStore() async {
     final picked = await showStorePickerSheet(context, selectedId: _storeId);
-    if (picked == null) return; // user batal
+    if (picked == null) return;
     setState(() {
       _storeId = picked.id;
       _storeName = picked.label;
-      _storeError = null; // valid
+      _storeError = null;
     });
-    // Terapkan ke provider + refresh paginated (page 1)
     await context.read<ProductProvider>().setStoreLocationAndRefresh(
       context,
       picked.id,
@@ -2744,7 +2864,6 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
   Widget build(BuildContext context) {
     final prov = context.watch<ProductProvider>();
 
-    // Sinkronisasi tampilan nama store jika berubah di tempat lain
     if ((_storeId == null || _storeName == null) &&
         prov.currentStoreLocationId != null) {
       final sp = context.read<StoreProvider>();
@@ -2791,10 +2910,8 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () => Navigator.pop(
-                      context,
-                      const _ProductFilters(), // reset semua (store tetap wajib → tidak di-clear)
-                    ),
+                    onPressed: () =>
+                        Navigator.pop(context, const _ProductFilters()),
                     child: const Text(
                       'Reset',
                       style: TextStyle(color: Colors.black),
@@ -2803,14 +2920,12 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                   const SizedBox(width: 6),
                   ElevatedButton(
                     onPressed: () async {
-                      // Store wajib
                       if (_storeId == null || _storeId!.isEmpty) {
                         setState(
                           () => _storeError = 'Store location is required',
                         );
                         return;
                       }
-                      // Pastikan provider sudah pakai store yang dipilih
                       await context
                           .read<ProductProvider>()
                           .setStoreLocationAndRefresh(context, _storeId!);
@@ -2822,7 +2937,6 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                           brandId: _brandId,
                           categoryId: _categoryId,
                           query: widget.initial.query,
-                          // Catatan: store dikirim via provider (fetchProductsPagination → storeLocationId)
                         ),
                       );
                     },
@@ -2843,7 +2957,6 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                 controller: controller,
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
                 children: [
-                  // ====== NEW: STORE LOCATION (wajib) ======
                   const Text(
                     'Store Location',
                     style: TextStyle(
@@ -2866,10 +2979,7 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                       style: const TextStyle(color: Colors.red),
                     ),
                   ],
-
                   const SizedBox(height: 20),
-
-                  // ----- BRAND (pakai bottom sheet) -----
                   Row(
                     children: [
                       const Expanded(
@@ -2895,10 +3005,7 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                     valueText: _brandName(prov, _brandId),
                     onTap: () => _pickBrand(context),
                   ),
-
                   const SizedBox(height: 16),
-
-                  // ----- CATEGORY (pakai bottom sheet) -----
                   Row(
                     children: [
                       const Expanded(
@@ -2924,45 +3031,6 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                     valueText: _categoryName(prov, _categoryId),
                     onTap: () => _pickCategory(context),
                   ),
-
-                  const SizedBox(height: 20),
-
-                  // // ----- PRICE RANGE -----
-                  // const Text(
-                  //   'Price Range',
-                  //   style: TextStyle(
-                  //     fontWeight: FontWeight.w600,
-                  //     color: Color(0xFF111827),
-                  //   ),
-                  // ),
-                  // const SizedBox(height: 8),
-                  // Row(
-                  //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  //   children: [
-                  //     Text(
-                  //       _formatRpD(_range.start),
-                  //       style: const TextStyle(color: Color(0xFF6B7280)),
-                  //     ),
-                  //     Text(
-                  //       _formatRpD(_range.end),
-                  //       style: const TextStyle(color: Color(0xFF6B7280)),
-                  //     ),
-                  //   ],
-                  // ),
-                  // RangeSlider(
-                  //   activeColor: AppColors.blueButton,
-                  //   values: _range,
-                  //   min: widget.globalMin,
-                  //   max: widget.globalMax <= widget.globalMin
-                  //       ? widget.globalMin + 1
-                  //       : widget.globalMax,
-                  //   divisions: 100,
-                  //   labels: RangeLabels(
-                  //     _formatRpD(_range.start),
-                  //     _formatRpD(_range.end),
-                  //   ),
-                  //   onChanged: (v) => setState(() => _range = v),
-                  // ),
                 ],
               ),
             ),
@@ -2973,7 +3041,6 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
   }
 }
 
-// kecil: dropdown box styling konsisten
 class _DropdownBox<T> extends StatelessWidget {
   const _DropdownBox({
     required this.value,

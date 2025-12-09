@@ -30,8 +30,11 @@ class _SubscriptionCheckoutScreenState
   // 🔹 3 = One-time payment, 2 = Recurring card
   int _selectedPaymentMethod = 3;
 
-  // 🔹 Plan yang benar-benar dipilih user (bisa 1/3/6/12 bulan, dsb)
+  // 🔹 Plan utama yang dipilih (idPlan + name + list pricing)
   PremiumPlan? _selectedPlan;
+
+  // 🔹 Pricing (durasi + harga) yang dipilih dari plan di atas
+  PlanPricing? _selectedPricing;
 
   @override
   void initState() {
@@ -110,8 +113,8 @@ class _SubscriptionCheckoutScreenState
 
   /// Helper label untuk period teks (month/year/X months)
   String _periodLabelForMonths(int months) {
-    if (months == 1) return 'month';
-    if (months == 12) return 'year';
+    // if (months == 1) return 'Month';
+    // if (months == 12) return 'Year';
     return '$months months';
   }
 
@@ -122,69 +125,45 @@ class _SubscriptionCheckoutScreenState
       body: SafeArea(
         child: Consumer<SubscriptionProvider>(
           builder: (context, subscription, _) {
-            final List<PremiumPlan> plans = subscription.plans;
+            // 🔹 Ambil semua plan aktif dari provider
+            final List<PremiumPlan> plans = subscription.plans
+                .where((p) => p.isActive)
+                .toList();
 
-            // 🔹 Cari plan 1 bulan (monthly), meski di API tidak ada → tetap bikin card
-            PremiumPlan? monthlyPlan;
-            final List<PremiumPlan> otherPlans = [];
-
-            for (final p in plans) {
-              if (!p.isActive) continue;
-
-              if (p.months == 1 && monthlyPlan == null) {
-                monthlyPlan = p;
-              } else {
-                otherPlans.add(p);
-              }
-            }
-
-            // Sort other plans berdasarkan months (3,6,12,dst)
-            otherPlans.sort((a, b) => a.months.compareTo(b.months));
-
-            // 🔹 Set default _selectedPlan sekali saja, setelah data plan masuk
-            if (!subscription.isLoadingPlans &&
-                _selectedPlan == null &&
-                (monthlyPlan != null || otherPlans.isNotEmpty)) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                setState(() {
-                  _selectedPlan = monthlyPlan ?? otherPlans.first;
-                });
-              });
-            }
-
-            // ---------- LABEL HARGA MONTHLY CARD ----------
-            String monthlyPriceLabel;
-            final bool monthlyAvailable = monthlyPlan != null;
-
-            if (subscription.isLoadingPlans) {
-              monthlyPriceLabel = 'Loading...';
-            } else {
-              if (monthlyAvailable) {
-                final formatted = _idrFormatter.format(
-                  monthlyPlan!.price.round(),
-                );
-                monthlyPriceLabel = 'Rp. $formatted /month';
-              } else {
-                monthlyPriceLabel = 'Not available yet';
-              }
-            }
-
-            final bool canProceed =
-                !subscription.isProcessing && _selectedPlan != null;
+            final bool isLoadingPlans = subscription.isLoadingPlans;
 
             // ---------- TEKS BAWAH TOMBOL (BOTTOM INFO) ----------
             String bottomInfoText;
             if (_selectedPlan == null) {
-              bottomInfoText = 'Choose a plan to see how you will be charged.';
+              bottomInfoText =
+                  'Choose a plan and billing period to see how you will be charged.';
+            } else if (_selectedPricing == null) {
+              bottomInfoText =
+                  'Choose how long you want your premium period for this plan.';
             } else if (_selectedPaymentMethod == 3) {
               // One-time payment
               bottomInfoText =
-                  'You will be charged once for this ${_periodLabelForMonths(_selectedPlan!.months)} plan.';
+                  'You will be charged once for this ${_periodLabelForMonths(_selectedPricing!.period)} plan.';
             } else {
               // Recurring card payment
               bottomInfoText =
-                  'You will be charged every ${_periodLabelForMonths(_selectedPlan!.months)}. Auto-renews unless canceled.';
+                  'You will be charged every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
+            }
+
+            final bool canProceed =
+                !subscription.isProcessing &&
+                _selectedPlan != null &&
+                _selectedPricing != null;
+
+            // Helper label kecil di card plan: "Starts from Rp ..."
+            String _buildPlanPriceLabel(PremiumPlan plan) {
+              if (plan.pricing.isEmpty) {
+                return 'No pricing available yet';
+              }
+              final minPrice = plan.pricing
+                  .map((p) => p.price)
+                  .reduce((a, b) => a < b ? a : b);
+              return 'Starts from Rp. ${_idrFormatter.format(minPrice)}';
             }
 
             return Column(
@@ -284,36 +263,13 @@ class _SubscriptionCheckoutScreenState
                         ),
                         const SizedBox(height: 4),
                         const Text(
-                          'Select how you want to pay for premium features.',
+                          'First, select a premium plan. Then choose how long you want to subscribe.',
                           style: TextStyle(fontSize: 13, color: Colors.black54),
                         ),
 
                         const SizedBox(height: 25),
 
-                        // ---------- MONTHLY CARD (SELALU ADA) ----------
-                        _PlanCard(
-                          title: 'Monthly',
-                          priceLabel: monthlyPriceLabel,
-                          isSelected:
-                              monthlyAvailable &&
-                              _selectedPlan?.idPlan == monthlyPlan?.idPlan,
-                          onTap: monthlyAvailable
-                              ? () {
-                                  setState(() {
-                                    _selectedPlan = monthlyPlan;
-                                  });
-                                }
-                              : null,
-                          highlightColor:
-                              SubscriptionCheckoutScreen._primaryBlue,
-                          enabled: monthlyAvailable,
-                          disabledCaption: 'Unavailable',
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        // ---------- PLAN LAIN DARI API (3, 6, 12 BULAN, DST) ----------
-                        if (subscription.isLoadingPlans && plans.isEmpty) ...[
+                        if (isLoadingPlans && plans.isEmpty) ...[
                           const Text(
                             'Loading plans...',
                             style: TextStyle(
@@ -321,75 +277,155 @@ class _SubscriptionCheckoutScreenState
                               color: Colors.black45,
                             ),
                           ),
+                        ] else if (plans.isEmpty) ...[
+                          const Text(
+                            'No active premium plans available at the moment.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
                         ] else ...[
-                          for (final plan in otherPlans) ...[
+                          // ---------- LIST PLAN (idPlan + name) ----------
+                          for (final plan in plans) ...[
                             const SizedBox(height: 8),
                             _PlanCard(
-                              title: '${plan.months} months',
-                              priceLabel:
-                                  'Rp. ${_idrFormatter.format(plan.price.round())} for ${plan.months} months',
+                              title: plan.name, // tulis nama plan-nya
+                              priceLabel: _buildPlanPriceLabel(plan),
                               isSelected: _selectedPlan?.idPlan == plan.idPlan,
                               onTap: () {
                                 setState(() {
                                   _selectedPlan = plan;
+                                  _selectedPricing = null; // reset pricing
                                 });
                               },
                               highlightColor:
                                   SubscriptionCheckoutScreen._primaryBlue,
                             ),
                           ],
-                        ],
 
-                        const SizedBox(height: 20),
+                          const SizedBox(height: 20),
 
-                        // ---------- PLAN SUMMARY ----------
-                        _PlanSummaryTile(
-                          selectedPlan: _selectedPlan,
-                          formatter: _idrFormatter,
-                        ),
+                          // ---------- COLLAPSIBLE: PLAN PRICING DARI PLAN TERPILIH ----------
+                          AnimatedSize(
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeInOut,
+                            child: _selectedPlan == null
+                                ? const SizedBox.shrink()
+                                : Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Choose billing period',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      if (_selectedPlan!.pricing.isEmpty) ...[
+                                        Container(
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.all(14),
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            color: const Color(0xFFF8FAFF),
+                                            border: Border.all(
+                                              color: const Color(0xFFE0E7FF),
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'No pricing options are configured for this plan yet.',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                      ] else ...[
+                                        for (final pricing
+                                            in _selectedPlan!.pricing) ...[
+                                          const SizedBox(height: 8),
+                                          _PlanCard(
+                                            title: _periodLabelForMonths(
+                                              pricing.period,
+                                            ),
+                                            priceLabel:
+                                                'Rp. ${_idrFormatter.format(pricing.price)} for ${_periodLabelForMonths(pricing.period)}',
+                                            isSelected:
+                                                _selectedPricing?.id ==
+                                                pricing.id,
+                                            onTap: () {
+                                              setState(() {
+                                                _selectedPricing = pricing;
+                                              });
+                                            },
+                                            highlightColor:
+                                                SubscriptionCheckoutScreen
+                                                    ._primaryBlue,
+                                          ),
+                                        ],
+                                      ],
+                                    ],
+                                  ),
+                          ),
 
-                        const SizedBox(height: 20),
+                          const SizedBox(height: 20),
 
-                        // ---------- PAYMENT METHOD ----------
-                        if (_selectedPlan != null) ...[
-                          const Text(
-                            'Payment method',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                          // ---------- PLAN SUMMARY ----------
+                          _PlanSummaryTile(
+                            selectedPlan: _selectedPlan,
+                            selectedPricing: _selectedPricing,
+                            formatter: _idrFormatter,
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          // ---------- PAYMENT METHOD ----------
+                          if (_selectedPlan != null &&
+                              _selectedPricing != null) ...[
+                            const Text(
+                              'Payment method',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 10),
+                            const SizedBox(height: 10),
 
-                          // One-time payment (payment_method = 3)
-                          _PaymentMethodOption(
-                            title: 'One-time payment',
-                            subtitle:
-                                'Pay once for this premium period. No automatic renewal.',
-                            value: 3,
-                            groupValue: _selectedPaymentMethod,
-                            onChanged: (v) {
-                              setState(() {
-                                _selectedPaymentMethod = v!;
-                              });
-                            },
-                          ),
-                          const SizedBox(height: 8),
+                            // One-time payment (payment_method = 3)
+                            _PaymentMethodOption(
+                              title: 'One-time payment',
+                              subtitle:
+                                  'Pay once for this premium period. No automatic renewal.',
+                              value: 3,
+                              groupValue: _selectedPaymentMethod,
+                              onChanged: (v) {
+                                setState(() {
+                                  _selectedPaymentMethod = v!;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 8),
 
-                          // Recurring card payment (payment_method = 2)
-                          _PaymentMethodOption(
-                            title: 'Recurring card payment',
-                            subtitle:
-                                'Automatically billed every ${_periodLabelForMonths(_selectedPlan!.months)}.',
-                            value: 2,
-                            groupValue: _selectedPaymentMethod,
-                            onChanged: (v) {
-                              setState(() {
-                                _selectedPaymentMethod = v!;
-                              });
-                            },
-                          ),
-                          const SizedBox(height: 24),
+                            // Recurring card payment (payment_method = 2)
+                            _PaymentMethodOption(
+                              title: 'Recurring card payment',
+                              subtitle:
+                                  'Automatically billed every ${_periodLabelForMonths(_selectedPricing!.period)}.',
+                              value: 2,
+                              groupValue: _selectedPaymentMethod,
+                              onChanged: (v) {
+                                setState(() {
+                                  _selectedPaymentMethod = v!;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 24),
+                          ],
                         ],
 
                         // ---------- FEATURES ----------
@@ -455,10 +491,14 @@ class _SubscriptionCheckoutScreenState
                             onPressed: !canProceed
                                 ? null
                                 : () {
+                                    // 🔹 Di sini aku kirim ID pricing sebagai planId,
+                                    // karena tiap kombinasi plan+period punya id sendiri.
                                     final planId = _selectedPlan!.idPlan;
+                                    final pricingId = _selectedPricing!.id;
                                     subscription.goToPayment(
                                       context: context,
                                       planId: planId,
+                                      pricingId: pricingId,
                                       paymentMethod: _selectedPaymentMethod,
                                     );
                                   },
@@ -575,7 +615,7 @@ class _PaymentMethodOption extends StatelessWidget {
 }
 
 // -------------------------------------------------------------
-// WIDGET: Plan Card (support disabled + "Not available yet")
+// WIDGET: Plan Card (dipakai untuk pilih Plan & PlanPricing)
 // -------------------------------------------------------------
 class _PlanCard extends StatelessWidget {
   final String title;
@@ -638,12 +678,16 @@ class _PlanCard extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
-                          color: titleColor,
+                      Flexible(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                            color: titleColor,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -709,17 +753,22 @@ class _PlanCard extends StatelessWidget {
 }
 
 // -------------------------------------------------------------
-// WIDGET: Plan Summary (pakai Rp + titik, berdasarkan selectedPlan)
+// WIDGET: Plan Summary (pakai plan + pricing terpilih)
 // -------------------------------------------------------------
 class _PlanSummaryTile extends StatelessWidget {
   final PremiumPlan? selectedPlan;
+  final PlanPricing? selectedPricing;
   final NumberFormat formatter;
 
-  const _PlanSummaryTile({required this.selectedPlan, required this.formatter});
+  const _PlanSummaryTile({
+    required this.selectedPlan,
+    required this.selectedPricing,
+    required this.formatter,
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (selectedPlan == null) {
+    if (selectedPlan == null || selectedPricing == null) {
       return Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -737,7 +786,7 @@ class _PlanSummaryTile extends StatelessWidget {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'No plan selected yet. Choose one of the premium plans above to see the billing summary.',
+                'No plan selected yet. Choose a premium plan and billing period above to see the billing summary.',
                 style: TextStyle(fontSize: 12, color: Colors.black87),
               ),
             ),
@@ -746,24 +795,24 @@ class _PlanSummaryTile extends StatelessWidget {
       );
     }
 
-    final months = selectedPlan!.months;
-    final mainPrice = 'Rp. ${formatter.format(selectedPlan!.price.round())}';
+    final months = selectedPricing!.period;
+    final mainPrice = 'Rp. ${formatter.format(selectedPricing!.price)}';
 
     String periodLabel;
     String titleLabel;
 
     if (months == 1) {
-      periodLabel = 'month';
-      titleLabel = 'Monthly billing selected';
+      periodLabel = 'Month';
+      titleLabel = 'Monthly billing selected for ${selectedPlan!.name}';
     } else if (months == 12) {
-      periodLabel = 'year';
-      titleLabel = '12-month plan selected';
+      periodLabel = 'Year';
+      titleLabel = '12-month billing selected for ${selectedPlan!.name}';
     } else {
       periodLabel = '$months months';
-      titleLabel = '$months-month plan selected';
+      titleLabel = '$months-month billing selected for ${selectedPlan!.name}';
     }
 
-    final effectiveMonthly = selectedPlan!.price / months;
+    final effectiveMonthly = selectedPricing!.price / months;
     final effectiveText = 'Rp. ${formatter.format(effectiveMonthly.round())}';
 
     return Container(

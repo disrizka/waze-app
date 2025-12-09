@@ -42,6 +42,9 @@ class SubscriptionProvider with ChangeNotifier {
   double _monthlyPrice = 11.0;
   double _yearlyPrice = 120.0;
 
+  PremiumPlan? _lastPaidPlan;
+  PlanPricing? _lastPaidPricing;
+
   BillingCycle _selectedCycle = BillingCycle.monthly;
 
   // ====== State UI umum ======
@@ -118,6 +121,28 @@ class SubscriptionProvider with ChangeNotifier {
     if (normalYearly == 0) return 0;
     final discount = 100 - (_yearlyPrice / normalYearly * 100);
     return discount;
+  }
+
+  // Cari plan + pricing berdasarkan planId (di sini diasumsikan planId = PlanPricing.id)
+  void _rememberPaidPlanForPayment(String planId, String pricingId) {
+    PremiumPlan? foundPlan;
+    PlanPricing? foundPricing;
+
+    for (final p in _plans) {
+      if (p.idPlan == planId) {
+        foundPlan = p;
+        for (final pr in p.pricing) {
+          if (pr.id == pricingId) {
+            foundPricing = pr;
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    _lastPaidPlan = foundPlan;
+    _lastPaidPricing = foundPricing;
   }
 
   /// Label harga yang bisa langsung dipakai di UI.
@@ -239,12 +264,15 @@ class SubscriptionProvider with ChangeNotifier {
   Future<void> goToPayment({
     required BuildContext context,
     required String planId,
+    required String pricingId,
     int paymentMethod = 2,
   }) async {
     if (_isProcessing) return;
 
     _isProcessing = true;
     _errorMessage = null;
+
+    _rememberPaidPlanForPayment(planId, pricingId);
     notifyListeners();
 
     const path = '/premium/business/upgrade';
@@ -259,8 +287,9 @@ class SubscriptionProvider with ChangeNotifier {
       }
 
       final payload = {
-        'plan_id': planId,
+        'plan_id': planId, // idPlan (encrypted di backend)
         'business_id': bizId,
+        'pricing_id': pricingId, // PlanPricing.id (encrypted di backend)
         'payment_method': paymentMethod,
       };
 
@@ -416,14 +445,16 @@ class SubscriptionProvider with ChangeNotifier {
         _isProcessing = false;
         notifyListeners();
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Payment success. Premium activated!')),
-        );
+        // ScaffoldMessenger.of(context).showSnackBar(
+        //   const SnackBar(content: Text('Payment success. Premium activated!')),
+        // );
 
-        // 🔹 Setelah backend konfirmasi pembayaran sukses, langsung ke /splash
-        Navigator.of(
-          context,
-        ).pushNamedAndRemoveUntil('/splash', (route) => false);
+        // // 🔹 Setelah backend konfirmasi pembayaran sukses, langsung ke /splash
+        // Navigator.of(
+        //   context,
+        // ).pushNamedAndRemoveUntil('/splash', (route) => false);
+
+        await _showPaymentSuccessDialog(context);
 
         // (opsional) sebelum redirect, kalau kamu mau refresh data bisnis/user,
         // bisa panggil API lain di sini dulu.
@@ -459,6 +490,197 @@ class SubscriptionProvider with ChangeNotifier {
         ),
         enableLog: true,
       ),
+    );
+  }
+
+  Future<void> _showPaymentSuccessDialog(BuildContext context) async {
+    // Default fallback kalau info plan/pricing tidak ketemu
+    final planName = _lastPaidPlan?.name ?? 'Premium Plan';
+    final period = _lastPaidPricing?.period;
+    final price = _lastPaidPricing?.price;
+
+    String periodLabel;
+    if (period == null || period <= 0) {
+      periodLabel = 'Selected period';
+    } else if (period == 1) {
+      periodLabel = '1 month';
+    } else if (period == 12) {
+      periodLabel = '12 months';
+    } else {
+      periodLabel = '$period months';
+    }
+
+    final amountLabel = price != null ? _formatRupiah(price) : '—';
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false, // wajib tekan Continue
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Icon sukses
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.verified_rounded,
+                    size: 36,
+                    color: Color(0xFF2E7D32),
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                const Text(
+                  'Payment Successful',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+
+                const Text(
+                  'Your premium subscription has been activated.\nThank you for your payment. Enjoy all premium features for your business.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.black54,
+                    height: 1.4,
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Card detail plan
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: const Color(0xFFF5F7FB),
+                    border: Border.all(color: const Color(0xFFE1E5F2)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Subscription details',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Plan',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          Flexible(
+                            child: Text(
+                              planName,
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Billing period',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          Text(
+                            periodLabel,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Amount paid',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          Text(
+                            amountLabel,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 22),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    onPressed: () {
+                      // Langsung arahkan ke /splash, hapus semua route sebelumnya
+                      Navigator.of(
+                        ctx,
+                        rootNavigator: true,
+                      ).pushNamedAndRemoveUntil('/splash', (route) => false);
+                    },
+                    child: const Text(
+                      'Continue',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

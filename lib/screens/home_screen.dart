@@ -26,11 +26,13 @@ class _MenuItemData {
   final VoidCallback? onTap;
 
   /// Daftar "page" API yang mewakili tile ini (boleh kosong).
-  /// Contoh: tile HR bisa diwakili oleh page 'employee' ATAU 'role'.
   final List<String> pageKeys;
 
   /// Route utama tile ini (dipakai untuk cek via RoleProvider.can()).
   final String? routeName;
+
+  /// Kalau true → tile dikunci (abu & ada label "Premium")
+  final bool isPremiumLocked;
 
   const _MenuItemData(
     this.label,
@@ -38,6 +40,7 @@ class _MenuItemData {
     this.onTap,
     this.pageKeys = const [],
     this.routeName,
+    this.isPremiumLocked = false,
   });
 }
 
@@ -1353,6 +1356,176 @@ class _InfoBlock extends StatelessWidget {
 class _GridMenu extends StatelessWidget {
   const _GridMenu();
 
+  Future<void> _showPurchaseLockedModal(BuildContext context) async {
+    await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.35),
+      builder: (ctx) {
+        final size = MediaQuery.of(ctx).size;
+        final bool isTablet = size.shortestSide >= 600;
+        final double maxWidth = isTablet ? 420 : size.width;
+
+        return SafeArea(
+          child: Center(
+            child: Container(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.16),
+                    blurRadius: 24,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(height: 20),
+                    // icon + title
+                    Row(
+                      children: const [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: Color(0xFFE0ECFF),
+                          child: Icon(
+                            LucideIcons.gem,
+                            size: 18,
+                            color: Color(0xFF4C6EF5),
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Premium Feature',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Upgrade to Premium to unlock the Purchase module and manage SKU stock you buy from suppliers in one place.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: Color(0xFF6B7280),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // bullet points
+                    const _PremiumPoint(
+                      text:
+                          'Create purchase orders and record what you buy from suppliers.',
+                    ),
+                    const SizedBox(height: 6),
+                    const _PremiumPoint(
+                      text:
+                          'Automatically update SKU stock based on your purchase transactions.',
+                    ),
+                    const SizedBox(height: 6),
+                    const _PremiumPoint(
+                      text:
+                          'See clear history of incoming stock for every SKU.',
+                    ),
+                    const SizedBox(height: 18),
+
+                    // preview images – kecil & sebelah-sebelahan
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: AspectRatio(
+                              aspectRatio: 4 / 3, // bikin lebih mungil
+                              child: Image.asset(
+                                'assets/purchase_preview_1.png',
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: AspectRatio(
+                              aspectRatio: 4 / 3,
+                              child: Image.asset(
+                                'assets/purchase_preview_2.png',
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+
+                    // CTA buttons
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4C6EF5),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.of(ctx).pop(true);
+                          Navigator.pushNamed(ctx, '/subscription');
+                        },
+                        child: const Text(
+                          'Upgrade to Premium',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text(
+                          'Maybe later',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // ===== Ikon & route mapping (tanpa Store & WA Business)
   static const Map<String, String> _iconByMenuName = {
     'Data User': 'assets/hr_icon.png',
@@ -1522,14 +1695,18 @@ class _GridMenu extends StatelessWidget {
               onTap: () => Navigator.pushNamed(context, '/sales'),
             ),
             // Purchase
-            if (isBizPremium)
-              _MenuItemData(
-                t.grid_purchase,
-                'assets/purchase_icon.png',
-                pageKeys: const ['purchase'],
-                routeName: '/purchase',
-                onTap: () => Navigator.pushNamed(context, '/purchase'),
-              ),
+            // Purchase
+            _MenuItemData(
+              t.grid_purchase,
+              'assets/purchase_icon.png',
+              pageKeys: const ['purchase'],
+              routeName: '/purchase',
+              onTap: isBizPremium
+                  ? () => Navigator.pushNamed(context, '/purchase')
+                  : () => _showPurchaseLockedModal(context),
+              isPremiumLocked: !isBizPremium,
+            ),
+
             // Report
             _MenuItemData(
               t.grid_report,
@@ -1585,14 +1762,6 @@ class _GridMenu extends StatelessWidget {
           final pages = _pagesFromMenu(m);
           if (pages.any((p) => _banPages.contains(p.toLowerCase()))) continue;
 
-          // 🚫 Sembunyikan PURCHASE kalau bisnis tidak premium
-          final hasPurchasePage = pages.any(
-            (p) => p.toLowerCase() == 'purchase',
-          );
-          if (!isBizPremium && hasPurchasePage) {
-            continue;
-          }
-
           // Konsolidasi HR
           final isDataUser = nameL == 'data user';
           final hasHrPages = pages.any((p) {
@@ -1624,6 +1793,30 @@ class _GridMenu extends StatelessWidget {
               : false;
           if (!allowByPage && !allowByRoute) continue;
 
+          // PURCHASE: kalau bisnis belum premium → tampil, tapi dikunci
+          final hasPurchasePage = pages.any(
+            (p) => p.toLowerCase() == 'purchase',
+          );
+          if (!isBizPremium && hasPurchasePage) {
+            final alreadyAdded = items.any(
+              (it) => (it.routeName ?? '').toLowerCase() == '/purchase',
+            );
+            if (!alreadyAdded) {
+              items.add(
+                _MenuItemData(
+                  t.grid_purchase,
+                  'assets/purchase_icon.png',
+                  pageKeys: pages,
+                  routeName: '/purchase',
+                  onTap: () => _showPurchaseLockedModal(context),
+                  isPremiumLocked: true,
+                ),
+              );
+            }
+            continue;
+          }
+
+          // default: tile normal
           items.add(
             _MenuItemData(
               name,
@@ -1676,6 +1869,36 @@ class _GridMenu extends StatelessWidget {
           itemBuilder: (_, i) => _MenuTile(data: sortedItems[i]),
         );
       },
+    );
+  }
+}
+
+class _PremiumPoint extends StatelessWidget {
+  final String text;
+  const _PremiumPoint({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          Icons.check_circle_rounded,
+          size: 16,
+          color: Color(0xFF22C55E),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1.3,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2493,25 +2716,77 @@ class _MenuTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isLocked = data.isPremiumLocked;
+    // ✅ Hanya tile dengan route /purchase yang punya diamond
+    final bool isPurchaseTile =
+        (data.routeName ?? '').toLowerCase() == '/purchase';
+
     return Column(
       children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: data.onTap,
-          child: SizedBox(
-            width: 78,
-            height: 78,
-            child: Image.asset(
-              data.assetPath,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) {
-                return const Icon(
-                  Icons.image_not_supported_outlined,
-                  size: 34,
-                  color: Color(0xFF4E5D78),
-                );
-              },
-            ),
+        SizedBox(
+          width: 78,
+          height: 78,
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: data.onTap, // non-premium: modal, premium: ke /purchase
+                child: Opacity(
+                  opacity: isLocked ? 0.4 : 1.0,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.asset(
+                      data.assetPath,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) {
+                        return const Icon(
+                          Icons.image_not_supported_outlined,
+                          size: 34,
+                          color: Color(0xFF4E5D78),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+
+              // 💎 DIAMOND SELALU ADA UNTUK PURCHASE (premium / non-premium)
+              if (isPurchaseTile)
+                Positioned(
+                  top: 6,
+                  left: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          Color(0xFF6366F1), // ungu / indigo
+                          Color(0xFF22C55E), // hijau kebiruan
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.16),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      LucideIcons.gem,
+                      size: 12,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         const SizedBox(height: 10),
@@ -2519,7 +2794,11 @@ class _MenuTile extends StatelessWidget {
           data.label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 16,
+            color: isLocked ? const Color(0xFF9CA3AF) : null,
+          ),
         ),
       ],
     );
