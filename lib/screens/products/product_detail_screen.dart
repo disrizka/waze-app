@@ -583,40 +583,40 @@ class _SingleSkuRow extends StatelessWidget {
             ),
 
             // Tombol Open stock
-            SizedBox(
-              height: 36,
-              child: isNarrow
-                  ? Tooltip(
-                      message: loc.productDetailOpenStock,
-                      child: OutlinedButton(
-                        onPressed: onOpenStock,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          side: const BorderSide(color: AppColors.primary),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        child: const Icon(Icons.inventory_2_outlined, size: 18),
-                      ),
-                    )
-                  : OutlinedButton.icon(
-                      onPressed: onOpenStock,
-                      icon: const Icon(Icons.inventory_2_outlined, size: 18),
-                      label: Text(loc.productDetailOpenStock),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(color: AppColors.primary),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ),
-            ),
+            // SizedBox(
+            //   height: 36,
+            //   child: isNarrow
+            //       ? Tooltip(
+            //           message: loc.productDetailOpenStock,
+            //           child: OutlinedButton(
+            //             onPressed: onOpenStock,
+            //             style: OutlinedButton.styleFrom(
+            //               foregroundColor: AppColors.primary,
+            //               side: const BorderSide(color: AppColors.primary),
+            //               padding: const EdgeInsets.symmetric(horizontal: 10),
+            //               shape: RoundedRectangleBorder(
+            //                 borderRadius: BorderRadius.circular(10),
+            //               ),
+            //               visualDensity: VisualDensity.compact,
+            //             ),
+            //             child: const Icon(Icons.inventory_2_outlined, size: 18),
+            //           ),
+            //         )
+            //       : OutlinedButton.icon(
+            //           onPressed: onOpenStock,
+            //           icon: const Icon(Icons.inventory_2_outlined, size: 18),
+            //           label: Text(loc.productDetailOpenStock),
+            //           style: OutlinedButton.styleFrom(
+            //             foregroundColor: AppColors.primary,
+            //             side: const BorderSide(color: AppColors.primary),
+            //             padding: const EdgeInsets.symmetric(horizontal: 12),
+            //             shape: RoundedRectangleBorder(
+            //               borderRadius: BorderRadius.circular(10),
+            //             ),
+            //             visualDensity: VisualDensity.compact,
+            //           ),
+            //         ),
+            // ),
           ],
         ),
 
@@ -683,38 +683,38 @@ class _MultiSkuRow extends StatelessWidget {
                   ],
                 ),
               ),
-              SizedBox(
-                height: 32,
-                child: isNarrow
-                    ? IconButton.filledTonal(
-                        tooltip: loc.productDetailOpenStock,
-                        onPressed: onOpenStock,
-                        icon: const Icon(
-                          Icons.inventory_2_outlined,
-                          size: 18,
-                          color: AppColors.primary,
-                        ),
-                        style: ButtonStyle(
-                          backgroundColor: WidgetStateProperty.all(
-                            AppColors.greyBackground,
-                          ),
-                        ),
-                      )
-                    : OutlinedButton.icon(
-                        onPressed: onOpenStock,
-                        icon: const Icon(Icons.inventory_2_outlined, size: 18),
-                        label: Text(loc.productDetailOpenStock),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          side: const BorderSide(color: AppColors.primary),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-              ),
+              // SizedBox(
+              //   height: 32,
+              //   child: isNarrow
+              //       ? IconButton.filledTonal(
+              //           tooltip: loc.productDetailOpenStock,
+              //           onPressed: onOpenStock,
+              //           icon: const Icon(
+              //             Icons.inventory_2_outlined,
+              //             size: 18,
+              //             color: AppColors.primary,
+              //           ),
+              //           style: ButtonStyle(
+              //             backgroundColor: WidgetStateProperty.all(
+              //               AppColors.greyBackground,
+              //             ),
+              //           ),
+              //         )
+              //       : OutlinedButton.icon(
+              //           onPressed: onOpenStock,
+              //           icon: const Icon(Icons.inventory_2_outlined, size: 18),
+              //           label: Text(loc.productDetailOpenStock),
+              //           style: OutlinedButton.styleFrom(
+              //             foregroundColor: AppColors.primary,
+              //             side: const BorderSide(color: AppColors.primary),
+              //             padding: const EdgeInsets.symmetric(horizontal: 10),
+              //             shape: RoundedRectangleBorder(
+              //               borderRadius: BorderRadius.circular(10),
+              //             ),
+              //             visualDensity: VisualDensity.compact,
+              //           ),
+              //         ),
+              // ),
             ],
           ),
 

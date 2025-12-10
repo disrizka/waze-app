@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/premium_plan_model.dart';
 import '../../providers/subscription_provider.dart';
+import '../../services/api_service.dart';
 
 class SubscriptionCheckoutScreen extends StatefulWidget {
   const SubscriptionCheckoutScreen({super.key});
@@ -24,8 +25,12 @@ class _SubscriptionCheckoutScreenState
   String _businessUsername = '—';
   String _businessLogoPath = '';
   bool _isLoadingHeader = true;
+  bool _showOtherPayments = false;
 
   final NumberFormat _idrFormatter = NumberFormat('#,###', 'id_ID');
+
+  // 🔹 0 = Step 1 (Plan), 1 = Step 2 (Payment)
+  int _currentStep = 0;
 
   // 🔹 3 = One-time payment, 2 = Recurring card
   int _selectedPaymentMethod = 3;
@@ -36,16 +41,214 @@ class _SubscriptionCheckoutScreenState
   // 🔹 Pricing (durasi + harga) yang dipilih dari plan di atas
   PlanPricing? _selectedPricing;
 
+  // 🔹 Voucher
+  final TextEditingController _voucherC = TextEditingController();
+  bool _isCheckingVoucher = false;
+  String? _voucherMessage;
+  int? _voucherDiscountValue; // nominal diskon (Rp)
+  int? _voucherFinalPrice; // harga akhir setelah diskon (Rp)
+  String? _appliedVoucherCode;
+
   @override
   void initState() {
     super.initState();
     _loadBusinessFromPrefs();
 
-    // setelah build pertama, fetch list premium plan dari API
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final subscription = context.read<SubscriptionProvider>();
       subscription.fetchPremiumPlans(context);
     });
+  }
+
+  @override
+  void dispose() {
+    _voucherC.dispose();
+    super.dispose();
+  }
+
+  Widget _buildPaymentMethodsSection() {
+    if (_selectedPricing == null) {
+      return const SizedBox.shrink();
+    }
+
+    // 🔢 Definisi semua metode pembayaran
+    final List<_PaymentMethodData> methods = [
+      _PaymentMethodData(
+        value: 2,
+        title: 'Credit Card',
+        subtitle:
+            'Automatically billed every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.',
+      ),
+      _PaymentMethodData(
+        value: 6,
+        title: 'QRIS',
+        subtitle:
+            'Pay once using QRIS via supported mobile banking or e-wallet.',
+      ),
+      _PaymentMethodData(
+        value: 7,
+        title: 'Mandiri Virtual Account',
+        subtitle:
+            'Pay once via Mandiri Bill Payment using your Mandiri account.',
+      ),
+      _PaymentMethodData(
+        value: 8,
+        title: 'Permata Virtual Account',
+        subtitle: 'Pay once via Permata Bank virtual account.',
+      ),
+      _PaymentMethodData(
+        value: 9,
+        title: 'BCA Virtual Account',
+        subtitle: 'Pay once via BCA virtual account.',
+      ),
+      _PaymentMethodData(
+        value: 10,
+        title: 'BNI Virtual Account',
+        subtitle: 'Pay once via BNI virtual account.',
+      ),
+      _PaymentMethodData(
+        value: 11,
+        title: 'BRI Virtual Account',
+        subtitle: 'Pay once via BRI virtual account.',
+      ),
+      // _PaymentMethodData(
+      //   value: 12,
+      //   title: 'CIMB Virtual Account',
+      //   subtitle: 'Pay once via CIMB Niaga virtual account.',
+      // ),
+      // _PaymentMethodData(
+      //   value: 13,
+      //   title: 'Danamon Virtual Account',
+      //   subtitle: 'Pay once via Danamon virtual account.',
+      // ),
+      // _PaymentMethodData(
+      //   value: 14,
+      //   title: 'BSI Virtual Account',
+      //   subtitle: 'Pay once via BSI virtual account.',
+      // ),
+    ];
+
+    // 🔹 Pisahkan Credit Card vs yang lain
+    final _PaymentMethodData creditCardMethod = methods.firstWhere(
+      (m) => m.value == 2,
+    );
+    final List<_PaymentMethodData> otherMethods = methods
+        .where((m) => m.value != 2)
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Payment method',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 10),
+
+        // 🔝 Credit Card berdiri sendiri
+        _PaymentMethodOption(
+          title: creditCardMethod.title,
+          subtitle: creditCardMethod.subtitle,
+          value: creditCardMethod.value,
+          groupValue: _selectedPaymentMethod,
+          onChanged: (v) {
+            setState(() {
+              _selectedPaymentMethod = v!;
+            });
+          },
+        ),
+
+        const SizedBox(height: 12),
+
+        // 🔻 Header accordion "Other Payment"
+        InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            setState(() {
+              _showOtherPayments = !_showOtherPayments;
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Colors.grey.withOpacity(0.35),
+                width: 1.5,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.account_balance_wallet_rounded,
+                  size: 20,
+                  color: Colors.black87,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'Other Payment',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'QRIS & Virtual Account options.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.black54,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  _showOtherPayments
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
+                  size: 20,
+                  color: Colors.black87,
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // 🔽 Isi accordion: semua payment selain Credit Card
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOut,
+          child: !_showOtherPayments
+              ? const SizedBox.shrink()
+              : Column(
+                  children: [
+                    const SizedBox(height: 8),
+                    for (int i = 0; i < otherMethods.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 8),
+                      _PaymentMethodOption(
+                        title: otherMethods[i].title,
+                        subtitle: otherMethods[i].subtitle,
+                        value: otherMethods[i].value,
+                        groupValue: _selectedPaymentMethod,
+                        onChanged: (v) {
+                          setState(() {
+                            _selectedPaymentMethod = v!;
+                          });
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+        ),
+      ],
+    );
   }
 
   Future<void> _loadBusinessFromPrefs() async {
@@ -111,51 +314,212 @@ class _SubscriptionCheckoutScreenState
         .toUpperCase();
   }
 
-  /// Helper label untuk period teks (month/year/X months)
   String _periodLabelForMonths(int months) {
-    // if (months == 1) return 'Month';
-    // if (months == 12) return 'Year';
     return '$months months';
+  }
+
+  void _clearVoucherState() {
+    _voucherMessage = null;
+    _voucherDiscountValue = null;
+    _voucherFinalPrice = null;
+    _appliedVoucherCode = null;
+    _voucherC.text = '';
+  }
+
+  Future<void> _checkVoucher(SubscriptionProvider subscription) async {
+    final code = _voucherC.text.trim();
+
+    if (_selectedPlan == null || _selectedPricing == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please choose a plan and billing period before checking voucher.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (code.isEmpty) {
+      setState(() {
+        _voucherMessage = 'Please enter a voucher code first.';
+        _voucherDiscountValue = null;
+        _voucherFinalPrice = null;
+        _appliedVoucherCode = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isCheckingVoucher = true;
+      _voucherMessage = null;
+    });
+
+    try {
+      // harga asli dari pricing yang dipilih (dalam rupiah)
+      final int originalPrice = _selectedPricing!.price;
+
+      // 🔗 panggil fungsi di SubscriptionProvider
+      final result = await subscription.checkVoucher(
+        context: context,
+        code: code,
+        originalPrice: originalPrice,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        if (result.isValid) {
+          // ✅ voucher valid → pakai nilai dari backend
+          _voucherDiscountValue = result.discount;
+          _voucherFinalPrice = result.finalPrice;
+          _appliedVoucherCode = code;
+          _voucherMessage = 'Voucher applied successfully.';
+        } else {
+          // ❌ voucher tidak valid → reset state & tampilkan pesan dari backend
+          _voucherDiscountValue = null;
+          _voucherFinalPrice = null;
+          _appliedVoucherCode = null;
+          _voucherMessage =
+              result.message ?? 'Voucher is not valid for this plan / price.';
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _voucherMessage = 'Failed to check voucher: $e';
+        _voucherDiscountValue = null;
+        _voucherFinalPrice = null;
+        _appliedVoucherCode = null;
+      });
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isCheckingVoucher = false;
+      });
+    }
+  }
+
+  /// Ringkasan harga di bawah info & di atas tombol (Step 2)
+  Widget _buildBottomPriceSummary() {
+    if (_selectedPricing == null) return const SizedBox.shrink();
+
+    final int originalPrice = _selectedPricing!.price;
+    final bool hasVoucher =
+        _voucherDiscountValue != null &&
+        _voucherDiscountValue! > 0 &&
+        _voucherFinalPrice != null;
+
+    final int finalPrice = hasVoucher ? _voucherFinalPrice! : originalPrice;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Subtotal',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+              Text(
+                'Rp. ${_idrFormatter.format(originalPrice)}',
+                style: const TextStyle(fontSize: 12, color: Colors.black87),
+              ),
+            ],
+          ),
+          if (hasVoucher) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Voucher discount',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                Text(
+                  '- Rp. ${_idrFormatter.format(_voucherDiscountValue!)}',
+                  style: const TextStyle(fontSize: 12, color: Colors.green),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 6),
+          const Divider(height: 1),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Total',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              Text(
+                'Rp. ${_idrFormatter.format(finalPrice)}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    // 🔹 Accordion metode pembayaran (top 3 + see more)
+
     return Scaffold(
-      backgroundColor: Colors.white, // background putih
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Consumer<SubscriptionProvider>(
           builder: (context, subscription, _) {
-            // 🔹 Ambil semua plan aktif dari provider
             final List<PremiumPlan> plans = subscription.plans
                 .where((p) => p.isActive)
                 .toList();
 
             final bool isLoadingPlans = subscription.isLoadingPlans;
 
-            // ---------- TEKS BAWAH TOMBOL (BOTTOM INFO) ----------
             String bottomInfoText;
-            if (_selectedPlan == null) {
-              bottomInfoText =
-                  'Choose a plan and billing period to see how you will be charged.';
-            } else if (_selectedPricing == null) {
-              bottomInfoText =
-                  'Choose how long you want your premium period for this plan.';
-            } else if (_selectedPaymentMethod == 3) {
-              // One-time payment
-              bottomInfoText =
-                  'You will be charged once for this ${_periodLabelForMonths(_selectedPricing!.period)} plan.';
+            if (_currentStep == 0) {
+              if (_selectedPlan == null) {
+                bottomInfoText = 'Choose a plan first to continue.';
+              } else if (_selectedPricing == null) {
+                bottomInfoText = 'Choose your billing period to continue.';
+              } else {
+                bottomInfoText =
+                    'Tap Continue to enter voucher and choose your payment method.';
+              }
             } else {
-              // Recurring card payment
-              bottomInfoText =
-                  'You will be charged every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
+              if (_selectedPlan == null || _selectedPricing == null) {
+                bottomInfoText =
+                    'Please go back and choose a plan and billing period first.';
+              } else if (_selectedPaymentMethod == 2) {
+                // 2 = Midtrans Recurring Payment
+                bottomInfoText =
+                    'You will be charged every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
+              } else {
+                // Semua selain 2 dianggap sekali bayar (QRIS / VA / dll)
+                bottomInfoText =
+                    'You will be charged once for this ${_periodLabelForMonths(_selectedPricing!.period)} plan.';
+              }
             }
+
+            final bool voucherApplied =
+                _appliedVoucherCode != null &&
+                _voucherDiscountValue != null &&
+                _voucherDiscountValue! > 0 &&
+                _voucherFinalPrice != null;
 
             final bool canProceed =
                 !subscription.isProcessing &&
                 _selectedPlan != null &&
                 _selectedPricing != null;
 
-            // Helper label kecil di card plan: "Starts from Rp ..."
             String _buildPlanPriceLabel(PremiumPlan plan) {
               if (plan.pricing.isEmpty) {
                 return 'No pricing available yet';
@@ -166,17 +530,36 @@ class _SubscriptionCheckoutScreenState
               return 'Starts from Rp. ${_idrFormatter.format(minPrice)}';
             }
 
+            final String primaryButtonLabel = _currentStep == 0
+                ? 'Continue'
+                : 'Go to payment';
+
             return Column(
               children: [
-                // ---------- HEADER ----------
+                // ---------- HEADER (sticky) ----------
                 Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 8,
+                    horizontal: 8,
+                    vertical: 4,
                   ),
                   child: Row(
                     children: [
-                      // Business avatar
+                      IconButton(
+                        icon: const Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          size: 18,
+                        ),
+                        onPressed: () {
+                          if (_currentStep == 0) {
+                            Navigator.of(context).pop();
+                          } else {
+                            setState(() {
+                              _currentStep = 0;
+                            });
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 2),
                       _isLoadingHeader
                           ? const CircleAvatar(
                               radius: 18,
@@ -207,7 +590,6 @@ class _SubscriptionCheckoutScreenState
                                   : null,
                             ),
                       const SizedBox(width: 10),
-                      // Business info
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -236,216 +618,298 @@ class _SubscriptionCheckoutScreenState
                           ],
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
+                      const SizedBox(width: 12),
                     ],
                   ),
                 ),
 
-                // ---------- CONTENT ----------
+                // ---------- STEPPER (sticky, sama seperti header) ----------
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                  child: _HorizontalLineStepper(currentStep: _currentStep),
+                ),
+
+                // ---------- CONTENT (scrollable) ----------
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
-                      vertical: 12,
+                      vertical: 8,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Choose a plan',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'First, select a premium plan. Then choose how long you want to subscribe.',
-                          style: TextStyle(fontSize: 13, color: Colors.black54),
-                        ),
-
-                        const SizedBox(height: 25),
-
-                        if (isLoadingPlans && plans.isEmpty) ...[
+                        // ⬇️ STEP 1 / STEP 2 content TANPA stepper lagi
+                        if (_currentStep == 0) ...[
+                          // STEP 1
                           const Text(
-                            'Loading plans...',
+                            'Choose a plan',
                             style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.black45,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                        ] else if (plans.isEmpty) ...[
+                          const SizedBox(height: 4),
                           const Text(
-                            'No active premium plans available at the moment.',
+                            'First, select a premium plan. Then choose how long you want to subscribe.',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 13,
                               color: Colors.black54,
                             ),
                           ),
-                        ] else ...[
-                          // ---------- LIST PLAN (idPlan + name) ----------
-                          for (final plan in plans) ...[
-                            const SizedBox(height: 8),
-                            _PlanCard(
-                              title: plan.name, // tulis nama plan-nya
-                              priceLabel: _buildPlanPriceLabel(plan),
-                              isSelected: _selectedPlan?.idPlan == plan.idPlan,
-                              onTap: () {
-                                setState(() {
-                                  _selectedPlan = plan;
-                                  _selectedPricing = null; // reset pricing
-                                });
-                              },
-                              highlightColor:
-                                  SubscriptionCheckoutScreen._primaryBlue,
-                            ),
-                          ],
-
                           const SizedBox(height: 20),
 
-                          // ---------- COLLAPSIBLE: PLAN PRICING DARI PLAN TERPILIH ----------
-                          AnimatedSize(
-                            duration: const Duration(milliseconds: 220),
-                            curve: Curves.easeInOut,
-                            child: _selectedPlan == null
-                                ? const SizedBox.shrink()
-                                : Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Choose billing period',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w700,
+                          if (isLoadingPlans && plans.isEmpty) ...[
+                            const Text(
+                              'Loading plans...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ] else if (plans.isEmpty) ...[
+                            const Text(
+                              'No active premium plans available at the moment.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ] else ...[
+                            for (final plan in plans) ...[
+                              const SizedBox(height: 8),
+                              _PlanCard(
+                                title: plan.name,
+                                priceLabel: _buildPlanPriceLabel(plan),
+                                isSelected:
+                                    _selectedPlan?.idPlan == plan.idPlan,
+                                onTap: () {
+                                  setState(() {
+                                    _selectedPlan = plan;
+                                    _selectedPricing = null;
+                                    _clearVoucherState();
+                                  });
+                                },
+                                highlightColor:
+                                    SubscriptionCheckoutScreen._primaryBlue,
+                              ),
+                            ],
+                            const SizedBox(height: 20),
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 220),
+                              curve: Curves.easeInOut,
+                              child: _selectedPlan == null
+                                  ? const SizedBox.shrink()
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Choose billing period',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      if (_selectedPlan!.pricing.isEmpty) ...[
-                                        Container(
-                                          width: double.infinity,
-                                          padding: const EdgeInsets.all(14),
-                                          decoration: BoxDecoration(
-                                            borderRadius: BorderRadius.circular(
-                                              16,
+                                        const SizedBox(height: 8),
+                                        if (_selectedPlan!.pricing.isEmpty) ...[
+                                          Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.all(14),
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              color: const Color(0xFFF8FAFF),
+                                              border: Border.all(
+                                                color: Color(0xFFE0E7FF),
+                                              ),
                                             ),
-                                            color: const Color(0xFFF8FAFF),
-                                            border: Border.all(
-                                              color: const Color(0xFFE0E7FF),
+                                            child: const Text(
+                                              'No pricing options are configured for this plan yet.',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.black87,
+                                              ),
                                             ),
                                           ),
-                                          child: const Text(
-                                            'No pricing options are configured for this plan yet.',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.black87,
+                                        ] else ...[
+                                          for (final pricing
+                                              in _selectedPlan!.pricing) ...[
+                                            const SizedBox(height: 8),
+                                            _PlanCard(
+                                              title: _periodLabelForMonths(
+                                                pricing.period,
+                                              ),
+                                              priceLabel:
+                                                  'Rp. ${_idrFormatter.format(pricing.price)} for ${_periodLabelForMonths(pricing.period)}',
+                                              isSelected:
+                                                  _selectedPricing?.id ==
+                                                  pricing.id,
+                                              onTap: () {
+                                                setState(() {
+                                                  _selectedPricing = pricing;
+                                                  _clearVoucherState();
+                                                });
+                                              },
+                                              highlightColor:
+                                                  SubscriptionCheckoutScreen
+                                                      ._primaryBlue,
                                             ),
-                                          ),
-                                        ),
-                                      ] else ...[
-                                        for (final pricing
-                                            in _selectedPlan!.pricing) ...[
-                                          const SizedBox(height: 8),
-                                          _PlanCard(
-                                            title: _periodLabelForMonths(
-                                              pricing.period,
-                                            ),
-                                            priceLabel:
-                                                'Rp. ${_idrFormatter.format(pricing.price)} for ${_periodLabelForMonths(pricing.period)}',
-                                            isSelected:
-                                                _selectedPricing?.id ==
-                                                pricing.id,
-                                            onTap: () {
-                                              setState(() {
-                                                _selectedPricing = pricing;
-                                              });
-                                            },
-                                            highlightColor:
-                                                SubscriptionCheckoutScreen
-                                                    ._primaryBlue,
-                                          ),
+                                          ],
                                         ],
                                       ],
-                                    ],
-                                  ),
+                                    ),
+                            ),
+                            const SizedBox(height: 24),
+                          ],
+                          const Text(
+                            'What you’ll get',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-
+                          const SizedBox(height: 10),
+                          const _FeatureList(),
+                          const SizedBox(height: 16),
+                        ] else ...[
+                          // STEP 2
+                          const Text(
+                            'Voucher & payment',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Review your plan, apply a voucher, and choose how you want to pay.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.black54,
+                            ),
+                          ),
                           const SizedBox(height: 20),
-
-                          // ---------- PLAN SUMMARY ----------
                           _PlanSummaryTile(
                             selectedPlan: _selectedPlan,
                             selectedPricing: _selectedPricing,
                             formatter: _idrFormatter,
+                            voucherDiscount: _voucherDiscountValue,
+                            voucherFinalPrice: _voucherFinalPrice,
+                            voucherCode: _appliedVoucherCode,
                           ),
-
                           const SizedBox(height: 20),
 
-                          // ---------- PAYMENT METHOD ----------
                           if (_selectedPlan != null &&
                               _selectedPricing != null) ...[
                             const Text(
-                              'Payment method',
+                              'Have a voucher?',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _voucherC,
+                                    enabled:
+                                        !voucherApplied && !_isCheckingVoucher,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Voucher code',
+                                      hintText: 'Enter voucher code',
+                                      border: OutlineInputBorder(),
+                                      isDense: true,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  height: 48,
+                                  child: ElevatedButton(
+                                    onPressed: _isCheckingVoucher
+                                        ? null
+                                        : () {
+                                            if (voucherApplied) {
+                                              setState(() {
+                                                _voucherMessage = null;
+                                                _voucherDiscountValue = null;
+                                                _voucherFinalPrice = null;
+                                                _appliedVoucherCode = null;
+                                              });
+                                            } else {
+                                              _checkVoucher(subscription);
+                                            }
+                                          },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.black,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                    ),
+                                    child: _isCheckingVoucher
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation(
+                                                    Colors.white,
+                                                  ),
+                                            ),
+                                          )
+                                        : Text(
+                                            voucherApplied ? 'Change' : 'Check',
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            if (_voucherMessage != null &&
+                                _voucherMessage!.isNotEmpty)
+                              Text(
+                                _voucherMessage!,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color:
+                                      (_voucherDiscountValue != null &&
+                                          _voucherDiscountValue! > 0 &&
+                                          _voucherFinalPrice != null)
+                                      ? Colors.green
+                                      : Colors.red,
+                                ),
+                              ),
                             const SizedBox(height: 10),
+                            _buildPaymentMethodsSection(),
 
-                            // One-time payment (payment_method = 3)
-                            _PaymentMethodOption(
-                              title: 'One-time payment',
-                              subtitle:
-                                  'Pay once for this premium period. No automatic renewal.',
-                              value: 3,
-                              groupValue: _selectedPaymentMethod,
-                              onChanged: (v) {
-                                setState(() {
-                                  _selectedPaymentMethod = v!;
-                                });
-                              },
-                            ),
-                            const SizedBox(height: 8),
-
-                            // Recurring card payment (payment_method = 2)
-                            _PaymentMethodOption(
-                              title: 'Recurring card payment',
-                              subtitle:
-                                  'Automatically billed every ${_periodLabelForMonths(_selectedPricing!.period)}.',
-                              value: 2,
-                              groupValue: _selectedPaymentMethod,
-                              onChanged: (v) {
-                                setState(() {
-                                  _selectedPaymentMethod = v!;
-                                });
-                              },
-                            ),
                             const SizedBox(height: 24),
+                          ] else ...[
+                            const Text(
+                              'Please go back to Step 1 and choose a plan and billing period.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
                           ],
                         ],
-
-                        // ---------- FEATURES ----------
-                        const Text(
-                          'What you’ll get',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        const _FeatureList(),
-
-                        const SizedBox(height: 16),
                       ],
                     ),
                   ),
                 ),
 
-                // ---------- BOTTOM BUTTON ----------
+                // ---------- BOTTOM SECTION ----------
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,
@@ -477,6 +941,12 @@ class _SubscriptionCheckoutScreenState
                           ),
                         ),
                         const SizedBox(height: 8),
+
+                        if (_currentStep == 1 && _selectedPricing != null) ...[
+                          _buildBottomPriceSummary(),
+                          const SizedBox(height: 8),
+                        ],
+
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
@@ -491,16 +961,25 @@ class _SubscriptionCheckoutScreenState
                             onPressed: !canProceed
                                 ? null
                                 : () {
-                                    // 🔹 Di sini aku kirim ID pricing sebagai planId,
-                                    // karena tiap kombinasi plan+period punya id sendiri.
-                                    final planId = _selectedPlan!.idPlan;
-                                    final pricingId = _selectedPricing!.id;
-                                    subscription.goToPayment(
-                                      context: context,
-                                      planId: planId,
-                                      pricingId: pricingId,
-                                      paymentMethod: _selectedPaymentMethod,
-                                    );
+                                    if (_currentStep == 0) {
+                                      setState(() => _currentStep = 1);
+                                    } else {
+                                      final planId = _selectedPlan!.idPlan;
+                                      final pricingId = _selectedPricing!.id;
+                                      final voucherCode =
+                                          (_voucherFinalPrice != null &&
+                                              _appliedVoucherCode != null)
+                                          ? _appliedVoucherCode!
+                                          : '';
+
+                                      subscription.goToPayment(
+                                        context: context,
+                                        planId: planId,
+                                        pricingId: pricingId,
+                                        paymentMethod: _selectedPaymentMethod,
+                                        voucherCode: voucherCode,
+                                      );
+                                    }
                                   },
                             child: subscription.isProcessing
                                 ? const SizedBox(
@@ -513,9 +992,9 @@ class _SubscriptionCheckoutScreenState
                                       ),
                                     ),
                                   )
-                                : const Text(
-                                    'Go to payment',
-                                    style: TextStyle(
+                                : Text(
+                                    primaryButtonLabel,
+                                    style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -535,9 +1014,99 @@ class _SubscriptionCheckoutScreenState
   }
 }
 
+/// STEP INDICATOR: line horizontal seperti screenshot
+/// STEP INDICATOR: line horizontal seperti screenshot
+class _HorizontalLineStepper extends StatelessWidget {
+  final int currentStep;
+
+  const _HorizontalLineStepper({required this.currentStep});
+
+  @override
+  Widget build(BuildContext context) {
+    final blue = SubscriptionCheckoutScreen._primaryBlue;
+    final grey = Colors.grey.shade400;
+
+    TextStyle labelStyle({required bool isActive, required bool isDone}) {
+      // ✅ step aktif & step yang sudah lewat sama-sama biru
+      final Color color = (isActive || isDone) ? blue : Colors.grey.shade500;
+      final FontWeight weight = isActive ? FontWeight.w700 : FontWeight.w500;
+
+      return TextStyle(fontSize: 14, fontWeight: weight, color: color);
+    }
+
+    Color barColor({required bool isActive, required bool isDone}) {
+      // ✅ bar biru kalau aktif ATAU sudah lewat
+      return (isActive || isDone) ? blue : grey.withOpacity(0.3);
+    }
+
+    Widget _buildStep(String title, int index) {
+      final bool isActive = currentStep == index;
+      final bool isDone = currentStep > index;
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start, // ✅ rata kiri
+        children: [
+          Text(
+            title,
+            style: labelStyle(isActive: isActive, isDone: isDone),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            height: 3,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              color: barColor(isActive: isActive, isDone: isDone),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Deskripsi aktif di bawah judul stepper
+    String description;
+    if (currentStep == 0) {
+      description = 'Choose your premium plan and billing period.';
+    } else {
+      description = 'Review your plan, voucher, and payment method.';
+    }
+
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start, // ✅ deskripsi ikut rata kiri
+      children: [
+        Row(
+          children: [
+            Expanded(child: _buildStep('Choose your plan', 0)),
+            const SizedBox(width: 16),
+            Expanded(child: _buildStep('Payment', 1)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          description,
+          style: const TextStyle(fontSize: 11, color: Colors.black54),
+        ),
+      ],
+    );
+  }
+}
+
 // -------------------------------------------------------------
 // WIDGET: Payment Method Option (radio row)
 // -------------------------------------------------------------
+class _PaymentMethodData {
+  final int value;
+  final String title;
+  final String subtitle;
+
+  const _PaymentMethodData({
+    required this.value,
+    required this.title,
+    required this.subtitle,
+  });
+}
+
 class _PaymentMethodOption extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -615,7 +1184,7 @@ class _PaymentMethodOption extends StatelessWidget {
 }
 
 // -------------------------------------------------------------
-// WIDGET: Plan Card (dipakai untuk pilih Plan & PlanPricing)
+// WIDGET: Plan Card
 // -------------------------------------------------------------
 class _PlanCard extends StatelessWidget {
   final String title;
@@ -624,8 +1193,6 @@ class _PlanCard extends StatelessWidget {
   final VoidCallback? onTap;
   final Color highlightColor;
   final String? badgeText;
-
-  /// kalau false → kartu abu2, tidak bisa di-tap, dan bisa pakai disabledCaption
   final bool enabled;
   final String? disabledCaption;
 
@@ -671,7 +1238,6 @@ class _PlanCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // left text
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -721,7 +1287,6 @@ class _PlanCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            // radio indicator
             Container(
               width: 22,
               height: 22,
@@ -753,17 +1318,24 @@ class _PlanCard extends StatelessWidget {
 }
 
 // -------------------------------------------------------------
-// WIDGET: Plan Summary (pakai plan + pricing terpilih)
+// WIDGET: Plan Summary
 // -------------------------------------------------------------
 class _PlanSummaryTile extends StatelessWidget {
   final PremiumPlan? selectedPlan;
   final PlanPricing? selectedPricing;
   final NumberFormat formatter;
 
+  final int? voucherDiscount;
+  final int? voucherFinalPrice;
+  final String? voucherCode;
+
   const _PlanSummaryTile({
     required this.selectedPlan,
     required this.selectedPricing,
     required this.formatter,
+    this.voucherDiscount,
+    this.voucherFinalPrice,
+    this.voucherCode,
   });
 
   @override
@@ -786,7 +1358,7 @@ class _PlanSummaryTile extends StatelessWidget {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'No plan selected yet. Choose a premium plan and billing period above to see the billing summary.',
+                'No plan selected yet. Choose a premium plan and billing period in Step 1 to see the billing summary.',
                 style: TextStyle(fontSize: 12, color: Colors.black87),
               ),
             ),
@@ -796,7 +1368,8 @@ class _PlanSummaryTile extends StatelessWidget {
     }
 
     final months = selectedPricing!.period;
-    final mainPrice = 'Rp. ${formatter.format(selectedPricing!.price)}';
+    final int originalPrice = selectedPricing!.price;
+    final int effectivePrice = voucherFinalPrice ?? originalPrice;
 
     String periodLabel;
     String titleLabel;
@@ -812,8 +1385,14 @@ class _PlanSummaryTile extends StatelessWidget {
       titleLabel = '$months-month billing selected for ${selectedPlan!.name}';
     }
 
-    final effectiveMonthly = selectedPricing!.price / months;
+    final mainPrice = 'Rp. ${formatter.format(effectivePrice)}';
+    final effectiveMonthly = effectivePrice / months;
     final effectiveText = 'Rp. ${formatter.format(effectiveMonthly.round())}';
+
+    final hasVoucher =
+        voucherDiscount != null &&
+        voucherDiscount! > 0 &&
+        voucherFinalPrice != null;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -851,6 +1430,29 @@ class _PlanSummaryTile extends StatelessWidget {
                   'Effective monthly cost ~ $effectiveText.',
                   style: const TextStyle(fontSize: 11, color: Colors.black54),
                 ),
+                // if (hasVoucher) ...[
+                //   const SizedBox(height: 6),
+                //   Text(
+                //     'Original price: Rp. ${formatter.format(originalPrice)}',
+                //     style: const TextStyle(
+                //       fontSize: 11,
+                //       color: Colors.black54,
+                //       decoration: TextDecoration.lineThrough,
+                //     ),
+                //   ),
+                //   Text(
+                //     'Voucher discount: - Rp. ${formatter.format(voucherDiscount)}',
+                //     style: const TextStyle(fontSize: 11, color: Colors.black87),
+                //   ),
+                //   Text(
+                //     'Total after voucher: Rp. ${formatter.format(voucherFinalPrice)}'
+                //     '${voucherCode != null ? ' (code: $voucherCode)' : ''}',
+                //     style: const TextStyle(
+                //       fontSize: 11,
+                //       fontWeight: FontWeight.w600,
+                //     ),
+                //   ),
+                // ],
               ],
             ),
           ),

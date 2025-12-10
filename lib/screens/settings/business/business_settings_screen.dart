@@ -142,19 +142,17 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
             const SizedBox(height: 8),
 
             // ⬇️ TAMPILKAN MENU "Subscription" HANYA KALAU BUKAN PREMIUM
-            if (!_isPremium) ...[
-              _ListCard(
-                children: [
-                  _MenuTile(
-                    icon: Icons.payment,
-                    title: 'Subscription',
-                    subtitle: 'Manage your business subscription',
-                    onTap: () => Navigator.pushNamed(context, '/subscription'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-            ],
+            _ListCard(
+              children: [
+                _MenuTile(
+                  icon: Icons.payment,
+                  title: 'Subscription',
+                  subtitle: 'Manage your business subscription',
+                  onTap: () => Navigator.pushNamed(context, '/subscription'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
 
             _ListCard(
               children: [

@@ -8,7 +8,8 @@ import 'package:midtrans_sdk/midtrans_sdk.dart';
 
 import '../core/provider_helper.dart';
 import '../models/premium_plan_model.dart';
-import '../services/api_service.dart'; // SESUAIKAN path ApiService
+import '../services/api_service.dart';
+import '../widgets/payment_webview_screen.dart'; // SESUAIKAN path ApiService
 
 // -------------------------------------------------------------
 // ENUM: BillingCycle
@@ -18,6 +19,30 @@ enum BillingCycle { monthly, yearly }
 // -------------------------------------------------------------
 // Helper result Midtrans (hapus kalau kamu sudah punya PaymentResult sendiri)
 // -------------------------------------------------------------
+
+// -------------------------------------------------------------
+// Result cek voucher
+// -------------------------------------------------------------
+class VoucherCheckResult {
+  final bool isValid;
+  final int originalPrice;
+  final int finalPrice;
+  final int discount;
+  final String? voucherName;
+  final String? voucherDesc;
+  final String? message; // isi msg dari backend kalau gagal
+
+  const VoucherCheckResult({
+    required this.isValid,
+    required this.originalPrice,
+    required this.finalPrice,
+    required this.discount,
+    this.voucherName,
+    this.voucherDesc,
+    this.message,
+  });
+}
+
 class PaymentResult {
   final String status;
   final String? transactionId;
@@ -174,6 +199,92 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // CEK VOUCHER (POST /premium/voucher/check)
+  // ---------------------------------------------------------------------------
+  Future<VoucherCheckResult> checkVoucher({
+    required BuildContext context,
+    required String code,
+    required int originalPrice,
+  }) async {
+    const path = '/premium/business/check-voucher';
+
+    try {
+      final payload = {'code': code, 'original_price': originalPrice};
+
+      final res = await ApiService.post(
+        context,
+        path,
+        payload,
+        withAccessToken: true,
+      );
+
+      final raw = res.body;
+      debugPrint(
+        '[SubscriptionProvider] POST $path ◀︎ ${res.statusCode} '
+        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+      );
+
+      Map<String, dynamic>? json;
+      try {
+        json = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        json = null;
+      }
+
+      if (json == null) {
+        return VoucherCheckResult(
+          isValid: false,
+          originalPrice: originalPrice,
+          finalPrice: originalPrice,
+          discount: 0,
+          message: 'Invalid JSON from voucher API',
+        );
+      }
+
+      final status = (json['status'] as num?)?.toInt() ?? 0;
+
+      // ✅ Berhasil
+      if (status == 200) {
+        final op = (json['original_price'] as num?)?.toInt() ?? originalPrice;
+        final fp = (json['final_price'] as num?)?.toInt() ?? op;
+        final disc = (json['discount'] as num?)?.toInt() ?? 0;
+
+        return VoucherCheckResult(
+          isValid: true,
+          originalPrice: op,
+          finalPrice: fp,
+          discount: disc,
+          voucherName: json['voucher_name']?.toString(),
+          voucherDesc: json['voucher_desc']?.toString(),
+        );
+      }
+
+      // ❌ Gagal (contoh: status 400)
+      // kembalikan saja apapun message-nya
+      final msg = json['msg']?.toString() ?? 'Voucher is not valid';
+
+      return VoucherCheckResult(
+        isValid: false,
+        originalPrice: originalPrice,
+        finalPrice: originalPrice,
+        discount: 0,
+        message: msg,
+      );
+    } catch (e, st) {
+      debugPrint('[SubscriptionProvider] checkVoucher error: $e\n$st');
+
+      // Error network / lainnya, tetap bungkus di result supaya UI bisa handle
+      return VoucherCheckResult(
+        isValid: false,
+        originalPrice: originalPrice,
+        finalPrice: originalPrice,
+        discount: 0,
+        message: e.toString(),
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // 1) GET PREMIUM PLAN LIST (GET /premium-plan)
   // ---------------------------------------------------------------------------
   Future<void> fetchPremiumPlans(BuildContext context) async {
@@ -266,6 +377,7 @@ class SubscriptionProvider with ChangeNotifier {
     required String planId,
     required String pricingId,
     int paymentMethod = 2,
+    String voucherCode = '',
   }) async {
     if (_isProcessing) return;
 
@@ -291,6 +403,7 @@ class SubscriptionProvider with ChangeNotifier {
         'business_id': bizId,
         'pricing_id': pricingId, // PlanPricing.id (encrypted di backend)
         'payment_method': paymentMethod,
+        'voucher_code': voucherCode,
       };
 
       final res = await ApiService.post(
@@ -329,29 +442,59 @@ class SubscriptionProvider with ChangeNotifier {
 
       final transactionNumber = json['transaction_number']?.toString() ?? '';
       final paymentToken = json['payment_token']?.toString() ?? '';
+      final paymentLink = json['payment_link']?.toString() ?? '';
+      final paymentMethodFromResponse =
+          (json['payment_method'] as num?)?.toInt() ?? paymentMethod;
 
-      if (transactionNumber.isEmpty || paymentToken.isEmpty) {
-        throw Exception('Invalid upgrade response (no token / transaction id)');
+      if (transactionNumber.isEmpty) {
+        throw Exception('Invalid upgrade response (no transaction number)');
       }
 
       _currentTransactionNumber = transactionNumber;
 
-      // Mulai polling status pembayaran (konfirmasi dari backend)
+      // 🔁 Mulai polling status pembayaran (konfirmasi dari backend)
       _startPaymentStatusPolling(context);
 
-      // Jalankan Midtrans Snap UI
+      // ===========================
+      // 🔸 KHUSUS PAYMENT METHOD 6
+      // ===========================
+      if (paymentMethodFromResponse == 6) {
+        if (paymentLink.isEmpty) {
+          throw Exception(
+            'Invalid upgrade response (no payment link for method 6)',
+          );
+        }
+
+        debugPrint(
+          '[Subscription] Open WebView for payment_method=6: $paymentLink',
+        );
+
+        // Buka halaman WebView, ada tombol "Finish payment" untuk menutup
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => PaymentWebViewScreen(initialUrl: paymentLink),
+            fullscreenDialog: true,
+          ),
+        );
+
+        // ⚠️ Jangan panggil Snap kalau metode 6
+        // Polling tetap jalan, dan kalau sukses akan muncul dialog + redirect ke /splash
+        return;
+      }
+
+      // ===========================
+      // Metode lain tetap pakai Snap
+      // ===========================
+      if (paymentToken.isEmpty) {
+        throw Exception('Invalid upgrade response (no token for Snap)');
+      }
+
       final snapResult = await _startSnap(paymentToken, context);
       debugPrint(
         '🏁 [Subscription] Snap selesai dengan status: ${snapResult?.status}',
       );
 
-      // ⚠️ Tidak langsung navigate di sini.
-      // Redirect ke /splash hanya dilakukan ketika backend mengembalikan status sukses
-      // di _checkPaymentStatus (lebih aman & source of truth).
-      //
-      // Catatan:
-      // - Walaupun Snap bilang "success", keputusan final tetap dari
-      //   /premium/business/payment/check yang kita polling.
+      // Keputusan final tetap dari _checkPaymentStatus (polling backend).
     } catch (e, st) {
       debugPrint('[SubscriptionProvider] goToPayment error: $e\n$st');
       _isProcessing = false;
