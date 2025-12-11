@@ -1356,6 +1356,155 @@ class _InfoBlock extends StatelessWidget {
 class _GridMenu extends StatelessWidget {
   const _GridMenu();
 
+  Future<void> _showStockLockedModal(BuildContext context) async {
+    await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.35),
+      builder: (ctx) {
+        final size = MediaQuery.of(ctx).size;
+        final bool isTablet = size.shortestSide >= 600;
+        final double maxWidth = isTablet ? 420 : size.width;
+
+        return SafeArea(
+          child: Center(
+            child: Container(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.16),
+                    blurRadius: 24,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    Row(
+                      children: const [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: Color(0xFFE0ECFF),
+                          child: Icon(
+                            LucideIcons.gem,
+                            size: 18,
+                            color: Color(0xFF4C6EF5),
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Premium Stock Management',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Get full control over your inventory with real-time stock levels and detailed movement history for every SKU.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: Color(0xFF6B7280),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // 🎠 Carousel poin-poin fitur stock
+                    _PremiumFeatureCarousel(
+                      items: const [
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.box,
+                          title: 'See live stock per SKU',
+                          description:
+                              'Monitor current stock for every variant so you always know what is ready to sell.',
+                        ),
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.activity,
+                          title: 'Track in & out movement',
+                          description:
+                              'Understand exactly when stock goes in from purchases and out from sales.',
+                        ),
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.clipboardList,
+                          title: 'Clean stock history',
+                          description:
+                              'Review stock change history per product to investigate issues or corrections.',
+                        ),
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.alertTriangle,
+                          title: 'Reduce overselling risk',
+                          description:
+                              'Avoid selling products you do not have in stock with better visibility.',
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 22),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4C6EF5),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.of(ctx).pop(true);
+                          Navigator.pushNamed(ctx, '/subscription');
+                        },
+                        child: const Text(
+                          'Upgrade to Premium',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text(
+                          'Maybe later',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _showPurchaseLockedModal(BuildContext context) async {
     await showModalBottomSheet<bool>(
       context: context,
@@ -1389,8 +1538,7 @@ class _GridMenu extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(height: 20),
-                    // icon + title
+                    const SizedBox(height: 8),
                     Row(
                       children: const [
                         CircleAvatar(
@@ -1405,7 +1553,7 @@ class _GridMenu extends StatelessWidget {
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Premium Feature',
+                            'Premium Purchase Module',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
@@ -1417,66 +1565,46 @@ class _GridMenu extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Upgrade to Premium to unlock the Purchase module and manage SKU stock you buy from suppliers in one place.',
+                      'Unlock a smarter way to manage purchases from your suppliers and keep your incoming stock perfectly organized.',
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.4,
                         color: Color(0xFF6B7280),
                       ),
                     ),
-                    const SizedBox(height: 16),
-
-                    // bullet points
-                    const _PremiumPoint(
-                      text:
-                          'Create purchase orders and record what you buy from suppliers.',
-                    ),
-                    const SizedBox(height: 6),
-                    const _PremiumPoint(
-                      text:
-                          'Automatically update SKU stock based on your purchase transactions.',
-                    ),
-                    const SizedBox(height: 6),
-                    const _PremiumPoint(
-                      text:
-                          'See clear history of incoming stock for every SKU.',
-                    ),
                     const SizedBox(height: 18),
 
-                    // preview images – kecil & sebelah-sebelahan
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: AspectRatio(
-                              aspectRatio: 4 / 3, // bikin lebih mungil
-                              child: Image.asset(
-                                'assets/purchase_preview_1.png',
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
+                    // 🎠 Carousel poin-poin fitur
+                    _PremiumFeatureCarousel(
+                      items: const [
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.shoppingBag,
+                          title: 'Record every supplier purchase',
+                          description:
+                              'Create purchase orders and log what you buy from each supplier in one place.',
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: AspectRatio(
-                              aspectRatio: 4 / 3,
-                              child: Image.asset(
-                                'assets/purchase_preview_2.png',
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.database,
+                          title: 'Automatic stock-in',
+                          description:
+                              'Incoming purchases will automatically increase relevant SKU stock quantities.',
+                        ),
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.history,
+                          title: 'Clear incoming stock history',
+                          description:
+                              'See exactly when and from which purchase each batch of stock arrived.',
+                        ),
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.barChart2,
+                          title: 'Better cost visibility',
+                          description:
+                              'Understand how much you spend per product, per supplier, or per period.',
                         ),
                       ],
                     ),
-                    const SizedBox(height: 18),
 
-                    // CTA buttons
+                    const SizedBox(height: 22),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -1532,6 +1660,7 @@ class _GridMenu extends StatelessWidget {
     'Product': 'assets/product_icon.png',
     'Purchase': 'assets/purchase_icon.png',
     'Sale': 'assets/sales_icon.png',
+    'Stock': 'assets/stock_icon.png', // ⬅️ NEW
     // (Store & WA Business DIHAPUS)
   };
 
@@ -1540,6 +1669,7 @@ class _GridMenu extends StatelessWidget {
     'user': '/hr',
     'role': '/hr',
     'product': '/product',
+    'stock': '/stock',
     'product/brand': '/product/brand',
     'product/category': '/product/category',
     'purchase': '/purchase',
@@ -1585,24 +1715,26 @@ class _GridMenu extends StatelessWidget {
     // Prefer routeName kalau ada
     final r = (it.routeName ?? '').toLowerCase();
 
-    // Settings bisa /setting (non-owner) atau /business (owner)
+    // urutan: product, sales, stock, purchase, report, hr, settings
     if (r == '/product') return 0;
     if (r == '/sales') return 1;
-    if (r == '/purchase') return 2;
-    if (r == '/report') return 3;
-    if (r == '/hr') return 4;
-    if (r == '/setting' || r == '/business') return 5;
+    if (r == '/stock') return 2; // ⬅️ NEW
+    if (r == '/purchase') return 3;
+    if (r == '/report') return 4;
+    if (r == '/hr') return 5;
+    if (r == '/setting' || r == '/business') return 6;
 
     // Kalau routeName null, coba deteksi dari pageKeys
     final pages = it.pageKeys.map((e) => e.toLowerCase()).toList();
     if (pages.contains('product')) return 0;
     if (pages.contains('sale')) return 1;
-    if (pages.contains('purchase')) return 2;
-    if (pages.contains('report')) return 3;
+    if (pages.contains('stock')) return 2; // ⬅️ NEW
+    if (pages.contains('purchase')) return 3;
+    if (pages.contains('report')) return 4;
     if (pages.contains('employee') ||
         pages.contains('user') ||
         pages.contains('role')) {
-      return 4;
+      return 5;
     }
 
     // fallback: taruh di belakang settings
@@ -1686,6 +1818,7 @@ class _GridMenu extends StatelessWidget {
               routeName: '/product',
               onTap: () => Navigator.pushNamed(context, '/product'),
             ),
+
             // Sales
             _MenuItemData(
               t.grid_sales,
@@ -1694,7 +1827,19 @@ class _GridMenu extends StatelessWidget {
               routeName: '/sales',
               onTap: () => Navigator.pushNamed(context, '/sales'),
             ),
-            // Purchase
+
+            // ✅ Stock (SETELAH Sales)
+            _MenuItemData(
+              'Stock',
+              'assets/stock_icon.png',
+              pageKeys: const ['stock'],
+              routeName: '/stock',
+              onTap: isBizPremium
+                  ? () => Navigator.pushNamed(context, '/stock')
+                  : () => _showStockLockedModal(context),
+              isPremiumLocked: !isBizPremium,
+            ),
+
             // Purchase
             _MenuItemData(
               t.grid_purchase,
@@ -1715,6 +1860,7 @@ class _GridMenu extends StatelessWidget {
               routeName: '/report',
               onTap: () => Navigator.pushNamed(context, '/report'),
             ),
+
             // HR
             _MenuItemData(
               t.grid_hr,
@@ -1723,7 +1869,8 @@ class _GridMenu extends StatelessWidget {
               routeName: '/hr',
               onTap: () => Navigator.pushNamed(context, '/hr'),
             ),
-            // Settings (owner masih ke /business sesuai implementasi awal)
+
+            // Settings (owner masih ke /business)
             _MenuItemData(
               t.grid_setting,
               'assets/setting_icon.png',
@@ -1792,6 +1939,27 @@ class _GridMenu extends StatelessWidget {
               ? role.can(routeName)
               : false;
           if (!allowByPage && !allowByRoute) continue;
+
+          // STOCK: kalau bisnis belum premium → tampil, tapi dikunci
+          final hasStockPage = pages.any((p) => p.toLowerCase() == 'stock');
+          if (!isBizPremium && hasStockPage) {
+            final alreadyAdded = items.any(
+              (it) => (it.routeName ?? '').toLowerCase() == '/stock',
+            );
+            if (!alreadyAdded) {
+              items.add(
+                _MenuItemData(
+                  'Stock',
+                  'assets/stock_icon.png',
+                  pageKeys: pages,
+                  routeName: '/stock',
+                  onTap: () => _showStockLockedModal(context),
+                  isPremiumLocked: true,
+                ),
+              );
+            }
+            continue;
+          }
 
           // PURCHASE: kalau bisnis belum premium → tampil, tapi dikunci
           final hasPurchasePage = pages.any(
@@ -1897,6 +2065,205 @@ class _PremiumPoint extends StatelessWidget {
               color: Color(0xFF4B5563),
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PremiumFeatureItem {
+  final IconData icon;
+  final String title;
+  final String description;
+
+  const _PremiumFeatureItem({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+}
+
+class _PremiumFeatureCard extends StatelessWidget {
+  final _PremiumFeatureItem item;
+  final double scale;
+  final double opacity;
+
+  const _PremiumFeatureCard({
+    required this.item,
+    required this.scale,
+    required this.opacity,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: opacity,
+      child: Transform.scale(
+        scale: scale,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.10),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Icon bulat di atas
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0ECFF),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    item.icon,
+                    size: 26,
+                    color: const Color(0xFF4C6EF5),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Title
+                Text(
+                  item.title,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Description
+                Text(
+                  item.description,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: Color(0xFF4B5563),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PremiumFeatureCarousel extends StatefulWidget {
+  final List<_PremiumFeatureItem> items;
+
+  const _PremiumFeatureCarousel({required this.items});
+
+  @override
+  State<_PremiumFeatureCarousel> createState() =>
+      _PremiumFeatureCarouselState();
+}
+
+class _PremiumFeatureCarouselState extends State<_PremiumFeatureCarousel> {
+  late final PageController _controller;
+  double _currentPage = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController(viewportFraction: 0.72);
+    _controller.addListener(() {
+      setState(() {
+        _currentPage = _controller.page ?? 0.0;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.items.isEmpty) return const SizedBox.shrink();
+
+    final int currentIndex = _currentPage.round().clamp(
+      0,
+      widget.items.length - 1,
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 240,
+          child: PageView.builder(
+            controller: _controller,
+            itemCount: widget.items.length,
+            physics: const BouncingScrollPhysics(),
+            itemBuilder: (context, index) {
+              final item = widget.items[index];
+
+              // Hitung jarak dari center page
+              final double distance = (index - _currentPage).abs();
+
+              // scale: center = 1.0, samping ≈ 0.88
+              final double scale = (1 - (distance * 0.14)).clamp(0.86, 1.0);
+
+              // opacity: center = 1, samping ≈ 0.6
+              final double opacity = (1 - (distance * 0.35)).clamp(0.55, 1.0);
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: _PremiumFeatureCard(
+                  item: item,
+                  scale: scale,
+                  opacity: opacity,
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // DOT indicator
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(widget.items.length, (i) {
+            final bool active = i == currentIndex;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: active ? 16 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: active
+                    ? const Color(0xFF4C6EF5)
+                    : const Color(0xFFD1D5DB),
+                borderRadius: BorderRadius.circular(99),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Swipe to see more features',
+          style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
         ),
       ],
     );
@@ -2717,9 +3084,10 @@ class _MenuTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isLocked = data.isPremiumLocked;
-    // ✅ Hanya tile dengan route /purchase yang punya diamond
-    final bool isPurchaseTile =
-        (data.routeName ?? '').toLowerCase() == '/purchase';
+
+    final String route = (data.routeName ?? '').toLowerCase();
+    // 💎 Diamond untuk PURCHASE dan STOCK
+    final bool hasDiamond = route == '/purchase' || route == '/stock';
 
     return Column(
       children: [
@@ -2731,7 +3099,7 @@ class _MenuTile extends StatelessWidget {
             children: [
               InkWell(
                 borderRadius: BorderRadius.circular(12),
-                onTap: data.onTap, // non-premium: modal, premium: ke /purchase
+                onTap: data.onTap, // non-premium: modal, premium: ke route
                 child: Opacity(
                   opacity: isLocked ? 0.4 : 1.0,
                   child: ClipRRect(
@@ -2751,8 +3119,8 @@ class _MenuTile extends StatelessWidget {
                 ),
               ),
 
-              // 💎 DIAMOND SELALU ADA UNTUK PURCHASE (premium / non-premium)
-              if (isPurchaseTile)
+              // 💎 DIAMOND SELALU ADA UNTUK PURCHASE & STOCK
+              if (hasDiamond)
                 Positioned(
                   top: 6,
                   left: 6,
@@ -2765,10 +3133,7 @@ class _MenuTile extends StatelessWidget {
                       gradient: const LinearGradient(
                         begin: Alignment.centerLeft,
                         end: Alignment.centerRight,
-                        colors: [
-                          Color(0xFF6366F1), // ungu / indigo
-                          Color(0xFF22C55E), // hijau kebiruan
-                        ],
+                        colors: [Color(0xFF6366F1), Color(0xFF22C55E)],
                       ),
                       borderRadius: BorderRadius.circular(999),
                       boxShadow: [

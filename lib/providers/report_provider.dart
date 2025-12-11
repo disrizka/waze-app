@@ -176,9 +176,12 @@ class ReportProviderV2 with ChangeNotifier {
   String? _activeBizId;
 
   Future<void> _ensureActiveBizId() async {
-    if (_activeBizId != null && _activeBizId!.isNotEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     _activeBizId = (prefs.getString('activeBizId') ?? '').trim();
+
+    if (kDebugMode) {
+      debugPrint('[ReportProviderV2] activeBizId = $_activeBizId');
+    }
   }
 
   // Panggil ini setelah user ganti business (opsional, biar instant sinkron)

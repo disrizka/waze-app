@@ -18,6 +18,7 @@ import 'package:wa_blast/providers/change_password_provider.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
+import 'package:wa_blast/providers/stock_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/providers/subscription_provider.dart';
 import 'package:wa_blast/screens/change_password_screen.dart';
@@ -26,7 +27,10 @@ import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.
 import 'package:wa_blast/screens/hr/employee_list_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
+import 'package:wa_blast/screens/inventory/add_initial_stock_screen.dart';
+import 'package:wa_blast/screens/inventory/initial_stock_screen.dart';
 import 'package:wa_blast/screens/inventory/inventory_screen.dart';
+import 'package:wa_blast/screens/inventory/manage_stock_screen.dart';
 import 'package:wa_blast/screens/inventory/product_stock_history.dart';
 import 'package:wa_blast/screens/report/manage_report_screen.dart';
 import 'package:wa_blast/screens/notification_detail_list.dart';
@@ -46,6 +50,7 @@ import 'package:wa_blast/screens/settings/business/business_edit_screen.dart';
 import 'package:wa_blast/screens/settings/business/business_settings_screen.dart';
 import 'package:wa_blast/screens/settings/thermal_printer_setting.dart';
 import 'package:wa_blast/screens/store_list_screen.dart';
+import 'package:wa_blast/screens/subscription/subscription_checkout_history_screen.dart';
 import 'package:wa_blast/screens/subscription/subscription_screen.dart';
 import 'package:wa_blast/services/deep_link_service.dart';
 import 'firebase_options.dart';
@@ -168,6 +173,7 @@ class _AppShell extends StatelessWidget {
           create: (_) => NotificationProvider(),
           lazy: true,
         ),
+        ChangeNotifierProvider(create: (_) => StockProvider(), lazy: true),
       ],
       child: const _Bootstrapper(child: MyApp()),
     );
@@ -465,14 +471,35 @@ class MyApp extends StatelessWidget {
               android: AndroidTransition.slideRight,
             );
 
-          case '/product/inventory':
+          case '/stock':
+            return _platformRouteAnimated(
+              settings,
+              const ManageStockScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/stock/initial-stock':
+            return _platformRouteAnimated(
+              settings,
+              const StockScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/stock/initial-stock/add':
+            return _platformRouteAnimated(
+              settings,
+              const AddInitialStockPage(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/stock/inventory':
             return _platformRouteAnimated(
               settings,
               const InventoryScreen(),
               android: AndroidTransition.slideRight,
             );
 
-          case '/product/inventory/detail':
+          case '/stock/inventory/detail':
             {
               final args = settings.arguments as ProductStockHistoryArgs?;
 
@@ -712,6 +739,13 @@ class MyApp extends StatelessWidget {
             return _platformRouteAnimated(
               settings,
               const SubscriptionScreen(),
+              android: AndroidTransition.slideRight,
+            );
+
+          case '/subscription/history':
+            return _platformRouteAnimated(
+              settings,
+              const SubscriptionCheckoutHistoryScreen(),
               android: AndroidTransition.slideRight,
             );
 

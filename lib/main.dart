@@ -7,7 +7,7 @@ void main() {
 
   final base = flavor == Flavor.prod
       ? 'https://wave-api.eon.id'
-      : 'https://wave-api.eon.id';
+      : 'https://api.wave.id';
 
   Env.setup(flavor: flavor, apiBaseUrl: base);
   Env.debugPrintEnv(' @main');
