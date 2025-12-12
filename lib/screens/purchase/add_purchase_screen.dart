@@ -1,5 +1,5 @@
 // ===============================
-// Add Purchase PAGE (full screen)
+// Add Purchase PAGE (3-step)
 // ===============================
 import 'dart:ui';
 
@@ -17,22 +17,24 @@ class _PurchaseRow {
   final String productId;
   final String skuId;
   final String productName;
-  final String skuLabel; // <-- NEW: nama SKU (atau fallback ke kode)
-  final String? imageUrl; // <-- NEW: gambar SKU (opsional)
+  final String skuLabel; // nama SKU / kode
+  final String? imageUrl;
   final int price; // harga unit asli (SKU)
   int qty;
   int discountPerItem; // diskon per item (IDR)
+
   int get unitPriceAfterDisc =>
-      (price - discountPerItem).clamp(0, 1 << 31).toInt(); // ← add .toInt()
+      (price - discountPerItem).clamp(0, 1 << 31).toInt();
+
   int get lineTotal => unitPriceAfterDisc * qty;
 
   _PurchaseRow({
     required this.productId,
     required this.skuId,
     required this.productName,
-    required this.skuLabel, // <-- NEW (wajib)
+    required this.skuLabel,
     required this.price,
-    this.imageUrl, // <-- NEW (opsional)
+    this.imageUrl,
     this.qty = 1,
     this.discountPerItem = 0,
   });
@@ -49,17 +51,25 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
   final _formKey = GlobalKey<FormState>();
   bool _submitting = false;
 
+  /// 0 = Details, 1 = Items, 2 = Review
+  int _currentStep = 0;
+
   // meta fields
   final _numberC = TextEditingController(); // optional
   final _referenceC = TextEditingController(text: '');
   final _noteC = TextEditingController();
   final _discountOrderC = TextEditingController(text: '0');
   final _shippingFeeC = TextEditingController(text: '0');
+
   int get _orderDiscount => int.tryParse(_discountOrderC.text.trim()) ?? 0;
   int get _shippingFee => int.tryParse(_shippingFeeC.text.trim()) ?? 0;
 
   String? _storeId;
   String _storeName = '';
+
+  // Supplier
+  String? _supplierId;
+  String _supplierName = '';
 
   // items
   final Map<String, _PurchaseRow> _rows = {}; // key: skuId
@@ -99,12 +109,35 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
     return 'REF-$six';
   }
 
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _goToStep(int step) {
+    setState(() {
+      _currentStep = step.clamp(0, 2);
+    });
+  }
+
   Future<void> _pickStore() async {
     final picked = await showStorePickerSheet(context, selectedId: _storeId);
     if (picked != null && mounted) {
       setState(() {
         _storeId = picked.id;
         _storeName = picked.label;
+      });
+    }
+  }
+
+  Future<void> _pickSupplier() async {
+    final picked = await showSupplierPickerSheet(
+      context,
+      selectedId: _supplierId,
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _supplierId = picked.id;
+        _supplierName = picked.label;
       });
     }
   }
@@ -160,7 +193,7 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: Colors.transparent, // ← biar bisa center di iPad
+      backgroundColor: Colors.transparent,
       builder: (_) => ChangeNotifierProvider.value(
         value: context.read<ProductProvider>(),
         child: _CenteredConstrainedSheet(
@@ -196,12 +229,13 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
 
   Map<String, dynamic> _buildPayload() {
     return {
-      "number": _numberC.text.trim(),
+      "number": _numberC.text.trim(), // optional
       "store_location_id": _storeId,
+      "supplier_id": _supplierId,
       "note": _noteC.text.trim(),
       "reference": _referenceC.text.trim(),
       "discount": _orderDiscount,
-      "shipping_fee": 0,
+      "shipping_fee": _shippingFee,
       "items": _rows.values
           .where((r) => r.qty > 0)
           .map(
@@ -209,8 +243,8 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
               "product_id": r.productId,
               "product_sku_id": r.skuId,
               "qty": r.qty,
-              "price": r.unitPriceAfterDisc,
               "discount": r.discountPerItem,
+              "price": r.unitPriceAfterDisc,
             },
           )
           .toList(),
@@ -219,15 +253,15 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
 
   Future<void> _submit() async {
     if (_rows.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Tambahkan minimal 1 SKU')));
+      _showSnack('Tambahkan minimal 1 SKU');
       return;
     }
     if (_storeId == null || _storeId!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pilih store location dulu')),
-      );
+      _showSnack('Pilih store location dulu');
+      return;
+    }
+    if (_supplierId == null || _supplierId!.isEmpty) {
+      _showSnack('Pilih supplier dulu');
       return;
     }
     if (_formKey.currentState?.validate() != true) return;
@@ -253,9 +287,35 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
     }
   }
 
+  // ====== STEP FLOW HANDLERS ======
+
+  void _nextFromDetails() {
+    if (_storeId == null || _storeId!.isEmpty) {
+      _showSnack('Pilih store location dulu');
+      return;
+    }
+    if (_supplierId == null || _supplierId!.isEmpty) {
+      _showSnack('Pilih supplier dulu');
+      return;
+    }
+    _goToStep(1);
+  }
+
+  void _nextFromItems() {
+    if (_rows.isEmpty) {
+      _showSnack('Tambahkan minimal 1 SKU');
+      return;
+    }
+    _goToStep(2);
+  }
+
+  // ====== UI BUILD ======
+
   @override
   Widget build(BuildContext context) {
     final hasItems = _rows.isNotEmpty;
+    final canSubmit =
+        hasItems && _storeId != null && _supplierId != null && !_submitting;
 
     return Scaffold(
       backgroundColor: UI.bg,
@@ -265,13 +325,24 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
         scrolledUnderElevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.maybePop(context),
+          onPressed: () {
+            if (_currentStep > 0) {
+              // Kalau lagi di step 2 atau 3 → mundur 1 step dulu
+              setState(() {
+                _currentStep -= 1;
+              });
+            } else {
+              // Kalau sudah di step pertama → baru benar-benar back screen
+              Navigator.maybePop(context);
+            }
+          },
         ),
-        // 🆕 Judul alami: "Purchase  /create"
         title: Row(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
+          crossAxisAlignment:
+              CrossAxisAlignment.baseline, // ⬅️ ini pakai CrossAxisAlignment
+          textBaseline:
+              TextBaseline.alphabetic, // ⬅️ ini baru pakai TextBaseline
           children: const [
             Text('Purchase', style: TextStyle(fontWeight: FontWeight.w800)),
             SizedBox(width: 8),
@@ -286,6 +357,7 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
             ),
           ],
         ),
+
         centerTitle: false,
       ),
 
@@ -296,119 +368,279 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
             constraints: BoxConstraints(maxWidth: _maxContentWidth),
             child: Column(
               children: [
-                // --- Items ---
-                Expanded(
-                  child: ListView(
-                    children: [
-                      _Section(
-                        titleWidget: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Items',
-                              style: TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            TextButton.icon(
-                              onPressed: _openSkuPicker,
-                              icon: const Icon(Icons.add_rounded, size: 18),
-                              label: const Text('Add SKU'),
-                              style: TextButton.styleFrom(
-                                foregroundColor: UI.blue,
-                              ),
-                            ),
-                          ],
-                        ),
-                        child: (_rows.isEmpty)
-                            ? _emptyItemsHint()
-                            : _ItemsDataTable(
-                                rows: _rows.values.toList(),
-                                orderDiscPerUnit: _allocOrderDiscountPerUnit(),
-                                onDiscountChanged: (skuId, value) =>
-                                    setState(() {
-                                      _rows[skuId]!.discountPerItem = value
-                                          .clamp(0, 1 << 31);
-                                    }),
-                                onRemove: (skuId) =>
-                                    setState(() => _rows.remove(skuId)),
-                                onQtyChanged: (skuId, nextQty) => setState(() {
-                                  if (nextQty <= 0) {
-                                    _rows.remove(skuId);
-                                  } else {
-                                    final row = _rows[skuId];
-                                    if (row != null) {
-                                      _rows[skuId] = row..qty = nextQty;
-                                    }
-                                  }
-                                }),
-                              ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // --- Details ---
-                      _Section(
-                        title: 'Purchase details',
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            children: [
-                              const SizedBox(height: 12),
-                              _LabeledField(
-                                label: 'Store location',
-                                child: PickerField(
-                                  placeholder: 'Select store location',
-                                  value: _storeName,
-                                  onTap: _pickStore,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              _LabeledField(
-                                label: 'Note',
-                                child: TextFormField(
-                                  controller: _noteC,
-                                  maxLines: 2,
-                                  decoration: UI.input('Pembelian stok awal…'),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              _LabeledField(
-                                label: 'Discount (order, IDR)',
-                                child: TextFormField(
-                                  controller: _discountOrderC,
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  decoration: UI.input('0'),
-                                  onChanged: (_) => setState(() {}),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                  ),
+                // Stepper horizontal
+                _PurchaseStepper(
+                  currentStep: _currentStep,
+                  onStepTap: (step) {
+                    // boleh lompat ke step sebelumnya
+                    if (step < _currentStep) {
+                      _goToStep(step);
+                    }
+                  },
                 ),
+                const SizedBox(height: 8),
 
-                // --- Sticky footer ---
-                Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: _maxContentWidth),
-                    child: _StickyFooterBar(
-                      subtotal: _subtotalItems,
-                      discount: _orderDiscount,
-                      grandTotal: _grandTotal,
-                      enabled: hasItems && _storeId != null && !_submitting,
-                      onSubmit: _submit,
-                      onCancel: () => Navigator.maybePop(context),
+                // Konten per step
+                Expanded(
+                  child: Form(
+                    key: _formKey,
+                    child: ListView(
+                      children: [
+                        _buildStepContent(),
+                        const SizedBox(height: 16),
+                      ],
                     ),
                   ),
                 ),
+
+                // Footer per step
+                if (_currentStep == 0)
+                  _StepNavBar(
+                    secondaryLabel: 'Cancel',
+                    primaryLabel: 'Next: Items',
+                    primaryEnabled:
+                        _storeId != null && _supplierId != null && !_submitting,
+                    onSecondary: () => Navigator.maybePop(context),
+                    onPrimary: _nextFromDetails,
+                  )
+                else if (_currentStep == 1)
+                  _StepNavBar(
+                    secondaryLabel: 'Back',
+                    primaryLabel: 'Next: Review',
+                    primaryEnabled: hasItems && !_submitting,
+                    onSecondary: () => _goToStep(0),
+                    onPrimary: _nextFromItems,
+                  )
+                else
+                  _StickyFooterBar(
+                    subtotal: _subtotalItems,
+                    discount: _orderDiscount,
+                    grandTotal: _grandTotal,
+                    enabled: canSubmit,
+                    onSubmit: _submit,
+                    onCancel: () => _goToStep(1),
+                  ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStepContent() {
+    switch (_currentStep) {
+      case 0:
+        return _buildDetailsStep();
+      case 1:
+        return _buildItemsStep();
+      case 2:
+      default:
+        return _buildReviewStep();
+    }
+  }
+
+  // STEP 1: Purchase details (tanpa note & discount)
+  Widget _buildDetailsStep() {
+    return _Section(
+      title: 'Purchase details',
+      child: Column(
+        children: [
+          const SizedBox(height: 12),
+          _LabeledField(
+            label: 'Store location',
+            child: PickerField(
+              placeholder: 'Select store location',
+              value: _storeName,
+              onTap: _pickStore,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _LabeledField(
+            label: 'Supplier',
+            child: PickerField(
+              placeholder: 'Select supplier',
+              value: _supplierName,
+              onTap: _pickSupplier,
+            ),
+          ),
+          const SizedBox(height: 12),
+          // _LabeledField(
+          //   label: 'Reference (optional)',
+          //   child: TextFormField(
+          //     controller: _referenceC,
+          //     decoration: UI.input('Auto-generated if empty'),
+          //   ),
+          // ),
+          // const SizedBox(height: 12),
+          // _LabeledField(
+          //   label: 'Custom number (optional)',
+          //   child: TextFormField(
+          //     controller: _numberC,
+          //     decoration: UI.input('Leave empty to auto-number'),
+          //   ),
+          // ),
+        ],
+      ),
+    );
+  }
+
+  // STEP 2: Items
+  Widget _buildItemsStep() {
+    return _Section(
+      titleWidget: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text('Items', style: TextStyle(fontWeight: FontWeight.w800)),
+          TextButton.icon(
+            onPressed: _openSkuPicker,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Add SKU'),
+            style: TextButton.styleFrom(foregroundColor: UI.blue),
+          ),
+        ],
+      ),
+      child: (_rows.isEmpty)
+          ? _emptyItemsHint()
+          : _ItemsDataTable(
+              rows: _rows.values.toList(),
+              orderDiscPerUnit: _allocOrderDiscountPerUnit(),
+              onDiscountChanged: (skuId, value) => setState(() {
+                _rows[skuId]!.discountPerItem = value.clamp(0, 1 << 31);
+              }),
+              onRemove: (skuId) => setState(() => _rows.remove(skuId)),
+              onQtyChanged: (skuId, nextQty) => setState(() {
+                if (nextQty <= 0) {
+                  _rows.remove(skuId);
+                } else {
+                  final row = _rows[skuId];
+                  if (row != null) {
+                    _rows[skuId] = row..qty = nextQty;
+                  }
+                }
+              }),
+            ),
+    );
+  }
+
+  // STEP 3: Note + discount + penjelasan total
+  Widget _buildReviewStep() {
+    final money = NumberFormat.decimalPattern('id_ID');
+    final totalQty = _rows.values.fold<int>(0, (sum, r) => sum + r.qty);
+
+    return Column(
+      children: [
+        _Section(
+          title: 'Order summary',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _summaryRow(
+                'Store location',
+                _storeName.isEmpty ? '—' : _storeName,
+              ),
+              const SizedBox(height: 4),
+              _summaryRow(
+                'Supplier',
+                _supplierName.isEmpty ? '—' : _supplierName,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Items: ${_rows.length} SKU • $totalQty pcs',
+                style: const TextStyle(color: UI.sub, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _Section(
+          title: 'Note & discount',
+          child: Column(
+            children: [
+              _LabeledField(
+                label: 'Note',
+                child: TextFormField(
+                  controller: _noteC,
+                  maxLines: 2,
+                  decoration: UI.input('Pembelian stok awal…'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _LabeledField(
+                label: 'Discount (order, IDR)',
+                child: TextFormField(
+                  controller: _discountOrderC,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: UI.input('0'),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // _Section(
+        //   title: 'Final total',
+        //   child: Column(
+        //     crossAxisAlignment: CrossAxisAlignment.start,
+        //     children: [
+        //       _summaryRow(
+        //         'Subtotal items',
+        //         'Rp ${money.format(_subtotalItems)}',
+        //       ),
+        //       _summaryRow(
+        //         'Order discount',
+        //         '- Rp ${money.format(_orderDiscount)}',
+        //       ),
+        //       _summaryRow('Shipping fee', 'Rp ${money.format(_shippingFee)}'),
+        //       const Divider(height: 18),
+        //       Row(
+        //         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        //         children: [
+        //           const Text(
+        //             'Total to be paid',
+        //             style: TextStyle(
+        //               fontWeight: FontWeight.w800,
+        //               color: UI.text,
+        //             ),
+        //           ),
+        //           Text(
+        //             'Rp ${money.format(_grandTotal)}',
+        //             style: const TextStyle(
+        //               fontWeight: FontWeight.w800,
+        //               color: UI.text,
+        //             ),
+        //           ),
+        //         ],
+        //       ),
+        //     ],
+        //   ),
+        // ),
+      ],
+    );
+  }
+
+  Widget _summaryRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: UI.sub, fontSize: 12)),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: UI.text,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -438,7 +670,7 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Purchase Created',
-      barrierColor: Colors.black.withOpacity(0.2), // gelapkan sedikit
+      barrierColor: Colors.black.withOpacity(0.2),
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (context, animation, secondaryAnimation) {
         final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
@@ -447,7 +679,7 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
             : MediaQuery.of(context).size.width * 0.86;
 
         return BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6), // <<< BLUR BACKGROUND
+          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
           child: Center(
             child: Material(
               color: Colors.transparent,
@@ -511,7 +743,6 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
                           ),
                         ),
                         onPressed: () {
-                          // Langsung arahkan ke /purchase/list
                           Navigator.of(context).pushNamedAndRemoveUntil(
                             '/purchase/list',
                             (route) => false,
@@ -541,10 +772,189 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
           opacity: fade,
           child: ScaleTransition(
             scale: Tween<double>(begin: .98, end: 1.0).animate(scale),
-            child: child, // <- penting: gunakan child dari parameter ke-4
+            child: child,
           ),
         );
       },
+    );
+  }
+}
+
+/// Top stepper: garis 3 segmen seperti contoh
+class _PurchaseStepper extends StatelessWidget {
+  final int currentStep; // 0..2
+  final void Function(int step)? onStepTap;
+
+  const _PurchaseStepper({required this.currentStep, this.onStepTap});
+
+  @override
+  Widget build(BuildContext context) {
+    const totalSteps = 3;
+    const titles = ['Details', 'Items', 'Review'];
+    const subtitles = ['Store & supplier', 'Add SKU items', 'Note & total'];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ===== LINE STEPPER =====
+        SizedBox(
+          height: 8,
+          child: Row(
+            children: List.generate(totalSteps, (index) {
+              final baseColor = const Color(0xFFE5E7EB);
+              final bool isPast = index < currentStep;
+              final bool isCurrent = index == currentStep;
+
+              BoxDecoration deco;
+
+              if (isPast) {
+                // step yang sudah lewat → full biru lembut
+                deco = BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [UI.blue, UI.blue.withOpacity(0.4)],
+                  ),
+                  borderRadius: BorderRadius.circular(999),
+                );
+              } else if (isCurrent) {
+                // step aktif → biru → abu, seperti progres yang memudar
+                deco = BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [UI.blue, baseColor],
+                  ),
+                  borderRadius: BorderRadius.circular(999),
+                );
+              } else {
+                // step berikutnya → abu-abu
+                deco = BoxDecoration(
+                  color: baseColor,
+                  borderRadius: BorderRadius.circular(999),
+                );
+              }
+
+              return Expanded(
+                child: GestureDetector(
+                  onTap: onStepTap != null ? () => onStepTap!(index) : null,
+                  child: Container(
+                    margin: EdgeInsets.only(left: index == 0 ? 0 : 8),
+                    decoration: deco,
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // ===== LABEL STEP (judul + deskripsi, rata kiri) =====
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: List.generate(totalSteps, (index) {
+            final isActive = index <= currentStep;
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      titles[index],
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: isActive ? UI.text : UI.sub,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitles[index],
+                      style: const TextStyle(fontSize: 11, color: UI.sub),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+}
+
+/// Footer navigasi untuk step 1 & 2 (Cancel/Back + Next)
+class _StepNavBar extends StatelessWidget {
+  final String secondaryLabel;
+  final String primaryLabel;
+  final bool primaryEnabled;
+  final VoidCallback onSecondary;
+  final VoidCallback onPrimary;
+
+  const _StepNavBar({
+    required this.secondaryLabel,
+    required this.primaryLabel,
+    required this.primaryEnabled,
+    required this.onSecondary,
+    required this.onPrimary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: UI.line)),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 12,
+            offset: Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: onSecondary,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: UI.sub,
+                  side: const BorderSide(color: UI.line),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: Text(secondaryLabel),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed: primaryEnabled ? onPrimary : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: UI.blue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: Text(
+                  primaryLabel,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

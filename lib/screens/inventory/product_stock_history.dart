@@ -64,7 +64,8 @@ class _ProductSkuStockHistoryScreenState
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 2, vsync: this);
+    // 🔹 Sekarang ada 3 tab: All, Sales, Purchases
+    _tab = TabController(length: 3, vsync: this);
 
     _activeSkuId =
         widget.initialSkuId ??
@@ -223,6 +224,19 @@ class _ProductSkuStockHistoryScreenState
     final sales = buckets?.sales ?? const <InventoryHistoryItem>[];
     final purchases = buckets?.purchases ?? const <InventoryHistoryItem>[];
 
+    // 🔹 List "All" = gabungan sales + purchases
+    final allItems = <InventoryHistoryItem>[...sales, ...purchases]
+      ..sort((a, b) {
+        final aDt = a.createdAt.isAfter(a.updatedAt)
+            ? a.createdAt
+            : a.updatedAt;
+        final bDt = b.createdAt.isAfter(b.updatedAt)
+            ? b.createdAt
+            : b.updatedAt;
+        // terbaru di atas
+        return bDt.compareTo(aDt);
+      });
+
     return Scaffold(
       backgroundColor: AppColors.white,
       appBar: AppBar(
@@ -231,19 +245,10 @@ class _ProductSkuStockHistoryScreenState
         titleSpacing: 0,
         backgroundColor: Colors.transparent,
         foregroundColor: AppColors.textPrimary,
-        title: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start, // ⬅️ rata kiri
-          children: [
-            const Text(
-              'Stock History',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 20),
-            ),
-            Text(
-              widget.productName,
-              style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-            ),
-          ],
+        // 🔹 Hanya judul, tanpa nama produk (nama produk dipindah ke hero band)
+        title: const Text(
+          'Stock History',
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 20),
         ),
       ),
       body: SafeArea(
@@ -296,53 +301,23 @@ class _ProductSkuStockHistoryScreenState
               ),
             ),
 
-            // === HERO BAND ===
+            // === HERO BAND (sekarang ada productName di dalam) ===
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
               child: _HeroBand(
+                productName: widget.productName,
                 skuCode: skuCode.isEmpty ? 'SKU' : skuCode,
                 priceLabel: priceLabel,
                 storeName: storeName,
-                lastUpdated: lastUpdated != null
-                    ? _dateFmt.format(lastUpdated.toLocal())
-                    : '-',
-                // currentStock: currentStock,
               ),
             ),
 
-            // === METRICS GRID ===
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: GridView.count(
-                crossAxisCount: 2,
-                childAspectRatio: 2.7,
-                shrinkWrap: true,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  // _metricTile(
-                  //   'Current Stock',
-                  //   currentStock,
-                  //   icon: Icons.inventory_2_outlined,
-                  // ),
-                  _metricTile(
-                    'SKU',
-                    skuCode.isEmpty ? 'SKU' : skuCode,
-                    icon: Icons.confirmation_number,
-                  ),
-                  _metricTile('Price', priceLabel, icon: Icons.sell_outlined),
-                  // _metricTile('Store', storeName, icon: Icons.storefront),
-                ],
-              ),
-            ),
-
-            // === TABS ===
+            // === TABS (All, Sales, Purchases) ===
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
               child: _PillTabs(
                 controller: _tab,
-                tabs: const ['Sales', 'Purchases'],
+                tabs: const ['All', 'Out', 'In'],
               ),
             ),
 
@@ -358,6 +333,22 @@ class _ProductSkuStockHistoryScreenState
                 child: TabBarView(
                   controller: _tab,
                   children: [
+                    // 🔹 TAB "All" = gabungan
+                    _HistoryPane(
+                      items: allItems,
+                      loading: loading && allItems.isEmpty,
+                      errorText: err?.toString(),
+                      dateFmt: _dateFmt,
+                      qtyChip: _qtyChip,
+                      fallName: storeName,
+                      isSaleList: false, // cuma default behaviour
+                      onRetry: () => prov.fetchSkuInventoryHistory(
+                        context: context,
+                        idProductSKU: activeSkuId,
+                      ),
+                    ),
+
+                    // 🔹 TAB "Sales"
                     _HistoryPane(
                       items: sales,
                       loading: loading && sales.isEmpty,
@@ -371,6 +362,8 @@ class _ProductSkuStockHistoryScreenState
                         idProductSKU: activeSkuId,
                       ),
                     ),
+
+                    // 🔹 TAB "Purchases"
                     _HistoryPane(
                       items: purchases,
                       loading: loading && purchases.isEmpty,
@@ -620,16 +613,16 @@ class _HistoryCard extends StatelessWidget {
 
 class _HeroBand extends StatelessWidget {
   const _HeroBand({
+    required this.productName,
     required this.skuCode,
     required this.priceLabel,
     required this.storeName,
-    required this.lastUpdated,
   });
 
+  final String productName;
   final String skuCode;
   final String priceLabel;
   final String storeName;
-  final String lastUpdated;
 
   @override
   Widget build(BuildContext context) {
@@ -647,7 +640,7 @@ class _HeroBand extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Avatar SKU
+          // Avatar SKU / Product
           Container(
             width: 52,
             height: 52,
@@ -657,50 +650,40 @@ class _HeroBand extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: const Icon(
-              Icons.qr_code_2,
+              Icons.inventory_2_rounded,
               size: 26,
               color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(width: 14),
-          // Info
+          // Info utama
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 🔹 Nama produk (dipindah dari AppBar)
                 Text(
-                  skuCode.isEmpty ? 'SKU' : skuCode,
+                  productName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w900,
-                    fontSize: 18,
+                    fontSize: 17,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.update,
-                      size: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        'Last: $lastUpdated',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 4),
+                Text(
+                  skuCode.isEmpty ? 'SKU' : skuCode,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 if (priceLabel.isNotEmpty && priceLabel != '-')
                   Text(
                     priceLabel,
@@ -716,35 +699,30 @@ class _HeroBand extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 14),
-          // Current stock badge
-          // Container(
-          //   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          //   decoration: BoxDecoration(
-          //     color: AppColors.primaryDark,
-          //     borderRadius: BorderRadius.circular(12),
-          //   ),
-          //   child: Column(
-          //     children: [
-          //       const Text(
-          //         'Stock',
-          //         style: TextStyle(
-          //           color: Colors.white70,
-          //           fontSize: 11,
-          //           fontWeight: FontWeight.w600,
-          //         ),
-          //       ),
-          //       const SizedBox(height: 2),
-          //       Text(
-          //         currentStock,
-          //         style: const TextStyle(
-          //           color: AppColors.white,
-          //           fontWeight: FontWeight.w900,
-          //           fontSize: 16,
-          //         ),
-          //       ),
-          //     ],
-          //   ),
-          // ),
+          // Optional: store name
+          if (storeName.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                const Icon(
+                  Icons.store_mall_directory_rounded,
+                  size: 18,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  storeName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );

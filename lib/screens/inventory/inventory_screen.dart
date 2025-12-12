@@ -418,7 +418,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
                                       Navigator.pushNamed(
                                         context,
-                                        '/product/inventory/detail',
+                                        '/stock/inventory/detail',
                                         arguments: args,
                                       );
                                     },
@@ -567,7 +567,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
               ),
             ),
             onPressed: () async {
-              Navigator.pushNamed(context, '/purchase/add');
+              Navigator.pushNamed(context, '/stock/initial-stock/add');
             },
             child: const Text(
               'Add initial stock',
