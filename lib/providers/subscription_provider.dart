@@ -1,15 +1,23 @@
 // lib/providers/subscription_provider.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:midtrans_sdk/midtrans_sdk.dart';
+import 'package:wa_blast/screens/subscription/subscription_payment_success_screen.dart';
 
 import '../core/provider_helper.dart';
 import '../models/premium_plan_model.dart';
 import '../services/api_service.dart';
-import '../widgets/payment_webview_screen.dart'; // SESUAIKAN path ApiService
+import '../widgets/payment_webview_screen.dart';
+import 'package:intl/intl.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart' as p;
+import 'package:pdf/widgets.dart' as pw;
+import 'package:shared_preferences/shared_preferences.dart';
 
 // -------------------------------------------------------------
 // ENUM: BillingCycle
@@ -663,7 +671,7 @@ class SubscriptionProvider with ChangeNotifier {
         //   context,
         // ).pushNamedAndRemoveUntil('/splash', (route) => false);
 
-        await _showPaymentSuccessDialog(context);
+        await _goToSuccessStep(context);
 
         // (opsional) sebelum redirect, kalau kamu mau refresh data bisnis/user,
         // bisa panggil API lain di sini dulu.
@@ -678,6 +686,45 @@ class SubscriptionProvider with ChangeNotifier {
       debugPrint('[Subscription] Error cek payment: $e\n$st');
       // Bisa diabaikan, nanti timer akan coba lagi 6 detik kemudian.
     }
+  }
+
+  Future<void> _goToSuccessStep(BuildContext context) async {
+    final planName = _lastPaidPlan?.name ?? 'Premium Plan';
+
+    final period = _lastPaidPricing?.period ?? 0;
+    String periodLabel;
+    if (period <= 0) {
+      periodLabel = 'Selected period';
+    } else if (period == 1) {
+      periodLabel = '1 month';
+    } else if (period == 12) {
+      periodLabel = '12 months';
+    } else {
+      periodLabel = '$period months';
+    }
+
+    final price = _lastPaidPricing?.price;
+    final amountLabel = price == null
+        ? '—'
+        : NumberFormat.currency(
+            locale: 'id_ID',
+            symbol: 'Rp ',
+            decimalDigits: 0,
+          ).format(price);
+
+    if (!context.mounted) return;
+
+    final nav = Navigator.of(context, rootNavigator: true);
+    nav.pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => SubscriptionPaymentSuccessScreen(
+          planName: planName,
+          periodLabel: periodLabel,
+          amountLabel: amountLabel,
+        ),
+      ),
+      (r) => false,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -987,6 +1034,487 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // 5) DOWNLOAD PDF INVOICE per historyId
+  //    Endpoint contoh: GET /premium/business/invoice/:historyId
+  // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Generate invoice PDF dari SubscriptionHistoryItem lalu simpan ke file (auto)
+  // - Tidak pakai endpoint backend
+  // - Auto-save ke folder app documents
+  // - Optional auto-open setelah tersimpan
+  // ---------------------------------------------------------------------------
+  Future<File?> downloadInvoicePdfFromHistory({
+    required BuildContext context,
+    required SubscriptionHistoryItem item,
+    bool openAfterSave = true,
+  }) async {
+    try {
+      // ===== Ambil data bisnis dari prefs =====
+      final prefs = await SharedPreferences.getInstance();
+      final activeBizName = (prefs.getString('activeBizName') ?? '').trim();
+      final activeBizUsername = (prefs.getString('activeBizUsername') ?? '')
+          .trim();
+
+      final paidByName = activeBizName.isNotEmpty ? activeBizName : '-';
+      final paidByUser = activeBizUsername.isNotEmpty
+          ? '@$activeBizUsername'
+          : '-';
+
+      final doc = pw.Document();
+
+      // Formatter
+      final rupiah = NumberFormat.currency(
+        locale: 'id_ID',
+        symbol: 'Rp ',
+        decimalDigits: 0,
+      );
+      final dateFmt = DateFormat('dd MMM yyyy, HH:mm', 'id_ID');
+
+      String fmtDate(DateTime? d) =>
+          d == null ? '-' : dateFmt.format(d.toLocal());
+
+      final createdAt = fmtDate(item.createdAt);
+      final paidAt = fmtDate(item.paidAt);
+
+      final statusText = (item.paidStatus.isNotEmpty)
+          ? item.paidStatus
+          : (item.paid == 1 ? 'Paid' : 'Unpaid');
+
+      final planName = item.planName.isNotEmpty
+          ? item.planName
+          : 'Premium Plan';
+      final methodName = item.paymentMethodName.isNotEmpty
+          ? item.paymentMethodName
+          : 'Payment method ${item.paymentMethod}';
+
+      final invoiceNo = item.number.isNotEmpty ? item.number : item.id;
+
+      pw.Widget kv(String k, String v) => pw.Expanded(
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              k,
+              style: pw.TextStyle(fontSize: 9, color: p.PdfColors.grey700),
+            ),
+            pw.SizedBox(height: 2),
+            pw.Text(
+              v.isEmpty ? '-' : v,
+              style: const pw.TextStyle(fontSize: 10),
+            ),
+          ],
+        ),
+      );
+
+      doc.addPage(
+        pw.Page(
+          pageFormat: p.PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (pw.Context ctx) {
+            return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                // ===== Header =====
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'WaveUp',
+                          style: pw.TextStyle(
+                            fontSize: 22,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.SizedBox(height: 6),
+                        pw.Text(
+                          'Jakarta, Indonesia',
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                        pw.Text(
+                          'Email: waveup.mail.com',
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                      ],
+                    ),
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.end,
+                      children: [
+                        pw.Text(
+                          'Invoice No',
+                          style: pw.TextStyle(
+                            fontSize: 10,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.Text(
+                          invoiceNo,
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                        pw.SizedBox(height: 6),
+                        pw.Text(
+                          'Status',
+                          style: pw.TextStyle(
+                            fontSize: 10,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.Text(
+                          statusText,
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
+                pw.SizedBox(height: 14),
+                pw.Divider(color: p.PdfColors.grey300),
+
+                // ===== Bill To / Paid by =====
+                pw.SizedBox(height: 8),
+                pw.Text(
+                  'Dibayar oleh',
+                  style: pw.TextStyle(
+                    fontSize: 12,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 6),
+                pw.Row(
+                  children: [
+                    kv('Nama bisnis', paidByName),
+                    kv('Username', paidByUser),
+                  ],
+                ),
+
+                pw.SizedBox(height: 14),
+                pw.Divider(color: p.PdfColors.grey300),
+
+                // ===== Detail transaksi =====
+                pw.SizedBox(height: 8),
+                pw.Text(
+                  'Detail Transaksi',
+                  style: pw.TextStyle(
+                    fontSize: 12,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 8),
+                pw.Row(
+                  children: [
+                    kv('Tanggal dibuat', createdAt),
+                    kv('Paid at', paidAt),
+                  ],
+                ),
+                pw.SizedBox(height: 6),
+                pw.Row(children: [kv('Metode pembayaran', methodName)]),
+
+                pw.SizedBox(height: 14),
+                pw.Divider(color: p.PdfColors.grey300),
+
+                // ===== Item =====
+                pw.SizedBox(height: 10),
+                pw.Text(
+                  'Item',
+                  style: pw.TextStyle(
+                    fontSize: 12,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 8),
+
+                pw.Table(
+                  border: pw.TableBorder.all(
+                    color: p.PdfColors.grey300,
+                    width: 0.8,
+                  ),
+                  columnWidths: const {
+                    0: pw.FlexColumnWidth(5),
+                    1: pw.FlexColumnWidth(1),
+                    2: pw.FlexColumnWidth(2),
+                  },
+                  children: [
+                    pw.TableRow(
+                      decoration: const pw.BoxDecoration(
+                        color: p.PdfColors.grey200,
+                      ),
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text(
+                            'Deskripsi',
+                            style: pw.TextStyle(
+                              fontSize: 10,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text(
+                            'Qty',
+                            textAlign: pw.TextAlign.right,
+                            style: pw.TextStyle(
+                              fontSize: 10,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text(
+                            'Harga',
+                            textAlign: pw.TextAlign.right,
+                            style: pw.TextStyle(
+                              fontSize: 10,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text(
+                            planName,
+                            style: const pw.TextStyle(fontSize: 10),
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text(
+                            '1',
+                            textAlign: pw.TextAlign.right,
+                            style: const pw.TextStyle(fontSize: 10),
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text(
+                            rupiah.format(item.amount),
+                            textAlign: pw.TextAlign.right,
+                            style: const pw.TextStyle(fontSize: 10),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
+                pw.SizedBox(height: 14),
+
+                // ===== Total =====
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.end,
+                  children: [
+                    pw.Container(
+                      width: 240,
+                      padding: const pw.EdgeInsets.all(10),
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(
+                          color: p.PdfColors.grey300,
+                          width: 0.8,
+                        ),
+                        borderRadius: pw.BorderRadius.circular(8),
+                      ),
+                      child: pw.Column(
+                        children: [
+                          pw.Row(
+                            mainAxisAlignment:
+                                pw.MainAxisAlignment.spaceBetween,
+                            children: [
+                              pw.Text(
+                                'TOTAL',
+                                style: pw.TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: pw.FontWeight.bold,
+                                ),
+                              ),
+                              pw.Text(
+                                rupiah.format(item.amount),
+                                style: pw.TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: pw.FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          pw.SizedBox(height: 6),
+                          pw.Divider(color: p.PdfColors.grey300),
+                          pw.Text(
+                            'Dokumen dibuat otomatis dari aplikasi.',
+                            style: pw.TextStyle(
+                              fontSize: 9,
+                              color: p.PdfColors.grey700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                pw.Spacer(),
+
+                pw.Divider(color: p.PdfColors.grey300),
+              ],
+            );
+          },
+        ),
+      );
+
+      // ===== Save file =====
+      final dir = await getApplicationDocumentsDirectory();
+
+      String safe(String s) => s.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+      final safeNo = safe(invoiceNo);
+
+      final file = File('${dir.path}/invoice_$safeNo.pdf');
+      final bytes = await doc.save();
+      await file.writeAsBytes(bytes, flush: true);
+
+      if (context.mounted) {
+        final messenger = ScaffoldMessenger.of(context);
+
+        final parts = file.path.split('/');
+        final last2 = parts.length >= 2
+            ? '${parts[parts.length - 2]}/${parts.last}'
+            : parts.last;
+
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              duration: const Duration(seconds: 4),
+              content: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: const Color(0xFFE5E7EB)),
+                  boxShadow: const [
+                    BoxShadow(
+                      blurRadius: 22,
+                      offset: Offset(0, 12),
+                      color: Color(0x1A111827),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF4C6EF5), Color(0xFF2B59FF)],
+                        ),
+                        boxShadow: const [
+                          BoxShadow(
+                            blurRadius: 14,
+                            offset: Offset(0, 8),
+                            color: Color(0x264C6EF5),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.download_done_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Invoice saved',
+                            style: TextStyle(
+                              color: Color(0xFF111827),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                              height: 1.1,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            last2,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF6B7280),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    TextButton(
+                      onPressed: () => OpenFilex.open(file.path),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        backgroundColor: const Color(0xFFEFF6FF),
+                        foregroundColor: const Color(0xFF1D4ED8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(999),
+                          side: const BorderSide(color: Color(0xFFD7E6FF)),
+                        ),
+                      ),
+                      child: const Text(
+                        'OPEN',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+      }
+
+      // if (openAfterSave) {
+      //   await OpenFilex.open(file.path);
+      // }
+
+      return file;
+    } catch (e, st) {
+      debugPrint(
+        '[SubscriptionProvider] downloadInvoicePdfFromHistory error: $e\n$st',
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal download invoice: $e')));
+      }
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // 4) GET SUBSCRIPTION HISTORY (GET /premium/business/history/:idBusiness)
   // ---------------------------------------------------------------------------
   Future<void> fetchSubscriptionHistory(BuildContext context) async {
@@ -1003,7 +1531,7 @@ class SubscriptionProvider with ChangeNotifier {
         );
       }
 
-      final path = '/premium/business/history/$bizId';
+      final path = '/premium/business/$bizId/history';
 
       final res = await ApiService.get(context, path, withAccessToken: true);
 

@@ -4,13 +4,14 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/material.dart' as vmath;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/product_provider.dart';
@@ -57,6 +58,213 @@ class _AddProductScreenState extends State<AddProductScreen> {
   );
 
   final List<_PriceRow> _prices = [_PriceRow()];
+
+  // =========================
+  // ✅ PREMIUM STATUS (NEW)
+  // =========================
+  bool _loadingPremium = true;
+  bool _isPremiumBiz = false;
+
+  Future<void> _loadPremiumStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // 1) cepat: baca cache bool
+      final cached = prefs.getBool('activeBizIsPremium');
+      if (cached != null) {
+        if (!mounted) return;
+        setState(() {
+          _isPremiumBiz = cached;
+          _loadingPremium = false;
+        });
+        return;
+      }
+
+      // 2) fallback: baca business json + activeBizId
+      final activeId = (prefs.getString('activeBizId') ?? '').trim();
+      final raw = prefs.getString('business');
+
+      bool isPremium = false;
+      if (raw != null && raw.isNotEmpty) {
+        try {
+          final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+          Map<String, dynamic>? match;
+          if (activeId.isNotEmpty) {
+            match = list.firstWhere(
+              (e) => (e['idBusiness'] ?? '').toString() == activeId,
+              orElse: () => <String, dynamic>{},
+            );
+          }
+          if (match != null && match.isNotEmpty) {
+            isPremium = (match['isPremium'] ?? false) == true;
+          }
+        } catch (_) {}
+      }
+
+      await prefs.setBool('activeBizIsPremium', isPremium);
+
+      if (!mounted) return;
+      setState(() {
+        _isPremiumBiz = isPremium;
+        _loadingPremium = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingPremium = false);
+    }
+  }
+
+  // =========================
+  // ✅ MODAL MULTI PRICE LOCKED (NEW)
+  // =========================
+  Future<void> _showMultiPriceLockedModal(BuildContext context) async {
+    await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.35),
+      builder: (ctx) {
+        final size = MediaQuery.of(ctx).size;
+        final bool isTablet = size.shortestSide >= 600;
+        final double maxWidth = isTablet ? 420 : size.width;
+
+        return SafeArea(
+          child: Center(
+            child: Container(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.16),
+                    blurRadius: 24,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    Row(
+                      children: const [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: Color(0xFFE0ECFF),
+                          child: Icon(
+                            LucideIcons.gem,
+                            size: 18,
+                            color: Color(0xFF4C6EF5),
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Premium Multi Price',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Unlock wholesale pricing tiers so you can set different prices based on minimum quantity.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: Color(0xFF6B7280),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // ✅ CAROUSEL (Swipe)
+                    const _PremiumFeatureCarousel(
+                      items: [
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.layers,
+                          title: 'Wholesale tiers',
+                          description:
+                              'Add multiple price levels based on minimum quantity.',
+                        ),
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.badgePercent,
+                          title: 'Smarter pricing',
+                          description:
+                              'Give better prices for bigger orders without manual edits.',
+                        ),
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.shoppingCart,
+                          title: 'Sell more',
+                          description:
+                              'Encourage customers to buy in bulk with clear tiered pricing.',
+                        ),
+                        _PremiumFeatureItem(
+                          icon: LucideIcons.shieldCheck,
+                          title: 'Consistent rules',
+                          description:
+                              'Keep pricing structured and avoid mistakes during checkout.',
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 22),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4C6EF5),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.of(ctx).pop(true);
+                          Navigator.pushNamed(ctx, '/subscription');
+                        },
+                        child: const Text(
+                          'Upgrade to Premium',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text(
+                          'Maybe later',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Future<bool> _ensureCameraPermission() async {
     try {
@@ -161,7 +369,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return _pickedList[idx - 1] != null;
   }
 
-  bool get _hasAnyImage => _pickedList.any((x) => x != null);
+  int _toInt(String s) {
+    final digits = s.replaceAll('.', '').replaceAll(',', '').trim();
+    return int.tryParse(digits) ?? 0;
+  }
 
   int? get _skuBasePrice {
     if (_useVariants) {
@@ -183,6 +394,21 @@ class _AddProductScreenState extends State<AddProductScreen> {
     }
   }
 
+  bool get _variantPricesUniform {
+    final st = variantsKey.currentState;
+    if (st == null) return false;
+    final skus = st
+        .buildSkus()
+        .where((s) => s.code.trim().isNotEmpty && s.price > 0)
+        .toList();
+    if (skus.isEmpty) return false;
+    final first = skus.first.price;
+    for (final s in skus) {
+      if (s.price != first) return false;
+    }
+    return true;
+  }
+
   bool get _allTierPricesValid {
     if (!_useMultiPrice) return true;
     final base = _skuBasePrice;
@@ -196,9 +422,29 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return true;
   }
 
+  static final TextInputFormatter _skuNoSpaceFormatter =
+      TextInputFormatter.withFunction((oldValue, newValue) {
+        final replaced = newValue.text.replaceAll(RegExp(r'\s+'), '');
+        return newValue.copyWith(
+          text: replaced,
+          selection: TextSelection.collapsed(offset: replaced.length),
+        );
+      });
+
+  static String? _skuNoSpaceValidator(String? v) {
+    final s = (v ?? '').trim();
+    if (s.isEmpty) return null;
+    if (RegExp(r'\s').hasMatch(s)) return 'No spaces allowed';
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
+
+    // ✅ penting: load premium saat screen dibuka
+    Future.microtask(_loadPremiumStatus);
+
     final prov = context.read<ProductProvider>();
     prov.fetchProductBrands(context);
     prov.fetchProductCategories(context);
@@ -228,9 +474,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   bool get _isValid {
-    // Brand & Category TIDAK lagi wajib
     final baseOk = (_formKey.currentState?.validate() ?? false);
-
     if (!baseOk) return false;
 
     if (_useMultiPrice && _prices.where((e) => e.isFilled).isEmpty) {
@@ -250,56 +494,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
     }
   }
 
-  bool get _variantPricesUniform {
-    final st = variantsKey.currentState;
-    if (st == null) return false;
-    final skus = st
-        .buildSkus()
-        .where((s) => s.code.trim().isNotEmpty && s.price > 0)
-        .toList();
-    if (skus.isEmpty) return false;
-    final first = skus.first.price;
-    for (final s in skus) {
-      if (s.price != first) return false;
-    }
-    return true;
-  }
-
-  Future<void> _chooseImageSource() => _chooseImageFor(0);
-  void _removeImage() => _removeImageAt(0);
-
-  int _toInt(String s) {
-    final digits = s.replaceAll('.', '').replaceAll(',', '').trim();
-    return int.tryParse(digits) ?? 0;
-  }
-
-  static final TextInputFormatter _skuNoSpaceFormatter =
-      TextInputFormatter.withFunction((oldValue, newValue) {
-        final replaced = newValue.text.replaceAll(RegExp(r'\s+'), '');
-        return newValue.copyWith(
-          text: replaced,
-          selection: TextSelection.collapsed(offset: replaced.length),
-        );
-      });
-
-  // SKU CODE sekarang OPSIONAL: kalau kosong valid, tapi kalau diisi tidak boleh ada spasi
-  static String? _skuNoSpaceValidator(String? v) {
-    final s = (v ?? '').trim();
-    if (s.isEmpty) return null; // optional
-    if (RegExp(r'\s').hasMatch(s)) return 'No spaces allowed';
-    return null;
-  }
-
   Future<void> _onSubmit() async {
     try {
       setState(() => _attemptedSubmit = true);
-
       if (!_formKey.currentState!.validate()) return;
 
-      // Brand & Category TIDAK lagi dipaksa harus ada di sini
-
       setState(() => _isSubmitting = true);
-
       final provider = context.read<ProductProvider>();
 
       final imagesJson = <Map<String, dynamic>>[];
@@ -357,15 +557,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
       } else {
         final code = _singleSkuNameC.text.trim();
         final price = _toInt(_singleSkuPriceC.text);
-
-        // SKU code TIDAK wajib, tapi price tetap wajib > 0
         if (price <= 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Enter a valid SKU Price.')),
           );
           return;
         }
-
         skusJson = [
           {
             'code': code.isEmpty ? null : code,
@@ -390,20 +587,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
       final desc = _descC.text.trim();
       final brandId = _selectedBrandId;
       final categoryId = _selectedCategoryId;
-
-      final payloadPreview = <String, dynamic>{
-        'name': _nameC.text.trim(),
-        // Description OPSIONAL, kalau kosong kirim null
-        'description': desc.isEmpty ? null : desc,
-        // Brand & Category OPSIONAL, bisa null kalau tidak dipilih
-        'product_brand_id': brandId,
-        'product_category_id': categoryId,
-        'images': imagesJson,
-        'skus': skusJson,
-        'prices': pricesJson,
-      };
-      final pretty = const JsonEncoder.withIndent('  ').convert(payloadPreview);
-      debugPrint('[ADD_PRODUCT] Payload preview:\n$pretty');
 
       final ok = await provider.addProductExactPayload(
         context: context,
@@ -443,8 +626,14 @@ class _AddProductScreenState extends State<AddProductScreen> {
     final mq = MediaQuery.of(context);
     final padBottom = mq.viewInsets.bottom;
     final base = _skuBasePrice;
+
     final bool canEnableMultiPriceWhenVariants =
         !_useVariants || (_useVariants && _variantPricesUniform);
+
+    final baseLabel = (base == null)
+        ? ''
+        : 'Current base SKU price: ${NumberFormat.currency(locale: 'id', symbol: 'Rp. ', decimalDigits: 0).format(base)}. '
+              'Every wholesale tier price must be STRICTLY LOWER than this value.';
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -517,7 +706,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
                     const SizedBox(height: 16),
 
-                    // Description (OPSIONAL – tidak ada validator "Required")
+                    // Description
                     const Text(
                       'Description',
                       style: TextStyle(
@@ -598,7 +787,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       const SizedBox(height: 16),
                     ],
 
-                    // Brand & Category (OPSIONAL – tidak ada error "Required" lagi)
+                    // Brand & Category
                     Consumer<ProductProvider>(
                       builder: (context, prov, _) {
                         final selectedBrandName = _selectedBrandId == null
@@ -667,7 +856,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Use Variants toggle (AUTO CLEAR single sku fields when enabled)
+                    // Use Variants toggle
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -692,8 +881,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             onChanged: (v) => setState(() {
                               _useVariants = v;
 
-                              // Saat user mengaktifkan variants, bersihkan
-                              // isian Single SKU (code + price) jika ada.
                               if (_useVariants) {
                                 if (_singleSkuNameC.text.isNotEmpty ||
                                     _singleSkuPriceC.text.isNotEmpty) {
@@ -702,7 +889,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 }
                               }
 
-                              // Multi price harus off jika harga varian tidak uniform
                               if (_useVariants && !_variantPricesUniform) {
                                 _useMultiPrice = false;
                               }
@@ -745,6 +931,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       const SizedBox(height: 16),
                     ],
 
+                    // ==========================================================
+                    // ✅ MULTI PRICE TOGGLE (PREMIUM GATED) - UPDATED FULL
+                    // ==========================================================
                     // Multi Price toggle
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -758,25 +947,81 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         children: [
                           Row(
                             children: [
-                              const Expanded(
-                                child: Text(
-                                  'Multi Price (Wholesale)',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF111827),
-                                  ),
+                              // ✅ Title + badge di kiri
+                              Expanded(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Flexible(
+                                      child: Text(
+                                        'Multi Price (Wholesale)',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF111827),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+
+                                    // ✅ Badge premium nempel di samping title
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          begin: Alignment.centerLeft,
+                                          end: Alignment.centerRight,
+                                          colors: [
+                                            Color(0xFF6366F1),
+                                            Color(0xFF22C55E),
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(
+                                              0.16,
+                                            ),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        LucideIcons.gem,
+                                        size: 12,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
+
+                              // ✅ Switch tetap kanan
                               Switch(
                                 activeColor: AppColors.primaryDark,
                                 value: _useMultiPrice,
-                                onChanged: canEnableMultiPriceWhenVariants
-                                    ? (v) => setState(() => _useMultiPrice = v)
-                                    : null,
+                                onChanged: (v) async {
+                                  if (!_isPremiumBiz) {
+                                    await _showMultiPriceLockedModal(context);
+                                    return;
+                                  }
+                                  if (!canEnableMultiPriceWhenVariants) return;
+                                  setState(() => _useMultiPrice = v);
+                                },
                               ),
                             ],
                           ),
+
                           const SizedBox(height: 6),
+
+                          // ✅ Deskripsi JANGAN DIHAPUS
                           Builder(
                             builder: (_) {
                               const baseDesc =
@@ -799,30 +1044,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
                               );
                             },
                           ),
-                          if (_useMultiPrice && base != null) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              'Current base SKU price: ${NumberFormat.currency(locale: 'id', symbol: 'Rp. ', decimalDigits: 0).format(base)}. '
-                              'Every wholesale tier price must be STRICTLY LOWER than this value.',
-                              style: const TextStyle(color: Color(0xFF6B7280)),
-                            ),
-                          ],
-                          if (_useMultiPrice &&
-                              !_allTierPricesValid &&
-                              base != null)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 6),
-                              child: Text(
-                                'Some wholesale prices are invalid (>= base SKU price).',
-                                style: TextStyle(color: Color(0xFFEF4444)),
-                              ),
-                            ),
                         ],
                       ),
                     ),
 
                     const SizedBox(height: 12),
 
+                    // Prices section
                     if (_useMultiPrice) ...[
                       const Text(
                         'Prices',
@@ -983,6 +1211,293 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 }
 
+// ==========================================================
+// ✅ SMALL WIDGETS (NEW) — badge + switch proxy
+// ==========================================================
+
+class _PremiumGemBadge extends StatelessWidget {
+  const _PremiumGemBadge({required this.enabled, required this.onTap});
+
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    // kalau premium → tampil badge kecil “gem”
+    // kalau non-premium → tetap tampil, dan tap membuka modal upgrade
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: enabled ? null : onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            gradient: enabled
+                ? const LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [Color(0xFF4C6EF5), Color(0xFF22C55E)],
+                  )
+                : const LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [Color(0xFF6366F1), Color(0xFF22C55E)],
+                  ),
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.10),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: const Icon(LucideIcons.gem, size: 12, color: Colors.white),
+        ),
+      ),
+    );
+  }
+}
+
+class _SwitchTapProxy extends StatelessWidget {
+  const _SwitchTapProxy({
+    required this.value,
+    required this.enabled,
+    required this.onTap,
+    required this.activeColor,
+  });
+
+  final bool value;
+  final bool enabled;
+  final VoidCallback onTap;
+  final Color activeColor;
+
+  @override
+  Widget build(BuildContext context) {
+    // Switch disabled biasanya tidak bisa dipakai untuk trigger modal.
+    // Jadi: kita tampilkan switch (enabled/disabled) + lapisi tap handler.
+    return Stack(
+      alignment: Alignment.centerRight,
+      children: [
+        IgnorePointer(
+          ignoring: true, // biar tidak toggle sendiri
+          child: Opacity(
+            opacity: enabled ? 1.0 : 0.55,
+            child: Switch(
+              activeColor: activeColor,
+              value: enabled ? value : false,
+              onChanged: (_) {},
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: onTap,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ==========================================================
+// ✅ MODAL CAROUSEL (NEW) — same feel as HomeScreen
+// ==========================================================
+
+class _PremiumFeatureItem {
+  final IconData icon;
+  final String title;
+  final String description;
+
+  const _PremiumFeatureItem({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+}
+
+class _PremiumFeatureCard extends StatelessWidget {
+  final _PremiumFeatureItem item;
+  final double scale;
+  final double opacity;
+
+  const _PremiumFeatureCard({
+    required this.item,
+    required this.scale,
+    required this.opacity,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: opacity,
+      child: Transform.scale(
+        scale: scale,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.10),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0ECFF),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    item.icon,
+                    size: 26,
+                    color: const Color(0xFF4C6EF5),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  item.title,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  item.description,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: Color(0xFF4B5563),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PremiumFeatureCarousel extends StatefulWidget {
+  final List<_PremiumFeatureItem> items;
+
+  const _PremiumFeatureCarousel({required this.items});
+
+  @override
+  State<_PremiumFeatureCarousel> createState() =>
+      _PremiumFeatureCarouselState();
+}
+
+class _PremiumFeatureCarouselState extends State<_PremiumFeatureCarousel> {
+  late final PageController _controller;
+  double _currentPage = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController(viewportFraction: 0.72);
+    _controller.addListener(() {
+      if (!mounted) return;
+      setState(() => _currentPage = _controller.page ?? 0.0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.items.isEmpty) return const SizedBox.shrink();
+
+    final int currentIndex = _currentPage.round().clamp(
+      0,
+      widget.items.length - 1,
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 240,
+          child: PageView.builder(
+            controller: _controller,
+            itemCount: widget.items.length,
+            physics: const BouncingScrollPhysics(),
+            itemBuilder: (context, index) {
+              final item = widget.items[index];
+              final double distance = (index - _currentPage).abs();
+              final double scale = (1 - (distance * 0.14)).clamp(0.86, 1.0);
+              final double opacity = (1 - (distance * 0.35)).clamp(0.55, 1.0);
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: _PremiumFeatureCard(
+                  item: item,
+                  scale: scale,
+                  opacity: opacity,
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(widget.items.length, (i) {
+            final bool active = i == currentIndex;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: active ? 16 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: active
+                    ? const Color(0xFF4C6EF5)
+                    : const Color(0xFFD1D5DB),
+                borderRadius: BorderRadius.circular(99),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Swipe to see more features',
+          style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+        ),
+      ],
+    );
+  }
+}
+
+// ==========================================================
+// ORIGINAL HELPERS (unchanged from your snippet)
+// ==========================================================
+
 class Field extends StatelessWidget {
   const Field({
     required this.controller,
@@ -1051,8 +1566,10 @@ class _IconBtn extends StatelessWidget {
 class _PriceRow {
   final TextEditingController minQty = TextEditingController();
   final TextEditingController price = TextEditingController();
+
   bool get isFilled =>
       minQty.text.trim().isNotEmpty && price.text.trim().isNotEmpty;
+
   void dispose() {
     minQty.dispose();
     price.dispose();

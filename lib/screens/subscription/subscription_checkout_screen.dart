@@ -33,7 +33,7 @@ class _SubscriptionCheckoutScreenState
   int _currentStep = 0;
 
   // 🔹 3 = One-time payment, 2 = Recurring card
-  int _selectedPaymentMethod = 3;
+  int _selectedPaymentMethod = 2;
 
   // 🔹 Plan utama yang dipilih (idPlan + name + list pricing)
   PremiumPlan? _selectedPlan;

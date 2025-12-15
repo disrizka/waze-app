@@ -65,10 +65,37 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
     }
   }
 
+  Future<void> _goPremiumUpgradeFlow() async {
+    if (!mounted) return;
+
+    // Reset semua route -> jadikan /home sebagai root
+    Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+
+    // Lalu buka halaman subscription di atas home
+    // (jadinya stack: /home -> /subscription)
+    await Future.microtask(() async {
+      if (!mounted) return;
+      await Navigator.of(context).pushNamed('/subscription');
+    });
+  }
+
   /// Handler generic untuk semua URL (actionUrl dan URL di dalam message)
   Future<void> _handleUrl(String? rawUrl) async {
     final url = rawUrl?.trim();
     if (url == null || url.isEmpty) return;
+
+    // ✅ special action: premium-upgrade
+    final normalized = url.toLowerCase();
+    final isPremiumUpgrade =
+        normalized == 'premium-upgrade' ||
+        normalized == '/premium-upgrade' ||
+        normalized == 'waveup://premium-upgrade' ||
+        normalized == 'waveup:///premium-upgrade';
+
+    if (isPremiumUpgrade) {
+      await _goPremiumUpgradeFlow();
+      return;
+    }
 
     // http / https -> buka web (browser / webview sesuai konfigurasi url_launcher)
     if (url.startsWith('http')) {

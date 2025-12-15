@@ -7,6 +7,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/constants/app_colors.dart';
+import 'package:wa_blast/helper/route_observer.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 import 'package:wa_blast/providers/notification_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
@@ -50,7 +51,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with RouteAware, WidgetsBindingObserver {
   bool _didKickRoleLoad = false;
 
   final GlobalKey<_HeaderGradientState> _headerKey =
@@ -164,11 +166,51 @@ class _HomeScreenState extends State<HomeScreen> {
       // 3) fetch report harian
       await _kickDailyFetch();
 
+      await _refreshNotificationsOnHomeOpen();
+
       if (!mounted) return;
 
       // 4) cek apakah perlu tampilkan modal subscription
       // await _maybeShowSubscriptionModal();
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      routeObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didPush() {
+    _refreshNotificationsOnHomeOpen();
+  }
+
+  @override
+  void didPopNext() {
+    _refreshNotificationsOnHomeOpen();
+  }
+
+  // ✅ Tambahan: helper refresh notif
+  Future<void> _refreshNotificationsOnHomeOpen() async {
+    if (!mounted) return;
+    final np = context.read<NotificationProvider>();
+
+    // 1) badge unread biar selalu update
+    await np.fetchUnreadCount(context);
+
+    // 2) optional: reload list notif juga (biar dropdown isinya fresh)
+    await np.fetchNotifications(context);
   }
 
   @override
@@ -2190,12 +2232,6 @@ class _PremiumFeatureCarouselState extends State<_PremiumFeatureCarousel> {
         _currentPage = _controller.page ?? 0.0;
       });
     });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   @override
