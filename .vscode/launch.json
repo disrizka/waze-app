@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Wave Up (dev)",
+            "name": "WaveUp (dev)",
             "request": "launch",
             "type": "dart",
             "program": "lib/main.dart",
@@ -14,7 +14,7 @@
             ]
         },
         {
-            "name": "Wave Up (prod)",
+            "name": "WaveUp (prod)",
             "request": "launch",
             "type": "dart",
             "program": "lib/main.dart",

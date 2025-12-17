@@ -52,13 +52,13 @@ android {
         create("dev") {
             dimension = "env"
             versionNameSuffix = "-dev"
-            resValue("string", "app_name", "Wave Up (Dev)")
+            resValue("string", "app_name", "WaveUp (Dev)")
             matchingFallbacks += listOf("sandbox", "debug")
             manifestPlaceholders["APP_LINK_HOST"] = "dev.waveup.app"
         }
         create("prod") {
             dimension = "env"
-            resValue("string", "app_name", "Wave Up")
+            resValue("string", "app_name", "WaveUp")
             matchingFallbacks += listOf("production", "release")
             manifestPlaceholders["APP_LINK_HOST"] = "waveup.app"
         }
