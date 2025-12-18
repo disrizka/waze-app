@@ -1,7 +1,9 @@
+// lib/screens/subscription/subscription_checkout_history_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../helper/business_premium_helper.dart';
 import '../../providers/subscription_provider.dart';
 
 class SubscriptionCheckoutHistoryScreen extends StatefulWidget {
@@ -33,8 +35,46 @@ class _SubscriptionCheckoutHistoryScreenState
   }
 }
 
-class _HistoryBody extends StatelessWidget {
+class _HistoryBody extends StatefulWidget {
   const _HistoryBody();
+
+  @override
+  State<_HistoryBody> createState() => _HistoryBodyState();
+}
+
+class _HistoryBodyState extends State<_HistoryBody> {
+  bool _isPremiumUser = false;
+  bool _loadingPremium = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPremiumFlag();
+  }
+
+  Future<void> _loadPremiumFlag() async {
+    try {
+      final isPremium = await BusinessPremiumHelper.isActiveBusinessPremium();
+      if (!mounted) return;
+      setState(() {
+        _isPremiumUser = isPremium;
+        _loadingPremium = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isPremiumUser = false;
+        _loadingPremium = false;
+      });
+    }
+  }
+
+  bool _isInCurrentMonth(DateTime? dt) {
+    if (dt == null) return false;
+    final now = DateTime.now();
+    final d = dt.toLocal();
+    return d.year == now.year && d.month == now.month;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -111,11 +151,11 @@ class _HistoryBody extends StatelessWidget {
                       final row = items[index];
 
                       final createdAtText = row.createdAt != null
-                          ? fDateShort.format(row.createdAt!)
+                          ? fDateShort.format(row.createdAt!.toLocal())
                           : '-';
 
                       final paidAtText = row.paidAt != null
-                          ? fDateShort.format(row.paidAt!)
+                          ? fDateShort.format(row.paidAt!.toLocal())
                           : null;
 
                       final amountText = 'Rp ${fMoney.format(row.amount)}';
@@ -125,19 +165,28 @@ class _HistoryBody extends StatelessWidget {
                           row.paidStatus.toLowerCase() == 'paid';
 
                       final currentMonthKey = row.createdAt != null
-                          ? fMonth.format(row.createdAt!)
+                          ? fMonth.format(row.createdAt!.toLocal())
                           : 'Unknown date';
 
                       String? prevMonthKey;
                       if (index > 0) {
                         final prev = items[index - 1];
                         prevMonthKey = prev.createdAt != null
-                            ? fMonth.format(prev.createdAt!)
+                            ? fMonth.format(prev.createdAt!.toLocal())
                             : 'Unknown date';
                       }
 
                       final showMonthHeader =
                           index == 0 || currentMonthKey != prevMonthKey;
+
+                      // ✅ rule "bulan ini"
+                      final inCurrentMonth = _isInCurrentMonth(row.createdAt);
+
+                      // Kalau premium flag masih loading, kita anggap premium=false dulu
+                      // supaya UI tetap jalan; nanti rebuild otomatis saat flag selesai.
+                      final premiumUser = _loadingPremium
+                          ? false
+                          : _isPremiumUser;
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,6 +213,8 @@ class _HistoryBody extends StatelessWidget {
                             paidAtText: paidAtText,
                             amountText: amountText,
                             isPaid: isPaid,
+                            isPremiumUser: premiumUser,
+                            isInCurrentMonth: inCurrentMonth,
                           ),
                           const SizedBox(height: 12),
                         ],
@@ -253,8 +304,6 @@ class _StickyAppBar extends StatelessWidget {
           ),
         ],
       ),
-
-      // garis tipis saat sticky biar terasa "nempel"
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
         child: Container(height: 1, color: const Color(0xFFE5E7EB)),
@@ -273,12 +322,18 @@ class _HistoryCardV2 extends StatelessWidget {
   final String amountText;
   final bool isPaid;
 
+  // ✅ tambahan untuk rule tombol
+  final bool isPremiumUser;
+  final bool isInCurrentMonth;
+
   const _HistoryCardV2({
     required this.row,
     required this.createdAtText,
     required this.paidAtText,
     required this.amountText,
     required this.isPaid,
+    required this.isPremiumUser,
+    required this.isInCurrentMonth,
   });
 
   @override
@@ -303,6 +358,18 @@ class _HistoryCardV2 extends StatelessWidget {
     final statusText = row.paidStatus.isNotEmpty
         ? row.paidStatus
         : (isPaid ? 'Paid' : 'Unpaid');
+
+    // ✅ RULES:
+    // - Paid -> tombol Download Invoice
+    final showDownloadInvoice = isPaid;
+
+    // - Belum premium + bulan ini + unpaid -> tombol Pay again
+    final showPayAgain = (!isPremiumUser) && (!isPaid) && isInCurrentMonth;
+
+    // - Sudah premium + bulan ini + unpaid -> tidak ada tombol
+    //   (otomatis karena showPayAgain false, showDownloadInvoice false)
+
+    final bool showActionButton = showDownloadInvoice || showPayAgain;
 
     return Material(
       color: Colors.white,
@@ -487,14 +554,17 @@ class _HistoryCardV2 extends StatelessWidget {
                   ],
                 ),
               ),
-              if (isPaid) ...[
+
+              if (showActionButton) ...[
                 const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF426FD4),
+                          backgroundColor: showPayAgain
+                              ? const Color(0xFF111827)
+                              : const Color(0xFF426FD4),
                           foregroundColor: Colors.white,
                           elevation: 0,
                           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -503,6 +573,16 @@ class _HistoryCardV2 extends StatelessWidget {
                           ),
                         ),
                         onPressed: () async {
+                          if (showPayAgain) {
+                            await context
+                                .read<SubscriptionProvider>()
+                                .retryPaymentFromHistory(
+                                  context: context,
+                                  item: row,
+                                );
+                            return;
+                          }
+
                           await context
                               .read<SubscriptionProvider>()
                               .downloadInvoicePdfFromHistory(
@@ -511,10 +591,15 @@ class _HistoryCardV2 extends StatelessWidget {
                                 openAfterSave: true,
                               );
                         },
-                        icon: const Icon(Icons.download_rounded, size: 18),
-                        label: const Text(
-                          'Download Invoice',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                        icon: Icon(
+                          showPayAgain
+                              ? Icons.refresh_rounded
+                              : Icons.download_rounded,
+                          size: 18,
+                        ),
+                        label: Text(
+                          showPayAgain ? 'Pay again' : 'Download Invoice',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
                     ),

@@ -25,10 +25,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum BillingCycle { monthly, yearly }
 
 // -------------------------------------------------------------
-// Helper result Midtrans (hapus kalau kamu sudah punya PaymentResult sendiri)
-// -------------------------------------------------------------
-
-// -------------------------------------------------------------
 // Result cek voucher
 // -------------------------------------------------------------
 
@@ -45,6 +41,8 @@ class SubscriptionHistoryItem {
   final String planId;
   final String planName;
   final String pricingId;
+  final String paymentLink;
+  final String paymentToken;
 
   SubscriptionHistoryItem({
     required this.id,
@@ -59,6 +57,8 @@ class SubscriptionHistoryItem {
     required this.planId,
     required this.planName,
     required this.pricingId,
+    required this.paymentLink, // ✅
+    required this.paymentToken, // ✅
   });
 
   factory SubscriptionHistoryItem.fromJson(Map<String, dynamic> json) {
@@ -84,6 +84,8 @@ class SubscriptionHistoryItem {
       planId: json['plan_id']?.toString() ?? '',
       planName: json['plan_name']?.toString() ?? '',
       pricingId: json['pricing_id']?.toString() ?? '',
+      paymentLink: json['payment_link']?.toString() ?? '', // ✅
+      paymentToken: json['payment_token']?.toString() ?? '', // ✅
     );
   }
 }
@@ -122,6 +124,41 @@ class PaymentResult {
     this.message,
     this.raw,
   });
+}
+
+// -------------------------------------------------------------
+// ✅ NEW: Transaction Fee Model
+// -------------------------------------------------------------
+class TransactionFeeItem {
+  final String idTransactionFee;
+  final String idBusiness;
+  final int month;
+  final int year;
+  final int transactionCount;
+  final int totalFee;
+  final String status; // pending / paid / etc
+
+  const TransactionFeeItem({
+    required this.idTransactionFee,
+    required this.idBusiness,
+    required this.month,
+    required this.year,
+    required this.transactionCount,
+    required this.totalFee,
+    required this.status,
+  });
+
+  factory TransactionFeeItem.fromJson(Map<String, dynamic> json) {
+    return TransactionFeeItem(
+      idTransactionFee: json['idTransactionFee']?.toString() ?? '',
+      idBusiness: json['idBusiness']?.toString() ?? '',
+      month: (json['month'] as num?)?.toInt() ?? 0,
+      year: (json['year'] as num?)?.toInt() ?? 0,
+      transactionCount: (json['transaction_count'] as num?)?.toInt() ?? 0,
+      totalFee: (json['total_fee'] as num?)?.toInt() ?? 0,
+      status: json['status']?.toString() ?? '',
+    );
+  }
 }
 
 // -------------------------------------------------------------
@@ -189,6 +226,23 @@ class SubscriptionProvider with ChangeNotifier {
   List<SubscriptionHistoryItem> get history => List.unmodifiable(_history);
   bool get isLoadingHistory => _isLoadingHistory;
   String? get historyError => _historyError;
+
+  // -------------------------------------------------------------
+  // ✅ NEW: Transaction fee state
+  // -------------------------------------------------------------
+  List<TransactionFeeItem> _transactionFees = [];
+  bool _isLoadingTransactionFees = false;
+  String? _transactionFeeError;
+  int _totalUnpaidTransactionFee = 0;
+
+  List<TransactionFeeItem> get transactionFees =>
+      List.unmodifiable(_transactionFees);
+  bool get isLoadingTransactionFees => _isLoadingTransactionFees;
+  String? get transactionFeeError => _transactionFeeError;
+  int get totalUnpaidTransactionFee => _totalUnpaidTransactionFee;
+
+  String get totalUnpaidTransactionFeeLabel =>
+      _formatRupiah(_totalUnpaidTransactionFee);
 
   /// Label harga plan pertama, hanya "Rp 150.000"
   String get firstPlanPriceLabel {
@@ -443,6 +497,83 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // ✅ NEW: GET TRANSACTION FEE LIST (GET /waveup/{idBusiness}/transaction-fee)
+  // ---------------------------------------------------------------------------
+  Future<void> fetchTransactionFees(BuildContext context) async {
+    _isLoadingTransactionFees = true;
+    _transactionFeeError = null;
+    notifyListeners();
+
+    try {
+      // 🔹 Ambil business id dari BizIdCache
+      final bizId = await BizIdCache.get();
+      if (bizId == null || bizId.toString().trim().isEmpty) {
+        throw Exception(
+          'Business ID not found. Please select a business first.',
+        );
+      }
+
+      final path = '/waveup/$bizId/transaction-fee';
+
+      final res = await ApiService.get(context, path, withAccessToken: true);
+
+      final raw = res.body;
+      debugPrint(
+        '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
+        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+      );
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw Exception('HTTP ${res.statusCode}');
+      }
+
+      Map<String, dynamic>? decoded;
+      try {
+        decoded = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        decoded = null;
+      }
+
+      if (decoded == null) {
+        throw Exception('Invalid JSON response');
+      }
+
+      final status = (decoded['status'] as num?)?.toInt() ?? 0;
+      if (status != 200) {
+        final msg =
+            decoded['msg']?.toString() ?? 'Failed to load transaction fee';
+        throw Exception('$msg (status=$status)');
+      }
+
+      final data = decoded['data'];
+      if (data is List) {
+        _transactionFees = data
+            .map(
+              (e) => TransactionFeeItem.fromJson(
+                (e as Map).cast<String, dynamic>(),
+              ),
+            )
+            .toList();
+      } else {
+        _transactionFees = [];
+      }
+
+      _totalUnpaidTransactionFee =
+          (decoded['total_unpaid'] as num?)?.toInt() ?? 0;
+
+      _transactionFeeError = null;
+    } catch (e, st) {
+      debugPrint('[SubscriptionProvider] fetchTransactionFees error: $e\n$st');
+      _transactionFeeError = 'Failed to load transaction fee: $e';
+      _transactionFees = [];
+      _totalUnpaidTransactionFee = 0;
+    } finally {
+      _isLoadingTransactionFees = false;
+      notifyListeners();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // 2) UPGRADE PREMIUM (POST /premium/business/upgrade + Midtrans)
   //     business_id diambil dari BizIdCache.get()
   // ---------------------------------------------------------------------------
@@ -581,6 +712,62 @@ class SubscriptionProvider with ChangeNotifier {
     }
   }
 
+  Future<void> retryPaymentFromHistory({
+    required BuildContext context,
+    required SubscriptionHistoryItem item,
+  }) async {
+    // hanya untuk unpaid
+    final isPaid = item.paid == 1 || item.paidStatus.toLowerCase() == 'paid';
+    if (isPaid) return;
+
+    final number = item.number.trim();
+    if (number.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot continue payment: missing invoice number.'),
+        ),
+      );
+      return;
+    }
+
+    _currentTransactionNumber = number;
+    _startPaymentStatusPolling(context); // ✅ polling backend tetap jalan
+
+    // QRIS -> web
+    if (item.paymentMethod == 6) {
+      final link = item.paymentLink.trim();
+      if (link.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Payment link not available for this transaction.'),
+          ),
+        );
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PaymentWebViewScreen(initialUrl: link),
+          fullscreenDialog: true,
+        ),
+      );
+      return;
+    }
+
+    // selain QRIS -> Snap ulang
+    final token = item.paymentToken.trim();
+    if (token.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment token not available for this transaction.'),
+        ),
+      );
+      return;
+    }
+
+    await _startSnap(token, context);
+  }
+
   // ---------------------------------------------------------------------------
   // 3) PAYMENT CHECK (POST /premium/business/payment/check)
   // ---------------------------------------------------------------------------
@@ -662,19 +849,7 @@ class SubscriptionProvider with ChangeNotifier {
         _isProcessing = false;
         notifyListeners();
 
-        // ScaffoldMessenger.of(context).showSnackBar(
-        //   const SnackBar(content: Text('Payment success. Premium activated!')),
-        // );
-
-        // // 🔹 Setelah backend konfirmasi pembayaran sukses, langsung ke /splash
-        // Navigator.of(
-        //   context,
-        // ).pushNamedAndRemoveUntil('/splash', (route) => false);
-
         await _goToSuccessStep(context);
-
-        // (opsional) sebelum redirect, kalau kamu mau refresh data bisnis/user,
-        // bisa panggil API lain di sini dulu.
         return;
       }
 
@@ -1035,13 +1210,6 @@ class SubscriptionProvider with ChangeNotifier {
 
   // ---------------------------------------------------------------------------
   // 5) DOWNLOAD PDF INVOICE per historyId
-  //    Endpoint contoh: GET /premium/business/invoice/:historyId
-  // ---------------------------------------------------------------------------
-  // ---------------------------------------------------------------------------
-  // Generate invoice PDF dari SubscriptionHistoryItem lalu simpan ke file (auto)
-  // - Tidak pakai endpoint backend
-  // - Auto-save ke folder app documents
-  // - Optional auto-open setelah tersimpan
   // ---------------------------------------------------------------------------
   Future<File?> downloadInvoicePdfFromHistory({
     required BuildContext context,
@@ -1495,10 +1663,6 @@ class SubscriptionProvider with ChangeNotifier {
             ),
           );
       }
-
-      // if (openAfterSave) {
-      //   await OpenFilex.open(file.path);
-      // }
 
       return file;
     } catch (e, st) {

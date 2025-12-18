@@ -1,8 +1,11 @@
 // lib/screens/report/sales_report_screen.dart
+import 'dart:convert';
+
 import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
@@ -32,12 +35,25 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   String? _selectedStoreId;
   String? _selectedStoreName;
 
+  // ✅ banned status for active business: null / "semi-ban" / "ban"
+  String? _bannedStatus;
+
+  bool get _isHardBanned {
+    final s = (_bannedStatus ?? '').trim().toLowerCase();
+    return s == 'ban' || s == 'banned';
+  }
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      _loadFirstPage();
+
+      // ✅ load banned status first (from prefs)
+      await _loadBannedStatusFromPrefs();
+
+      // existing flow
+      await _loadFirstPage();
       _scrollController.addListener(_onScroll);
     });
   }
@@ -48,6 +64,185 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     _scrollController.dispose();
     _searchC.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadBannedStatusFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final activeId = (prefs.getString('activeBizId') ?? '').trim();
+
+    // 1) prefer from business list JSON (most accurate)
+    final raw = prefs.getString('business');
+    if (raw != null && raw.isNotEmpty && activeId.isNotEmpty) {
+      try {
+        final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+        final match = list.firstWhere(
+          (e) => (e['idBusiness'] ?? '').toString() == activeId,
+          orElse: () => <String, dynamic>{},
+        );
+
+        final banned = match.isEmpty ? null : match['banned'];
+        _bannedStatus = (banned == null) ? null : banned.toString();
+
+        if (mounted) setState(() {});
+        return;
+      } catch (_) {
+        // fallthrough
+      }
+    }
+
+    // 2) optional fallback key (if you store it yourself)
+    final fallback = prefs.getString('activeBizBanned');
+    _bannedStatus = (fallback == null || fallback.trim().isEmpty)
+        ? null
+        : fallback.trim();
+
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _showBannedPaywallModal() async {
+    if (!mounted) return;
+
+    await showGeneralDialog(
+      context: context,
+      barrierLabel: 'Paywall',
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.35),
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (ctx, anim, secondaryAnim) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+        final scale = Tween<double>(begin: 0.96, end: 1.0).animate(curved);
+
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: scale,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.18),
+                          blurRadius: 24,
+                          offset: const Offset(0, 14),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEE2E2),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                Icons.lock_rounded,
+                                color: Color(0xFFDC2626),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Sales access locked',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF111827),
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Please pay your monthly bill to access Sales features.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      height: 1.35,
+                                      color: Color(0xFF6B7280),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: null, // set below via Builder
+                              child: SizedBox.shrink(),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFDC2626),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: () {
+                              Navigator.of(ctx).pop();
+                              Navigator.pushNamed(
+                                context,
+                                '/subscription',
+                              ); // sesuaikan route kalau beda
+                            },
+                            child: const Text(
+                              'Pay now',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 44,
+                          child: TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: const Text(
+                              'Maybe later',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _onScroll() {
@@ -251,7 +446,11 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
           }).toList();
 
           return RefreshIndicator(
-            onRefresh: _loadFirstPage,
+            onRefresh: () async {
+              // ✅ refresh banned status too (in case it changed)
+              await _loadBannedStatusFromPrefs();
+              await _loadFirstPage();
+            },
             color: const Color(0xFF426FD4),
             child: CustomScrollView(
               controller: _scrollController,
@@ -521,7 +720,14 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
             width: double.infinity,
             height: 56,
             child: FilledButton.icon(
-              onPressed: () => Navigator.pushNamed(context, '/sales/add'),
+              onPressed: () async {
+                // ✅ if business is hard-banned, block and show pay modal
+                if (_isHardBanned) {
+                  await _showBannedPaywallModal();
+                  return;
+                }
+                Navigator.pushNamed(context, '/sales/add');
+              },
               icon: const Icon(Icons.add, size: 20),
               label: Text(
                 l10n.salesAddButton,

@@ -66,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     await rp.fetchSales(
       context,
-      target: ReportTarget.customer,
+      target: ReportTarget.period,
       period: ReportPeriod.day,
       force: true, // paksa refresh supaya home selalu fresh
     );
@@ -830,6 +830,8 @@ class _HeaderGradientState extends State<_HeaderGradient> {
   String _businessLogoPath = '';
   bool _isPremium = false;
 
+  String _bannedStatus = ''; // '', 'semi-ban', 'ban'
+
   @override
   void initState() {
     super.initState();
@@ -903,6 +905,21 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     );
   }
 
+  Future<void> _openTransactionFeeModal() async {
+    if (!mounted) return;
+
+    // fetch dulu biar modal kebuka dengan state terbaru
+    await context.read<SubscriptionProvider>().fetchTransactionFees(context);
+
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _TransactionFeeDialog(),
+    );
+  }
+
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -920,6 +937,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     String businessUsername = '';
     String businessLogoPath = '';
     bool isPremium = false;
+    String bannedStatus = '';
 
     final businessJson = prefs.getString('business');
     if (businessJson != null && businessJson.isNotEmpty) {
@@ -941,11 +959,17 @@ class _HeaderGradientState extends State<_HeaderGradient> {
           businessLogoPath = (match['logoPath'] ?? match['logo'] ?? '')
               .toString();
           isPremium = (match['isPremium'] ?? false) == true;
+
+          // ✅ NEW
+          bannedStatus = (match['banned'] as String?)?.trim() ?? '';
         } else {
           businessName = prefs.getString('activeBizName') ?? '';
           businessUsername = prefs.getString('activeBizUsername') ?? '';
           businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
           isPremium = (prefs.getBool('activeBizIsPremium') ?? false);
+
+          // ✅ NEW
+          bannedStatus = (prefs.getString('activeBizBanned') ?? '').trim();
         }
       } catch (_) {
         businessName = prefs.getString('activeBizName') ?? '';
@@ -971,6 +995,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
       _businessName = businessName.isNotEmpty ? businessName : '—';
       _businessUsername = businessUsername.isNotEmpty ? businessUsername : '—';
       _isPremium = isPremium;
+      _bannedStatus = bannedStatus; // ✅
     });
   }
 
@@ -983,6 +1008,8 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     const double cardHeight = 96; // tinggi kartu
     final double overlapTop =
         headerHeight - cardHeight * 0.79; // 1/4 di dalam gradient, 3/4 di luar
+
+    final String ban = _bannedStatus.trim().toLowerCase();
 
     return Column(
       children: [
@@ -1026,6 +1053,9 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                   const Spacer(),
 
                   // 🔷 GET PREMIUM badge – hanya muncul kalau BELUM premium
+                  // 🔷 BADGE PLAN
+                  // - kalau belum premium: Get premium (bisa dipencet)
+                  // - kalau premium: Premium badge (tidak bisa dipencet)
                   if (!_isPremium)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
@@ -1050,9 +1080,9 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                               ),
                               borderRadius: BorderRadius.circular(999),
                             ),
-                            child: Row(
+                            child: const Row(
                               mainAxisSize: MainAxisSize.min,
-                              children: const [
+                              children: [
                                 Icon(
                                   LucideIcons.gem,
                                   size: 16,
@@ -1073,6 +1103,11 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                           ),
                         ),
                       ),
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: _PremiumStaticBadge(), // 👑 non-clickable
                     ),
 
                   const SizedBox(width: 6),
@@ -1275,9 +1310,181 @@ class _HeaderGradientState extends State<_HeaderGradient> {
           ],
         ),
 
-        // Spacer agar konten di bawah tidak ketimpa kartu
-        const SizedBox(height: cardHeight * 0.70 + 3),
+        // ✅ Kalau null/kosong/selain itu -> seperti biasa (hanya spacer)
+        // Spacer + banner (dynamic spacing biar gak mepet & gak kejauhan)
+        Builder(
+          builder: (_) {
+            final bool showBanner = ban == 'semi-ban' || ban == 'ban';
+
+            // ✅ Default (tanpa banner): seperti biasa
+            if (!showBanner) {
+              return const SizedBox(height: cardHeight * 0.70 + 3);
+            }
+
+            // ✅ Dengan banner:
+            // - spacer diperkecil supaya grid gak turun jauh
+            // - banner kasih jarak dari kartu (top) & jarak kecil ke grid (bottom)
+            return Column(
+              children: [
+                const SizedBox(
+                  height: 10,
+                ), // jarak dari kartu (biar gak mepet atas)
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 30, 20, 0),
+                  child: _SalesAccessWarningBanner(
+                    type: ban == 'ban'
+                        ? _SalesBanType.ban
+                        : _SalesBanType.semiBan,
+                    onPay: () => _openTransactionFeeModal(),
+                  ),
+                ),
+
+                const SizedBox(
+                  height: 30,
+                ), // jarak banner ke grid (biar gak kejauhan)
+              ],
+            );
+          },
+        ),
       ],
+    );
+  }
+}
+
+enum _SalesBanType { semiBan, ban }
+
+class _SalesAccessWarningBanner extends StatelessWidget {
+  final _SalesBanType type;
+  final VoidCallback? onPay;
+
+  const _SalesAccessWarningBanner({required this.type, this.onPay});
+
+  static const _primaryBlue = Color(0xFF4C6EF5);
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isBan = type == _SalesBanType.ban;
+
+    final Color bg = isBan ? const Color(0xFFFEF2F2) : const Color(0xFFFFFBEB);
+    final Color border = isBan
+        ? const Color(0xFFFECACA)
+        : const Color(0xFFFDE68A);
+    final Color iconBg = isBan
+        ? const Color(0xFFFEE2E2)
+        : const Color(0xFFFEF3C7);
+    final Color iconColor = isBan
+        ? const Color(0xFFDC2626)
+        : const Color(0xFFD97706);
+    final Color titleColor = isBan
+        ? const Color(0xFF991B1B)
+        : const Color(0xFF92400E);
+    final Color textColor = isBan
+        ? const Color(0xFF7F1D1D)
+        : const Color(0xFF78350F);
+
+    final String title = isBan ? 'Payment required' : 'Payment reminder';
+    final String message = isBan
+        ? 'Please pay your monthly bill to access Sales features.'
+        : 'Please pay your monthly bill before your Sales access is limited.';
+
+    final Color btnBg = isBan
+        ? const Color(0xFFDC2626)
+        : const Color(0xFFD97706);
+    final Color btnBgPressed = isBan
+        ? const Color(0xFFB91C1C)
+        : const Color(0xFFB45309);
+
+    void goPay() {
+      if (onPay != null) return onPay!();
+      Navigator.pushNamed(context, '/subscription'); // ✅ default
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: iconBg,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.warning_amber_rounded,
+              color: iconColor,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 10),
+
+          // text
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    color: titleColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.25,
+                    color: textColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 10),
+
+          // ✅ Pay button
+          SizedBox(
+            height: 34,
+            child: ElevatedButton(
+              style: ButtonStyle(
+                backgroundColor: MaterialStateProperty.resolveWith<Color>((s) {
+                  if (s.contains(MaterialState.pressed)) return btnBgPressed;
+                  return btnBg;
+                }),
+                elevation: const MaterialStatePropertyAll(0),
+                padding: const MaterialStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 14),
+                ),
+                shape: MaterialStatePropertyAll(
+                  RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              onPressed: goPay,
+              child: const Text(
+                'Pay',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1287,6 +1494,560 @@ String _shortId(String raw) {
   // ambil 9 karakter pertama, lalu tambahkan "..."
   final short = raw.length > 9 ? raw.substring(0, 9) : raw;
   return '$short...';
+}
+
+class _PremiumStaticBadge extends StatelessWidget {
+  const _PremiumStaticBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFF22C55E), // green
+            Color(0xFF4C6EF5), // blue
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Colors.white, // 👈 border putih
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(LucideIcons.crown, size: 16, color: Colors.white),
+          SizedBox(width: 6),
+          Text(
+            'Premium',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransactionFeeDialog extends StatelessWidget {
+  const _TransactionFeeDialog();
+
+  static const Color _primaryBlue = Color(0xFF4C6EF5);
+  static const Color _textDark = Color(0xFF0F172A);
+  static const Color _textMuted = Color(0xFF6B7280);
+  static const Color _border = Color(0xFFE5E7EB);
+  static const Color _paper = Color(0xFFFFFFFF);
+  static const Color _paperSoft = Color(0xFFF8FAFF);
+
+  String _formatRp(int v) {
+    final f = NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    );
+    return f.format(v);
+  }
+
+  String _monthLabel(int m, int y) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final mm = (m >= 1 && m <= 12) ? months[m - 1] : '—';
+    return '$mm $y';
+  }
+
+  Widget _kv(String k, String v) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          k,
+          style: const TextStyle(
+            fontSize: 12,
+            color: _textMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Flexible(
+          child: Text(
+            v,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontSize: 12,
+              color: _textDark,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _dashedLine() {
+    return LayoutBuilder(
+      builder: (_, c) {
+        final dashCount = (c.maxWidth / 10).floor();
+        return Row(
+          children: List.generate(dashCount, (_) {
+            return Expanded(
+              child: Container(
+                height: 1,
+                margin: const EdgeInsets.symmetric(horizontal: 2),
+                color: _border,
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final bool isTablet = size.shortestSide >= 600;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+      backgroundColor: Colors.transparent,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: isTablet ? 520 : 560),
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              decoration: BoxDecoration(
+                color: _paper,
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 26,
+                    offset: const Offset(0, 18),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                child: Consumer<SubscriptionProvider>(
+                  builder: (_, sp, __) {
+                    final loading = sp.isLoadingTransactionFees;
+                    final err = sp.transactionFeeError;
+                    final items = sp.transactionFees;
+                    final totalUnpaid = sp.totalUnpaidTransactionFee;
+
+                    // Ambil "billing period" utama dari item pertama (kalau ada)
+                    final periodLabel = items.isNotEmpty
+                        ? _monthLabel(items.first.month, items.first.year)
+                        : '—';
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ===== Top Header (bill style) =====
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEFF6FF),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                Icons.receipt_long_rounded,
+                                color: _primaryBlue,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Payment required',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w900,
+                                      color: _textDark,
+                                    ),
+                                  ),
+                                  SizedBox(height: 2),
+                                  Text(
+                                    'Please settle your monthly transaction fee to unlock Sales access.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      height: 1.25,
+                                      color: _textMuted,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(999),
+                              onTap: () => Navigator.of(context).pop(),
+                              child: const Padding(
+                                padding: EdgeInsets.all(6),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 20,
+                                  color: Color(0xFF9CA3AF),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 14),
+                        const Divider(height: 1, color: _border),
+                        const SizedBox(height: 12),
+
+                        if (loading) ...[
+                          const SizedBox(height: 14),
+                          const CircularProgressIndicator(strokeWidth: 2),
+                          const SizedBox(height: 14),
+                        ] else if (err != null && err.trim().isNotEmpty) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEE2E2),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFFCA5A5),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  Icons.error_outline,
+                                  size: 18,
+                                  color: Color(0xFFB91C1C),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    err,
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      color: Color(0xFF991B1B),
+                                      height: 1.3,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ] else ...[
+                          // ===== Bill / Invoice Body =====
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                            decoration: BoxDecoration(
+                              color: _paperSoft,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: _border),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Bill summary header row
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Bill summary',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w900,
+                                        color: _textDark,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEFF6FF),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                        border: Border.all(
+                                          color: const Color(0xFFD7E6FF),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        totalUnpaid > 0 ? 'DUE' : 'SETTLED',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w900,
+                                          color: _primaryBlue,
+                                          letterSpacing: 0.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 10),
+                                _kv('Billing period', periodLabel),
+                                const SizedBox(height: 6),
+                                _kv('Service', 'WaveUp Transaction Fee'),
+
+                                const SizedBox(height: 12),
+                                _dashedLine(),
+                                const SizedBox(height: 12),
+
+                                const Text(
+                                  'Line items',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                    color: _textDark,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+
+                                if (items.isEmpty)
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8),
+                                    child: Text(
+                                      'No outstanding fee found.',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: _textMuted,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  ...items.map((it) {
+                                    final status = it.status
+                                        .toLowerCase()
+                                        .trim();
+                                    final bool isPending =
+                                        status == 'pending' ||
+                                        status == 'unpaid' ||
+                                        status == 'due';
+
+                                    final Color badgeBg = isPending
+                                        ? const Color(0xFFFFFBEB)
+                                        : const Color(0xFFECFDF5);
+                                    final Color badgeBorder = isPending
+                                        ? const Color(0xFFFDE68A)
+                                        : const Color(0xFFBBF7D0);
+                                    final Color badgeText = isPending
+                                        ? const Color(0xFF92400E)
+                                        : const Color(0xFF166534);
+
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 10),
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        10,
+                                        12,
+                                        10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(color: _border),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  _monthLabel(
+                                                    it.month,
+                                                    it.year,
+                                                  ),
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w900,
+                                                    color: _textDark,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                '${it.transactionCount} transaction(s)',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: _textMuted,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              Text(
+                                                _formatRp(it.totalFee),
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  color: _textDark,
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+
+                                const SizedBox(height: 6),
+                                _dashedLine(),
+                                const SizedBox(height: 12),
+
+                                // Totals
+                                _kv('Subtotal', _formatRp(totalUnpaid)),
+                                const SizedBox(height: 8),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Total due',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: _textDark,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    Text(
+                                      _formatRp(totalUnpaid),
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        color: _primaryBlue,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 10),
+                                const Text(
+                                  'This bill is generated automatically by WaveUp.',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: _textMuted,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+
+                        const SizedBox(height: 16),
+
+                        // ===== Actions =====
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF6B7280),
+                                  side: const BorderSide(color: _border),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 13,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                onPressed: () => Navigator.of(context).pop(),
+                                child: const Text(
+                                  'Not now',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _primaryBlue,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 13,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                onPressed: () {
+                                  Navigator.of(context).pop();
+
+                                  // sementara tetap arahkan ke subscription flow (sesuai instruksi awalmu sebelumnya)
+                                  Navigator.pushNamed(context, '/subscription');
+                                },
+                                child: const Text(
+                                  'Pay now',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _InfoBlock extends StatelessWidget {

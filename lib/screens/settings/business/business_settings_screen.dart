@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
 
@@ -475,7 +476,11 @@ class _PlanStatusBadge extends StatelessWidget {
         : const Color(0xFF111827);
     final Color iconColor = isPremium ? Colors.white : const Color(0xFF4B5563);
 
-    final String titleText = isPremium ? 'Premium plan' : 'Free plan';
+    final String titleText = isPremium ? 'Premium' : 'Free Plan';
+
+    final icon = isPremium
+        ? LucideIcons.crown
+        : Icons.workspace_premium_rounded;
 
     // 👉 child utama badge (tanpa InkWell dulu)
     final Widget badgeContent = Container(
@@ -487,7 +492,7 @@ class _PlanStatusBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.workspace_premium_rounded, size: 16, color: iconColor),
+          Icon(icon, size: 16, color: iconColor),
           const SizedBox(width: 6),
           Text(
             titleText,

@@ -25,10 +25,14 @@ class BusinessInfo {
   final String logoPath;
   final bool isActive;
 
-  // ⬇️ tambahkan field premium
+  // premium
   final bool isPremium;
   final String? premiumStartAt;
   final String? premiumExpiresAt;
+
+  // ⬇️ NEW: banned status dari server
+  // contoh: "ban", "semi-ban", null / "" jika aman
+  final String? banned;
 
   const BusinessInfo({
     required this.idBusiness,
@@ -39,12 +43,18 @@ class BusinessInfo {
     this.isPremium = false,
     this.premiumStartAt,
     this.premiumExpiresAt,
+    this.banned,
   });
+
+  /// opsional helper buat UI
+  bool get isBanned => (banned ?? '').toString().trim().isNotEmpty;
+  bool get isHardBanned => (banned ?? '').toLowerCase() == 'ban';
+  bool get isSemiBanned => (banned ?? '').toLowerCase() == 'semi-ban';
 
   factory BusinessInfo.fromJson(Map<String, dynamic> j, {String? activeId}) {
     final id = (j['idBusiness'] ?? '').toString();
 
-    // Baca flag premium dari beberapa kemungkinan key
+    // premium flag toleran key
     final rawPremium = j['isPremium'] ?? j['is_premium'];
     bool premiumFlag = false;
     if (rawPremium is bool) {
@@ -68,6 +78,7 @@ class BusinessInfo {
           ?.toString(),
       premiumExpiresAt: (j['premiumExpiresAt'] ?? j['premium_expires_at'])
           ?.toString(),
+      banned: (j['banned'])?.toString(),
     );
   }
 
@@ -79,6 +90,7 @@ class BusinessInfo {
     'isPremium': isPremium,
     'premiumStartAt': premiumStartAt,
     'premiumExpiresAt': premiumExpiresAt,
+    'banned': banned,
   };
 }
 
@@ -213,7 +225,12 @@ class AuthProvider with ChangeNotifier {
       j['can_be_sold_out_of_stock'] ?? j['canBeSoldOutOfStock'],
     );
 
-    final isPremiumFlag = _parseBoolLike(j['isPremium']);
+    // ✅ premium: dukung isPremium dan is_premium
+    final isPremiumFlag = _parseBoolLike(j['isPremium'] ?? j['is_premium']);
+
+    // ✅ banned: string "ban"/"semi-ban"/null
+    final bannedVal = (j['banned'] ?? '').toString().trim();
+    final bannedOut = bannedVal.isEmpty ? null : bannedVal;
 
     return <String, dynamic>{
       'idBusiness': (j['idBusiness'] ?? '').toString(),
@@ -226,6 +243,7 @@ class AuthProvider with ChangeNotifier {
           ?.toString(),
       'premiumExpiresAt': (j['premiumExpiresAt'] ?? j['premium_expires_at'])
           ?.toString(),
+      'banned': bannedOut,
     };
   }
 
@@ -817,6 +835,18 @@ class AuthProvider with ChangeNotifier {
             .toString();
         final String activeBizLogoPath = (firstBiz?['logoPath'] ?? '')
             .toString();
+        await prefs.setBool(
+          'activeBizIsPremium',
+          (firstBiz?['isPremium'] ?? false) == true,
+        );
+        await prefs.setString(
+          'activeBizPremiumStartAt',
+          (firstBiz?['premiumStartAt'] ?? '').toString(),
+        );
+        await prefs.setString(
+          'activeBizPremiumExpiresAt',
+          (firstBiz?['premiumExpiresAt'] ?? '').toString(),
+        );
 
         if (activeBizId.isNotEmpty) {
           await _applyActiveBusinessAndRole(
@@ -860,6 +890,7 @@ class AuthProvider with ChangeNotifier {
               'isPremium': firstBiz?['isPremium'] ?? false,
               'premiumStartAt': firstBiz?['premiumStartAt'],
               'premiumExpiresAt': firstBiz?['premiumExpiresAt'],
+              'banned': firstBiz?['banned'],
             },
           'businessRoles': roleMap,
           if ((rbSnap?['idAdminRole'] ?? '').toString().isNotEmpty)
@@ -2209,6 +2240,7 @@ class AuthProvider with ChangeNotifier {
                 'isPremium': selected['isPremium'] ?? false,
                 'premiumStartAt': selected['premiumStartAt'],
                 'premiumExpiresAt': selected['premiumExpiresAt'],
+                'banned': selected['banned'],
               };
               snap['businessRoles'] = roleMap;
 
@@ -2318,6 +2350,7 @@ class AuthProvider with ChangeNotifier {
             'isPremium': target.isPremium,
             'premiumStartAt': target.premiumStartAt,
             'premiumExpiresAt': target.premiumExpiresAt,
+            'banned': target.banned,
           };
           final rb = _resolveRBForBusiness(target.idBusiness, prefs);
           if ((rb?['idAdminRole'] ?? '').toString().isNotEmpty) {
@@ -2333,6 +2366,15 @@ class AuthProvider with ChangeNotifier {
         }
       }
       await prefs.setString(kActiveAccountKey, emailKey);
+      await prefs.setBool('activeBizIsPremium', target.isPremium);
+      await prefs.setString(
+        'activeBizPremiumStartAt',
+        target.premiumStartAt ?? '',
+      );
+      await prefs.setString(
+        'activeBizPremiumExpiresAt',
+        target.premiumExpiresAt ?? '',
+      );
     }
 
     _error = null;
