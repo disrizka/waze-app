@@ -36,11 +36,20 @@ class SubscriptionHistoryItem {
   final int paid; // 0 / 1
   final DateTime? paidAt;
   final String paidStatus;
+
   final int paymentMethod;
   final String paymentMethodName;
+
+  // Premium fields (kadang ada)
   final String planId;
   final String planName;
   final String pricingId;
+
+  // ✅ tambahan dari response terbaru
+  final String description; // contoh: "Biaya Transaksi 12/2025 ..."
+  final String period; // contoh: "12/2025"
+  final String type; // contoh: "premium_business" / "transaction_fee" / dll
+
   final String paymentLink;
   final String paymentToken;
 
@@ -57,8 +66,11 @@ class SubscriptionHistoryItem {
     required this.planId,
     required this.planName,
     required this.pricingId,
-    required this.paymentLink, // ✅
-    required this.paymentToken, // ✅
+    required this.description,
+    required this.period,
+    required this.type,
+    required this.paymentLink,
+    required this.paymentToken,
   });
 
   factory SubscriptionHistoryItem.fromJson(Map<String, dynamic> json) {
@@ -81,11 +93,17 @@ class SubscriptionHistoryItem {
       paidStatus: json['paid_status']?.toString() ?? '',
       paymentMethod: (json['payment_method'] as num?)?.toInt() ?? 0,
       paymentMethodName: json['payment_method_name']?.toString() ?? '',
+
       planId: json['plan_id']?.toString() ?? '',
       planName: json['plan_name']?.toString() ?? '',
       pricingId: json['pricing_id']?.toString() ?? '',
-      paymentLink: json['payment_link']?.toString() ?? '', // ✅
-      paymentToken: json['payment_token']?.toString() ?? '', // ✅
+
+      description: json['description']?.toString() ?? '',
+      period: json['period']?.toString() ?? '',
+      type: json['type']?.toString() ?? '',
+
+      paymentLink: json['payment_link']?.toString() ?? '',
+      paymentToken: json['payment_token']?.toString() ?? '',
     );
   }
 }
@@ -161,6 +179,27 @@ class TransactionFeeItem {
   }
 }
 
+class _HistoryPagingState {
+  List<SubscriptionHistoryItem> items = [];
+
+  bool isLoading = false; // load page 1 / refresh
+  bool isLoadingMore = false; // load next page
+
+  String? error;
+  String? moreError;
+
+  int page = 1;
+  int totalPages = 1;
+  int rowPerPage = 10;
+  int totalRows = 0;
+
+  bool hasMore = true;
+
+  // optional: remember last query
+  int limit = 10;
+  String search = '';
+}
+
 // -------------------------------------------------------------
 // SubscriptionProvider
 // -------------------------------------------------------------
@@ -219,13 +258,41 @@ class SubscriptionProvider with ChangeNotifier {
   PremiumPlan? get firstPlan => _plans.isNotEmpty ? _plans.first : null;
 
   // ====== Subscription history ======
-  List<SubscriptionHistoryItem> _history = [];
-  bool _isLoadingHistory = false;
-  String? _historyError;
+  // ====== Subscription history (INFINITE) ======
+  static const String _historyType = 'premium_business';
 
-  List<SubscriptionHistoryItem> get history => List.unmodifiable(_history);
-  bool get isLoadingHistory => _isLoadingHistory;
-  String? get historyError => _historyError;
+  // ====== Payment History (INFINITE + MULTI TYPE) ======
+  final Map<String, _HistoryPagingState> _historyStates = {};
+
+  _HistoryPagingState _hs(String type) =>
+      _historyStates.putIfAbsent(type, () => _HistoryPagingState());
+
+  List<SubscriptionHistoryItem> historyOf(String type) =>
+      List.unmodifiable(_hs(type).items);
+
+  bool isLoadingHistoryOf(String type) => _hs(type).isLoading;
+  bool isLoadingMoreHistoryOf(String type) => _hs(type).isLoadingMore;
+
+  String? historyErrorOf(String type) => _hs(type).error;
+  String? historyMoreErrorOf(String type) => _hs(type).moreError;
+
+  bool historyHasMoreOf(String type) => _hs(type).hasMore;
+  int historyCurrentPageOf(String type) => _hs(type).page;
+  int historyTotalPagesOf(String type) => _hs(type).totalPages;
+
+  // Backward-compat (kalau ada UI lama yang masih pakai getter ini)
+  static const String kHistoryTypePremiumBusiness = 'premium_business';
+  static const String kHistoryTypeTransactionFee = 'transaction_fee';
+
+  List<SubscriptionHistoryItem> get history =>
+      historyOf(kHistoryTypePremiumBusiness);
+  bool get isLoadingHistory => isLoadingHistoryOf(kHistoryTypePremiumBusiness);
+  bool get isLoadingMoreHistory =>
+      isLoadingMoreHistoryOf(kHistoryTypePremiumBusiness);
+  String? get historyError => historyErrorOf(kHistoryTypePremiumBusiness);
+  String? get historyMoreError =>
+      historyMoreErrorOf(kHistoryTypePremiumBusiness);
+  bool get historyHasMore => historyHasMoreOf(kHistoryTypePremiumBusiness);
 
   // -------------------------------------------------------------
   // ✅ NEW: Transaction fee state
@@ -243,6 +310,22 @@ class SubscriptionProvider with ChangeNotifier {
 
   String get totalUnpaidTransactionFeeLabel =>
       _formatRupiah(_totalUnpaidTransactionFee);
+
+  // -------------------------------------------------------------
+  // ✅ NEW: Transaction Fee Payment (Midtrans) state
+  // -------------------------------------------------------------
+  bool _isProcessingTransactionFee = false;
+  String? _transactionFeePaymentError;
+
+  Timer? _transactionFeeCheckTimer;
+  String? _currentTransactionFeeNumber;
+
+  // simpan info untuk success dialog (opsional)
+  int? _lastTransactionFeeAmount;
+  String? _lastTransactionFeePeriod;
+
+  bool get isProcessingTransactionFee => _isProcessingTransactionFee;
+  String? get transactionFeePaymentError => _transactionFeePaymentError;
 
   /// Label harga plan pertama, hanya "Rp 150.000"
   String get firstPlanPriceLabel {
@@ -571,6 +654,395 @@ class SubscriptionProvider with ChangeNotifier {
       _isLoadingTransactionFees = false;
       notifyListeners();
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ✅ NEW: PAY TRANSACTION FEE (POST /waveup/{idBusiness}/transaction-fee/pay)
+  // - Tidak ada payload
+  // - Langsung buka Snap (Midtrans) pakai payment_token
+  // - Polling berkala ke /payment/check sampai lunas
+  // ---------------------------------------------------------------------------
+  Future<void> goToTransactionFeePayment({
+    required BuildContext context,
+  }) async {
+    if (_isProcessingTransactionFee) return;
+
+    _isProcessingTransactionFee = true;
+    _transactionFeePaymentError = null;
+    notifyListeners();
+
+    try {
+      final bizId = await BizIdCache.get();
+      if (bizId == null || bizId.toString().trim().isEmpty) {
+        throw Exception(
+          'Business ID not found. Please select a business first.',
+        );
+      }
+
+      final path = '/waveup/$bizId/transaction-fee/pay';
+
+      // payload kosong sesuai instruksi
+      final res = await ApiService.post(
+        context,
+        path,
+        const <String, dynamic>{},
+        withAccessToken: true,
+      );
+
+      final raw = res.body;
+      debugPrint(
+        '[SubscriptionProvider] POST $path ◀︎ ${res.statusCode} '
+        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+      );
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw Exception('HTTP ${res.statusCode}');
+      }
+
+      Map<String, dynamic>? json;
+      try {
+        json = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        json = null;
+      }
+      if (json == null)
+        throw Exception('Invalid JSON from transaction-fee/pay');
+
+      final status = (json['status'] as num?)?.toInt() ?? 0;
+      if (status != 200) {
+        final msg = json['message']?.toString() ?? 'Failed to create payment';
+        throw Exception('$msg (status=$status)');
+      }
+
+      final transactionNumber = json['transaction_number']?.toString() ?? '';
+      final paymentToken = json['payment_token']?.toString() ?? '';
+      final paymentLink = json['payment_link']?.toString() ?? '';
+      final totalAmount = (json['total_amount'] as num?)?.toInt() ?? 0;
+      final feePeriod = json['fee_period']?.toString() ?? '';
+      final message = json['message']?.toString() ?? '';
+
+      if (transactionNumber.trim().isEmpty) {
+        throw Exception('Invalid response: missing transaction_number');
+      }
+      if (paymentToken.trim().isEmpty) {
+        throw Exception('Invalid response: missing payment_token');
+      }
+
+      // simpan untuk polling + success dialog
+      _currentTransactionFeeNumber = transactionNumber;
+      _lastTransactionFeeAmount = totalAmount;
+      _lastTransactionFeePeriod = feePeriod;
+
+      // mulai polling backend
+      _startTransactionFeePaymentStatusPolling(context);
+
+      // (opsional) kasih info singkat
+      if (message.trim().isNotEmpty && context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
+
+      // ✅ Instruksi kamu: "langsung snap ke midtrans"
+      await _startSnap(paymentToken, context);
+
+      // Final decision tetap dari polling backend /payment/check
+      // Jadi di sini tidak usah navigate success.
+      // Polling akan handle saat status 200.
+    } catch (e, st) {
+      debugPrint(
+        '[SubscriptionProvider] goToTransactionFeePayment error: $e\n$st',
+      );
+
+      _isProcessingTransactionFee = false;
+      _transactionFeePaymentError =
+          'Failed to start transaction fee payment: $e';
+      notifyListeners();
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_transactionFeePaymentError!)));
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ✅ NEW: Transaction Fee Payment Check Polling
+  // POST /waveup/{idBusiness}/transaction-fee/payment/check
+  // payload: { "number": transaction_number }
+  // ---------------------------------------------------------------------------
+  void _startTransactionFeePaymentStatusPolling(BuildContext context) {
+    _transactionFeeCheckTimer?.cancel();
+
+    final number = _currentTransactionFeeNumber;
+    if (number == null || number.isEmpty) {
+      debugPrint('[TransactionFee] No transaction_number to poll.');
+      return;
+    }
+
+    debugPrint(
+      '[TransactionFee] Start polling payment status every 6 seconds...',
+    );
+
+    _transactionFeeCheckTimer = Timer.periodic(
+      const Duration(seconds: 6),
+      (_) => _checkTransactionFeePaymentStatus(context),
+    );
+  }
+
+  Future<void> _checkTransactionFeePaymentStatus(BuildContext context) async {
+    final number = _currentTransactionFeeNumber;
+    if (number == null || number.isEmpty) return;
+
+    try {
+      final bizId = await BizIdCache.get();
+      if (bizId == null || bizId.toString().trim().isEmpty) {
+        debugPrint('[TransactionFee] Missing business id while polling.');
+        return;
+      }
+
+      final path = '/waveup/$bizId/transaction-fee/payment/check';
+
+      debugPrint('[TransactionFee] Check payment status number=$number');
+
+      final payload = {'number': number};
+
+      final res = await ApiService.post(
+        context,
+        path,
+        payload,
+        withAccessToken: true,
+      );
+
+      final raw = res.body;
+      debugPrint(
+        '[SubscriptionProvider] POST $path ◀︎ ${res.statusCode} '
+        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+      );
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        debugPrint(
+          '[TransactionFee] payment/check HTTP error ${res.statusCode}',
+        );
+        return;
+      }
+
+      Map<String, dynamic>? json;
+      try {
+        json = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        json = null;
+      }
+      if (json == null) {
+        debugPrint('[TransactionFee] payment/check invalid json');
+        return;
+      }
+
+      final status = (json['status'] as num?)?.toInt() ?? 0;
+
+      if (status == 400) {
+        // belum bayar, biarkan polling lanjut
+        debugPrint(
+          '[TransactionFee] Not paid yet: ${json['message']?.toString() ?? ''}',
+        );
+        return;
+      }
+
+      if (status == 200) {
+        debugPrint('[TransactionFee] Payment success! Stop polling.');
+
+        _transactionFeeCheckTimer?.cancel();
+        _transactionFeeCheckTimer = null;
+        _currentTransactionFeeNumber = null;
+
+        _isProcessingTransactionFee = false;
+        notifyListeners();
+
+        // refresh list fee supaya UI kebuka (Sales unlocked)
+        if (context.mounted) {
+          await fetchTransactionFees(context);
+          await _showTransactionFeePaidDialog(context);
+        }
+        return;
+      }
+
+      debugPrint('[TransactionFee] Unknown status=$status (json=$json)');
+    } catch (e, st) {
+      debugPrint('[TransactionFee] polling error: $e\n$st');
+      // ignore; timer akan coba lagi
+    }
+  }
+
+  Future<void> _showTransactionFeePaidDialog(BuildContext context) async {
+    final amount = _lastTransactionFeeAmount ?? totalUnpaidTransactionFee;
+    final period = (_lastTransactionFeePeriod ?? '').trim();
+
+    final amountLabel = NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    ).format(amount);
+
+    final periodLabel = period.isNotEmpty ? period : 'Selected period';
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Success icon
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFE8F5E9),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.verified_rounded,
+                    size: 36,
+                    color: Color(0xFF2E7D32),
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                const Text(
+                  'Payment Successful',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+
+                const Text(
+                  'Thank you for paying the WaveUp platform fee.\n'
+                  'Every contribution matters to us.\n'
+                  'You can now enjoy WaveUp services normally again.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.black54,
+                    height: 1.45,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                // Payment details
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: const Color(0xFFF5F7FB),
+                    border: Border.all(color: const Color(0xFFE1E5F2)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Payment details',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Fee period',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          Text(
+                            periodLabel,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Amount paid',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          Text(
+                            amountLabel,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Continue button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    onPressed: () {
+                      final nav = Navigator.of(context, rootNavigator: true);
+
+                      // close dialog
+                      nav.pop();
+
+                      // go to home & request refresh
+                      nav.pushNamedAndRemoveUntil(
+                        '/home',
+                        (r) => false,
+                        arguments: const {'refresh': true},
+                      );
+                    },
+
+                    child: const Text(
+                      'Continue',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1681,13 +2153,37 @@ class SubscriptionProvider with ChangeNotifier {
   // ---------------------------------------------------------------------------
   // 4) GET SUBSCRIPTION HISTORY (GET /premium/business/history/:idBusiness)
   // ---------------------------------------------------------------------------
-  Future<void> fetchSubscriptionHistory(BuildContext context) async {
-    _isLoadingHistory = true;
-    _historyError = null;
+  Future<void> fetchPaymentHistory(
+    BuildContext context, {
+    required String type, // 'premium_business' / 'transaction_fee'
+    bool refresh = true,
+    int limit = 10,
+    String search = '',
+  }) async {
+    final st = _hs(type);
+
+    if (st.isLoading) return;
+
+    if (refresh) {
+      st.page = 1;
+      st.totalPages = 1;
+      st.rowPerPage = limit;
+      st.totalRows = 0;
+      st.hasMore = true;
+
+      st.error = null;
+      st.moreError = null;
+      st.items = [];
+
+      st.limit = limit;
+      st.search = search;
+    }
+
+    st.isLoading = true;
+    st.error = null;
     notifyListeners();
 
     try {
-      // 🔹 Ambil business id dari BizIdCache
       final bizId = await BizIdCache.get();
       if (bizId == null || bizId.toString().trim().isEmpty) {
         throw Exception(
@@ -1695,7 +2191,9 @@ class SubscriptionProvider with ChangeNotifier {
         );
       }
 
-      final path = '/premium/business/$bizId/history';
+      final safeSearch = Uri.encodeQueryComponent(search);
+      final path =
+          '/waveup/$bizId/payment-history?type=$type&page=1&limit=$limit&search=$safeSearch';
 
       final res = await ApiService.get(context, path, withAccessToken: true);
 
@@ -1715,43 +2213,205 @@ class SubscriptionProvider with ChangeNotifier {
       } catch (_) {
         decoded = null;
       }
-
-      if (decoded == null) {
-        throw Exception('Invalid JSON response');
-      }
+      if (decoded == null) throw Exception('Invalid JSON response');
 
       final status = (decoded['status'] as num?)?.toInt() ?? 0;
       if (status != 200) {
         final msg =
-            decoded['msg']?.toString() ?? 'Failed to load subscription history';
+            decoded['msg']?.toString() ?? 'Failed to load payment history';
         throw Exception('$msg (status=$status)');
       }
 
       final data = decoded['data'];
+      final pageItems = (data is List)
+          ? data
+                .map(
+                  (e) => SubscriptionHistoryItem.fromJson(
+                    (e as Map).cast<String, dynamic>(),
+                  ),
+                )
+                .toList()
+          : <SubscriptionHistoryItem>[];
 
-      if (data is List) {
-        _history = data
-            .map(
-              (e) => SubscriptionHistoryItem.fromJson(
-                (e as Map).cast<String, dynamic>(),
-              ),
-            )
-            .toList();
-      } else {
-        _history = [];
-      }
+      final page = decoded['page'];
+      final currentPage = (page is Map)
+          ? (page['current_page'] as num?)?.toInt() ?? 1
+          : 1;
+      final totalPages = (page is Map)
+          ? (page['total_pages'] as num?)?.toInt() ?? 1
+          : 1;
+      final rowPerPage = (page is Map)
+          ? (page['row_per_page'] as num?)?.toInt() ?? limit
+          : limit;
+      final totalRows = (page is Map)
+          ? (page['total_rows'] as num?)?.toInt() ?? pageItems.length
+          : pageItems.length;
 
-      _historyError = null;
-    } catch (e, st) {
+      st.page = currentPage;
+      st.totalPages = totalPages;
+      st.rowPerPage = rowPerPage;
+      st.totalRows = totalRows;
+
+      st.items = pageItems;
+      st.hasMore = st.page < st.totalPages;
+
+      st.error = null;
+      st.moreError = null;
+    } catch (e, stTrace) {
       debugPrint(
-        '[SubscriptionProvider] fetchSubscriptionHistory error: $e\n$st',
+        '[SubscriptionProvider] fetchPaymentHistory error: $e\n$stTrace',
       );
-      _historyError = 'Failed to load subscription history: $e';
-      _history = [];
+      st.error = 'Failed to load payment history: $e';
+      st.items = [];
+      st.hasMore = false;
     } finally {
-      _isLoadingHistory = false;
+      st.isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> fetchMorePaymentHistory(
+    BuildContext context, {
+    required String type,
+    int? limit,
+    String? search,
+  }) async {
+    final st = _hs(type);
+
+    if (st.isLoading || st.isLoadingMore) return;
+    if (!st.hasMore) return;
+
+    final effectiveLimit = limit ?? st.limit;
+    final effectiveSearch = search ?? st.search;
+
+    st.isLoadingMore = true;
+    st.moreError = null;
+    notifyListeners();
+
+    final nextPage = st.page + 1;
+
+    try {
+      final bizId = await BizIdCache.get();
+      if (bizId == null || bizId.toString().trim().isEmpty) {
+        throw Exception(
+          'Business ID not found. Please select a business first.',
+        );
+      }
+
+      final safeSearch = Uri.encodeQueryComponent(effectiveSearch);
+      final path =
+          '/waveup/$bizId/payment-history?type=$type&page=$nextPage&limit=$effectiveLimit&search=$safeSearch';
+
+      final res = await ApiService.get(context, path, withAccessToken: true);
+
+      final raw = res.body;
+      debugPrint(
+        '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
+        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+      );
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw Exception('HTTP ${res.statusCode}');
+      }
+
+      Map<String, dynamic>? decoded;
+      try {
+        decoded = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        decoded = null;
+      }
+      if (decoded == null) throw Exception('Invalid JSON response');
+
+      final status = (decoded['status'] as num?)?.toInt() ?? 0;
+      if (status != 200) {
+        final msg = decoded['msg']?.toString() ?? 'Failed to load more history';
+        throw Exception('$msg (status=$status)');
+      }
+
+      final data = decoded['data'];
+      final pageItems = (data is List)
+          ? data
+                .map(
+                  (e) => SubscriptionHistoryItem.fromJson(
+                    (e as Map).cast<String, dynamic>(),
+                  ),
+                )
+                .toList()
+          : <SubscriptionHistoryItem>[];
+
+      final page = decoded['page'];
+      final currentPage = (page is Map)
+          ? (page['current_page'] as num?)?.toInt() ?? nextPage
+          : nextPage;
+      final totalPages = (page is Map)
+          ? (page['total_pages'] as num?)?.toInt() ?? st.totalPages
+          : st.totalPages;
+
+      st.page = currentPage;
+      st.totalPages = totalPages;
+
+      st.items = [...st.items, ...pageItems];
+      st.hasMore = st.page < st.totalPages;
+
+      st.moreError = null;
+    } catch (e, stTrace) {
+      debugPrint(
+        '[SubscriptionProvider] fetchMorePaymentHistory error: $e\n$stTrace',
+      );
+      st.moreError = 'Failed to load more history: $e';
+    } finally {
+      st.isLoadingMore = false;
+      notifyListeners();
+    }
+  }
+
+  void resetTransactionFeeState() {
+    debugPrint('🧹 [SubscriptionProvider] resetTransactionFeeState() CALLED');
+
+    debugPrint(
+      '🧾 [SubscriptionProvider] BEFORE reset => '
+      '_isLoadingTransactionFees=$_isLoadingTransactionFees, '
+      '_isProcessingTransactionFee=$_isProcessingTransactionFee, '
+      '_transactionFees.length=${_transactionFees.length}, '
+      '_totalUnpaidTransactionFee=$_totalUnpaidTransactionFee, '
+      '_transactionFeeError=${_transactionFeeError ?? "-"}, '
+      '_transactionFeePaymentError=${_transactionFeePaymentError ?? "-"}, '
+      '_currentTransactionFeeNumber=${_currentTransactionFeeNumber ?? "-"}, '
+      '_timerActive=${_transactionFeeCheckTimer?.isActive ?? false}',
+    );
+
+    // stop polling timer
+    _transactionFeeCheckTimer?.cancel();
+    _transactionFeeCheckTimer = null;
+
+    // ✅ matikan semua state yang bikin shimmer nyala
+    _isLoadingTransactionFees = false;
+    _isProcessingTransactionFee = false;
+
+    // ✅ reset data & error
+    _transactionFees = [];
+    _totalUnpaidTransactionFee = 0;
+    _transactionFeeError = null;
+    _transactionFeePaymentError = null;
+
+    // ✅ reset "current" transaction tracking
+    _currentTransactionFeeNumber = null;
+    _lastTransactionFeeAmount = null;
+    _lastTransactionFeePeriod = null;
+
+    notifyListeners();
+
+    debugPrint(
+      '✅ [SubscriptionProvider] AFTER reset => '
+      '_isLoadingTransactionFees=$_isLoadingTransactionFees, '
+      '_isProcessingTransactionFee=$_isProcessingTransactionFee, '
+      '_transactionFees.length=${_transactionFees.length}, '
+      '_totalUnpaidTransactionFee=$_totalUnpaidTransactionFee, '
+      '_transactionFeeError=${_transactionFeeError ?? "-"}, '
+      '_transactionFeePaymentError=${_transactionFeePaymentError ?? "-"}, '
+      '_currentTransactionFeeNumber=${_currentTransactionFeeNumber ?? "-"}, '
+      '_timerActive=${_transactionFeeCheckTimer?.isActive ?? false}',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1761,6 +2421,8 @@ class SubscriptionProvider with ChangeNotifier {
   void dispose() {
     _paymentCheckTimer?.cancel();
     _paymentCheckTimer = null;
+    _transactionFeeCheckTimer?.cancel();
+    _transactionFeeCheckTimer = null;
     super.dispose();
   }
 }

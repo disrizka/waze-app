@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -33,6 +34,8 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
   String _currentLogoUrl = '';
   String _currentUsername = '';
   File? _pickedOrgLogoFile;
+
+  bool _isPremiumBiz = false;
 
   /// Switch: allow selling when stock is empty (out of stock)
   bool _allowOutOfStock = false;
@@ -116,6 +119,62 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
     return flag ?? false;
   }
 
+  bool _readIsPremiumFromPrefs(SharedPreferences prefs, String activeId) {
+    bool? flag;
+
+    // 1) Paling cepat: pref eksplisit yang diset oleh AuthProvider
+    final direct = prefs.getBool('activeBizIsPremium');
+    if (direct != null) flag = direct;
+
+    // 2) Fallback: dari "business" simplified
+    if (flag == null) {
+      final rawBiz = prefs.getString('business');
+      final id = activeId.isNotEmpty
+          ? activeId
+          : (prefs.getString('activeBizId') ?? '').trim();
+
+      if (rawBiz != null && rawBiz.isNotEmpty && id.isNotEmpty) {
+        try {
+          final list = (jsonDecode(rawBiz) as List)
+              .cast<Map<String, dynamic>>();
+          final match = list.firstWhere(
+            (e) => (e['idBusiness'] ?? '').toString() == id,
+            orElse: () => <String, dynamic>{},
+          );
+          if (match.isNotEmpty) {
+            final raw = match['isPremium'] ?? match['is_premium'];
+            flag = _parseOutOfStockFlag(raw, false); // reuse bool-like parser
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 3) Fallback terakhir: dari "business_full"
+    if (flag == null) {
+      final rawFull = prefs.getString('business_full');
+      final id = activeId.isNotEmpty
+          ? activeId
+          : (prefs.getString('activeBizId') ?? '').trim();
+
+      if (rawFull != null && rawFull.isNotEmpty && id.isNotEmpty) {
+        try {
+          final list = (jsonDecode(rawFull) as List)
+              .cast<Map<String, dynamic>>();
+          final match = list.firstWhere(
+            (e) => (e['idBusiness'] ?? '').toString() == id,
+            orElse: () => <String, dynamic>{},
+          );
+          if (match.isNotEmpty) {
+            final raw = match['isPremium'] ?? match['is_premium'];
+            flag = _parseOutOfStockFlag(raw, false);
+          }
+        } catch (_) {}
+      }
+    }
+
+    return flag ?? false;
+  }
+
   Future<void> _loadDefaultsFromPrefs() async {
     setState(() => _loading = true);
 
@@ -161,7 +220,19 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
     }
 
     // baca flag out-of-stock dari prefs (mengikuti pola AddProductSheet)
-    final allowOutOfStock = _readAllowOutOfStockFromPrefs(prefs, activeId);
+    // baca premium dari prefs
+    final isPremiumBiz = _readIsPremiumFromPrefs(prefs, activeId);
+
+    // baca flag out-of-stock dari prefs
+    bool allowOutOfStock = _readAllowOutOfStockFromPrefs(prefs, activeId);
+
+    // ✅ RULE: jika FREE plan -> selalu ON & tidak boleh diubah
+    if (!isPremiumBiz) {
+      allowOutOfStock = true;
+
+      // pastikan pref ikut konsisten (biar layar lain juga baca true)
+      await prefs.setBool('activeBizCanSellOutOfStock', true);
+    }
 
     // set default form: name & username dari prefs; about dikosongkan
     _businessNameC.text = businessName;
@@ -172,6 +243,7 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
       _currentName = businessName;
       _currentUsername = businessUsername;
       _currentLogoUrl = businessLogoPath;
+      _isPremiumBiz = isPremiumBiz;
       _allowOutOfStock = allowOutOfStock;
       _loading = false;
     });
@@ -333,6 +405,89 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ===== Switch: allow out-of-stock sales =====
+    final bool isFreePlan = !_isPremiumBiz;
+    final bool switchValue = isFreePlan ? true : _allowOutOfStock;
+    Future<void> _showUpgradeToPremiumDialog() async {
+      if (!mounted) return;
+
+      return showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(18, 18, 18, 6),
+            contentPadding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+            actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            title: Row(
+              children: const [
+                Expanded(
+                  child: Text(
+                    'Upgrade to Premium',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: const Text(
+              'This feature is available for Premium only. Upgrade to Premium to manage out-of-stock selling settings.',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                color: AppColors.disabledFg,
+              ),
+            ),
+            actions: [
+              OutlinedButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.blueButton,
+                  side: const BorderSide(color: AppColors.blueButton),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Not now',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+
+                  // TODO: arahkan ke halaman upgrade kamu
+                  // Contoh (sesuaikan route app kamu):
+                  Navigator.of(context).pushNamed('/subscription');
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.blueButton,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Upgrade',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
     return ChangeNotifierProvider(
       create: (_) => EditProfileProvider()..initFromPrefs(),
       child: Consumer<EditProfileProvider>(
@@ -442,91 +597,154 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
 
                             const SizedBox(height: 8),
 
-                            // ===== Switch: allow out-of-stock sales =====
-                            SwitchListTile.adaptive(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text(
-                                'Allow selling products with zero stock',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: AppColors.textPrimary,
+                            InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: isFreePlan
+                                  ? _showUpgradeToPremiumDialog
+                                  : null,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 6,
+                                ),
+                                child: ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Row(
+                                    children: const [
+                                      Expanded(
+                                        child: Text(
+                                          'Allow selling products with zero stock',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      // ✅ badge SELALU tampil (free/premium)
+                                      _PremiumInlineBadge(),
+                                    ],
+                                  ),
+                                  subtitle: const Padding(
+                                    padding: EdgeInsets.only(top: 6),
+                                    child: Text(
+                                      'When enabled, products can be sold even if their stock is zero. Inventory may go negative after sales.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.disabledFg,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  ),
+                                  trailing: IgnorePointer(
+                                    ignoring:
+                                        isFreePlan, // ✅ free plan: switch tidak bisa diubah
+                                    child: Switch.adaptive(
+                                      value:
+                                          switchValue, // ✅ free plan: selalu ON
+                                      onChanged: isFreePlan
+                                          ? null
+                                          : (v) async {
+                                              setState(
+                                                () => _allowOutOfStock = v,
+                                              );
+
+                                              final prefs =
+                                                  await SharedPreferences.getInstance();
+                                              await prefs.setBool(
+                                                'activeBizCanSellOutOfStock',
+                                                v,
+                                              );
+
+                                              final activeId =
+                                                  (prefs.getString(
+                                                            'activeBizId',
+                                                          ) ??
+                                                          '')
+                                                      .trim();
+
+                                              // update snapshot business_full
+                                              try {
+                                                final rawFull = prefs.getString(
+                                                  'business_full',
+                                                );
+                                                if (rawFull != null &&
+                                                    rawFull.isNotEmpty &&
+                                                    activeId.isNotEmpty) {
+                                                  final list =
+                                                      (jsonDecode(rawFull)
+                                                              as List)
+                                                          .cast<
+                                                            Map<String, dynamic>
+                                                          >();
+                                                  bool changed = false;
+                                                  for (final b in list) {
+                                                    if ((b['idBusiness'] ?? '')
+                                                            .toString() ==
+                                                        activeId) {
+                                                      b['canSellOutOfStock'] =
+                                                          v;
+                                                      b['canBeSoldOutOfStock'] =
+                                                          v;
+                                                      b['can_be_sold_out_of_stock'] =
+                                                          v;
+                                                      changed = true;
+                                                      break;
+                                                    }
+                                                  }
+                                                  if (changed) {
+                                                    await prefs.setString(
+                                                      'business_full',
+                                                      jsonEncode(list),
+                                                    );
+                                                  }
+                                                }
+                                              } catch (_) {}
+
+                                              // update snapshot business
+                                              try {
+                                                final rawBiz = prefs.getString(
+                                                  'business',
+                                                );
+                                                if (rawBiz != null &&
+                                                    rawBiz.isNotEmpty &&
+                                                    activeId.isNotEmpty) {
+                                                  final list =
+                                                      (jsonDecode(rawBiz)
+                                                              as List)
+                                                          .cast<
+                                                            Map<String, dynamic>
+                                                          >();
+                                                  bool changed = false;
+                                                  for (final b in list) {
+                                                    if ((b['idBusiness'] ?? '')
+                                                            .toString() ==
+                                                        activeId) {
+                                                      b['canSellOutOfStock'] =
+                                                          v;
+                                                      b['canBeSoldOutOfStock'] =
+                                                          v;
+                                                      b['can_be_sold_out_of_stock'] =
+                                                          v;
+                                                      changed = true;
+                                                      break;
+                                                    }
+                                                  }
+                                                  if (changed) {
+                                                    await prefs.setString(
+                                                      'business',
+                                                      jsonEncode(list),
+                                                    );
+                                                  }
+                                                }
+                                              } catch (_) {}
+                                            },
+                                    ),
+                                  ),
                                 ),
                               ),
-                              value: _allowOutOfStock,
-                              onChanged: (v) async {
-                                setState(() => _allowOutOfStock = v);
-
-                                final prefs =
-                                    await SharedPreferences.getInstance();
-                                await prefs.setBool(
-                                  'activeBizCanSellOutOfStock',
-                                  v,
-                                );
-
-                                final activeId =
-                                    (prefs.getString('activeBizId') ?? '')
-                                        .trim();
-
-                                // update snapshot business_full
-                                try {
-                                  final rawFull = prefs.getString(
-                                    'business_full',
-                                  );
-                                  if (rawFull != null &&
-                                      rawFull.isNotEmpty &&
-                                      activeId.isNotEmpty) {
-                                    final list = (jsonDecode(rawFull) as List)
-                                        .cast<Map<String, dynamic>>();
-                                    bool changed = false;
-                                    for (final b in list) {
-                                      if ((b['idBusiness'] ?? '').toString() ==
-                                          activeId) {
-                                        b['canSellOutOfStock'] = v;
-                                        b['canBeSoldOutOfStock'] = v;
-                                        b['can_be_sold_out_of_stock'] = v;
-                                        changed = true;
-                                        break;
-                                      }
-                                    }
-                                    if (changed) {
-                                      await prefs.setString(
-                                        'business_full',
-                                        jsonEncode(list),
-                                      );
-                                    }
-                                  }
-                                } catch (_) {}
-
-                                // update snapshot business
-                                try {
-                                  final rawBiz = prefs.getString('business');
-                                  if (rawBiz != null &&
-                                      rawBiz.isNotEmpty &&
-                                      activeId.isNotEmpty) {
-                                    final list = (jsonDecode(rawBiz) as List)
-                                        .cast<Map<String, dynamic>>();
-                                    bool changed = false;
-                                    for (final b in list) {
-                                      if ((b['idBusiness'] ?? '').toString() ==
-                                          activeId) {
-                                        b['canSellOutOfStock'] = v;
-                                        b['canBeSoldOutOfStock'] = v;
-                                        b['can_be_sold_out_of_stock'] = v;
-                                        changed = true;
-                                        break;
-                                      }
-                                    }
-                                    if (changed) {
-                                      await prefs.setString(
-                                        'business',
-                                        jsonEncode(list),
-                                      );
-                                    }
-                                  }
-                                } catch (_) {}
-                              },
                             ),
+
                             const SizedBox(height: 4),
                             const Text(
                               'When this option is enabled, products can be sold even if their stock is zero. Your inventory quantity will be allowed to go negative when you sell with no stock available.',
@@ -564,6 +782,55 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
                   ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _PremiumInlineBadge extends StatelessWidget {
+  const _PremiumInlineBadge({this.compact = true});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final padH = compact ? 8.0 : 10.0;
+    final padV = compact ? 4.0 : 5.0;
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [Color(0xFF6366F1), Color(0xFF22C55E)],
+        ),
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.14),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(LucideIcons.gem, size: 13, color: Colors.white),
+          if (!compact) ...[
+            const SizedBox(width: 6),
+            const Text(
+              'Premium',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

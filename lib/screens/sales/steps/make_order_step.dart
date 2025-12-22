@@ -1134,11 +1134,7 @@ class _QtyEditor2State extends State<_QtyEditor2> {
 }
 
 // ===============================
-// ADD PRODUCT BOTTOM SHEET (minimal tweaks compatible)
-// ===============================
-
-// ===============================
-// SALES VARIANT ATTRIBUTE SHEET (Stock-aware)
+// ADD PRODUCT BOTTOM SHEET
 // ===============================
 
 class AddProductSheet extends StatefulWidget {
@@ -1154,8 +1150,12 @@ class AddProductSheetState extends State<AddProductSheet> {
   Timer? _debounce;
   bool _loadMoreArmed = false;
   bool _kicked = false;
+
+  // ===== Stock rule (business setting) =====
   bool _canSellOutOfStock = false;
-  bool _outOfStockFlagLoaded = false;
+
+  // ===== Plan rule (FREE plan: hide stock info + ignore stock restrictions) =====
+  bool _isFreePlan = false;
 
   ProductProvider? _pp;
 
@@ -1168,20 +1168,92 @@ class AddProductSheetState extends State<AddProductSheet> {
   @override
   void initState() {
     super.initState();
-    // Samakan dengan ProductScreen: init → ensure default store → refresh
     WidgetsBinding.instance.addPostFrameCallback((_) => _kickOnOpen());
     _loadOutOfStockFlag();
+    _loadPlanFlag();
   }
 
-  // ⬇️ NEW: baca setting "boleh jual stok kosong" untuk business aktif
+  Future<void> _loadPlanFlag() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      bool isPremium = false;
+
+      // 1) coba key yang paling umum
+      final direct = prefs.getBool('activeBizIsPremium');
+      if (direct != null) {
+        isPremium = direct == true;
+      } else {
+        final alt1 = prefs.getBool('isPremiumUser');
+        if (alt1 != null) isPremium = alt1 == true;
+      }
+
+      // 2) fallback: parse business_full (list business)
+      if (!isPremium) {
+        final activeBizId = (prefs.getString('activeBizId') ?? '').trim();
+        final rawFull = (prefs.getString('business_full') ?? '').trim();
+
+        if (activeBizId.isNotEmpty && rawFull.isNotEmpty) {
+          try {
+            final list = (jsonDecode(rawFull) as List);
+            Map<String, dynamic>? found;
+
+            for (final e in list) {
+              if (e is Map<String, dynamic>) {
+                final id = (e['idBusiness'] ?? '').toString();
+                if (id == activeBizId) {
+                  found = e;
+                  break;
+                }
+              }
+            }
+
+            bool truthy(dynamic v) {
+              if (v == null) return false;
+              if (v is bool) return v;
+              final s = v.toString().trim().toLowerCase();
+              return s == '1' || s == 'true' || s == 'yes' || s == 'premium';
+            }
+
+            if (found != null) {
+              final p1 = found['isPremium'];
+              final p2 = found['premium'];
+              final p3 = found['is_premium'];
+              final p4 = found['premiumStatus'];
+
+              final exp1 = found['premiumExpiresAt'];
+              final exp2 = found['premium_expires_at'];
+
+              isPremium =
+                  truthy(p1) ||
+                  truthy(p2) ||
+                  truthy(p3) ||
+                  truthy(p4) ||
+                  ((exp1 != null && exp1.toString().trim().isNotEmpty) ||
+                      (exp2 != null && exp2.toString().trim().isNotEmpty));
+            }
+          } catch (_) {}
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _isFreePlan = !isPremium;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isFreePlan = false; // fallback aman
+      });
+    }
+  }
+
   Future<void> _loadOutOfStockFlag() async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 1) kalau AuthProvider sudah simpan langsung
       bool flag = prefs.getBool('activeBizCanSellOutOfStock') ?? false;
 
-      // 2) fallback: cek di business_full (/user → business[])
       if (!flag) {
         final activeBizId = prefs.getString('activeBizId');
         final rawFull = prefs.getString('business_full');
@@ -1205,20 +1277,15 @@ class AddProductSheetState extends State<AddProductSheet> {
                       false) ==
                   true;
             }
-          } catch (_) {
-            // ignore parse error
-          }
+          } catch (_) {}
         }
       }
 
       if (!mounted) return;
       setState(() {
         _canSellOutOfStock = flag;
-        _outOfStockFlagLoaded = true;
       });
-    } catch (_) {
-      // diam saja, default false
-    }
+    } catch (_) {}
   }
 
   Future<void> _kickOnOpen() async {
@@ -1227,29 +1294,21 @@ class AddProductSheetState extends State<AddProductSheet> {
 
     final prov = context.read<ProductProvider>();
 
-    // 1) pastikan controller ada
     prov.initInfinitePaging(context, initialSearch: '');
 
-    // 2) pastikan store (aman kalau sudah ada)
     try {
       await prov
           .ensureDefaultStoreLocation(context)
           .timeout(const Duration(seconds: 6));
     } catch (_) {}
 
-    // 3) reset → page-1
     await prov.refreshInfinite(context);
 
-    // 4) ⬅️ WAJIB: minta halaman pertama secara eksplisit
     prov.pagingController?.fetchNextPage();
 
-    // ✅ Cukup cek koleksi dari provider
-    final hasItems = prov.products.isNotEmpty;
-
-    // 5) safety nudge bila masih belum ke-trigger
     Future.delayed(const Duration(milliseconds: 300), () {
       if (!mounted) return;
-      if ((prov.products.isEmpty) || (hasItems ?? true)) {
+      if (prov.products.isEmpty) {
         prov.pagingController?.fetchNextPage();
       }
     });
@@ -1266,7 +1325,7 @@ class AddProductSheetState extends State<AddProductSheet> {
           .timeout(const Duration(seconds: 6));
     } catch (_) {}
     await prov.refreshInfinite(context);
-    prov.pagingController?.fetchNextPage(); // ⬅️ penting
+    prov.pagingController?.fetchNextPage();
     if (mounted) setState(() {});
   }
 
@@ -1275,8 +1334,6 @@ class AddProductSheetState extends State<AddProductSheet> {
     _debounce?.cancel();
     _searchC.dispose();
     _gridScrollC.dispose();
-    // ⚠️ JANGAN dispose paging di sini kalau ProductProvider dipakai global!
-    // _pp?.disposeInfinitePaging();
     super.dispose();
   }
 
@@ -1326,15 +1383,9 @@ class AddProductSheetState extends State<AddProductSheet> {
       );
     }
 
-    // ==== DATA ====
     final all = prov.products;
-
-    // DEBUG: tampilkan semua dulu untuk memastikan fetch jalan.
-    // Nanti kalau sudah OK, ganti kembali ke filter stok:
-    // final visible = all.where((p) => !p.isOutOfStock && p.totalStockQty > 0).toList();
     final visible = all;
 
-    // meta untuk “load more”
     final pm = prov.pageProducts;
     final bool isAtEnd = (pm?.currentPage != null && pm?.totalPages != null)
         ? (pm!.currentPage! >= pm.totalPages!)
@@ -1342,6 +1393,12 @@ class AddProductSheetState extends State<AddProductSheet> {
 
     final selectedItems = salesProv.cartItems.length;
     final selectedQty = salesProv.cartItems.fold<int>(0, (s, it) => s + it.qty);
+
+    // ✅ FREE plan: no stock UI & no restriction
+    final bool showStockUI = !_isFreePlan; // premium -> true
+    final bool effectiveAllowOutOfStock = _isFreePlan
+        ? true
+        : _canSellOutOfStock;
 
     return SafeArea(
       minimum: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -1445,8 +1502,15 @@ class AddProductSheetState extends State<AddProductSheet> {
                               .where((it) => it.sku.productId == g.productId)
                               .fold<int>(0, (s, it) => s + it.qty);
 
-                          final bool isOut = p.totalStockQty <= 0;
-                          final bool hardBlock = isOut && !_canSellOutOfStock;
+                          // premium: stock enabled; free: ignore stock
+                          final bool isOut = showStockUI
+                              ? (p.totalStockQty <= 0)
+                              : false;
+
+                          // block hanya untuk premium yang tidak boleh oversell
+                          final bool hardBlock =
+                              isOut && showStockUI && !effectiveAllowOutOfStock;
+
                           final double cardOpacity = hardBlock
                               ? 0.6
                               : 1.0; // abu-abu jika blocked
@@ -1460,8 +1524,8 @@ class AddProductSheetState extends State<AddProductSheet> {
                                   child: _SalesProductCard(
                                     group: g,
                                     selectedQty: selectedForProduct,
-                                    allowOutOfStock:
-                                        _canSellOutOfStock, // ⬅️ penting
+                                    allowOutOfStock: effectiveAllowOutOfStock,
+                                    showStockUI: showStockUI,
                                     onChoose: () {
                                       showModalBottomSheet<bool>(
                                         context: context,
@@ -1481,7 +1545,8 @@ class AddProductSheetState extends State<AddProductSheet> {
                                               child: _SalesVariantAttributeSheet(
                                                 group: g,
                                                 allowOutOfStock:
-                                                    _canSellOutOfStock, // ⬅️ penting
+                                                    effectiveAllowOutOfStock,
+                                                showStockUI: showStockUI,
                                               ),
                                             ),
                                       ).then((changed) {
@@ -1556,20 +1621,14 @@ class AddProductSheetState extends State<AddProductSheet> {
 
   _SalesProductGroup _toGroup(Product p) {
     int minPriceOf(Product p) {
-      // PRIORITAS:
-      // 1) Kalau ada harga grosir (productPrices) → ambil yang paling murah
-      // 2) Kalau tidak, pakai harga SKU termurah
-      // 3) Kalau dua-duanya tidak ada, fallback ke basePrice
       if (p.productPrices.isNotEmpty) {
         final prices = p.productPrices.map((x) => x.price).toList()..sort();
         return prices.first;
       }
-
       if (p.productSkus.isNotEmpty) {
         final prices = p.productSkus.map((s) => s.price).toList()..sort();
         return prices.first;
       }
-
       return p.basePrice ?? 0;
     }
 
@@ -1704,14 +1763,16 @@ class _SalesProductCard extends StatelessWidget {
   final _SalesProductGroup group;
   final int selectedQty;
   final VoidCallback onChoose;
-  final bool allowOutOfStock; // ⬅️ NEW
+  final bool allowOutOfStock;
+  final bool showStockUI; // premium: true, free: false
 
   const _SalesProductCard({
     Key? key,
     required this.group,
     required this.selectedQty,
     required this.onChoose,
-    this.allowOutOfStock = false, // ⬅️ default
+    this.allowOutOfStock = false,
+    this.showStockUI = true,
   }) : super(key: key);
 
   @override
@@ -1721,8 +1782,12 @@ class _SalesProductCard extends StatelessWidget {
     final minPrice = group.minPrice;
     final thumb = group.thumbUrl;
 
-    final bool isOut = p.totalStockQty <= 0;
-    final bool disabled = isOut && !allowOutOfStock;
+    final bool isOut = showStockUI ? (p.totalStockQty <= 0) : false;
+    final bool disabled = isOut && showStockUI && !allowOutOfStock;
+
+    final Color stockColor = (showStockUI && isOut)
+        ? Colors.red
+        : const Color(0xFF475569);
 
     return Container(
       decoration: BoxDecoration(
@@ -1772,8 +1837,8 @@ class _SalesProductCard extends StatelessWidget {
                   child: _CountBadge(count: selectedQty),
                 ),
 
-                // === OVERLAY EMPTY STOCK (jika perlu tetap tampil) ===
-                if (isOut)
+                // ✅ PREMIUM: tampilkan overlay Empty Stock
+                if (showStockUI && isOut)
                   Container(
                     color: Colors.white.withOpacity(0.5),
                     alignment: Alignment.center,
@@ -1808,7 +1873,6 @@ class _SalesProductCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Nama produk (ellipsis)
                   Text(
                     name,
                     maxLines: 1,
@@ -1822,7 +1886,6 @@ class _SalesProductCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
 
-                  // Harga
                   Text(
                     'from Rp ${_formatCurrency(minPrice)}',
                     maxLines: 1,
@@ -1834,9 +1897,32 @@ class _SalesProductCard extends StatelessWidget {
                       height: 1.2,
                     ),
                   ),
+
+                  // ✅ PREMIUM: tampilkan info stok (angka)
+                  if (showStockUI) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.inventory_2_outlined,
+                          size: 14,
+                          color: Color(0xFF64748B),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Stock: ${p.totalStockQty}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: stockColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+
                   const Spacer(),
 
-                  // Tombol Choose
                   SizedBox(
                     width: double.infinity,
                     height: 36,
@@ -1890,12 +1976,14 @@ class _SalesProductCard extends StatelessWidget {
 }
 
 class _SalesVariantAttributeSheet extends StatefulWidget {
-  final _SalesProductGroup group; // kumpulan SKU utk 1 Product
-  final bool allowOutOfStock; // ⬅️ NEW
+  final _SalesProductGroup group;
+  final bool allowOutOfStock;
+  final bool showStockUI; // premium: true, free: false
 
   const _SalesVariantAttributeSheet({
     required this.group,
     this.allowOutOfStock = false,
+    this.showStockUI = true,
   });
 
   @override
@@ -1915,7 +2003,6 @@ class _SalesVariantAttributeSheetState
     super.initState();
     _p = widget.group.product;
 
-    // Preselect otomatis bila atribut hanya 1 nilai
     final attrsMap = _extractAttributes(_p.productSkus);
     for (final e in attrsMap.entries) {
       if (e.value.length == 1) _selected[e.key] = e.value.first;
@@ -1928,12 +2015,6 @@ class _SalesVariantAttributeSheetState
         .fold<int>(0, (s, it) => s + it.qty);
   }
 
-  /// Hitung harga per pcs dengan mempertimbangkan harga grosir (productPrices).
-  /// Rule:
-  /// - Kalau productPrices kosong → pakai basePrice apa adanya.
-  /// - Kalau tidak kosong:
-  ///     Ambil tier dengan minQty terbesar yang masih <= qty.
-  ///     Kalau qty belum mencapai tier mana pun → tetap pakai basePrice.
   int _computeUnitPriceWithWholesale(int basePrice, int qty) {
     if (qty <= 0) return basePrice;
 
@@ -1958,7 +2039,6 @@ class _SalesVariantAttributeSheetState
     final prov = context.watch<SalesProvider>();
     final attrsMap = _extractAttributes(_p.productSkus);
 
-    // cari SKU yang cocok dengan pilihan
     ProductSku? matched;
     for (final s in _p.productSkus) {
       if (_isSkuMatch(s, _selected, requiredCount: attrsMap.length)) {
@@ -1969,40 +2049,38 @@ class _SalesVariantAttributeSheetState
 
     final money = NumberFormat.decimalPattern('id_ID');
 
-    // Hitung stok & sisa berdasarkan cart
-    final bool allowOversell = widget.allowOutOfStock;
+    // FREE plan: stok tidak dipakai sama sekali
+    final bool stockEnabled = widget.showStockUI;
+    final bool allowOversell = stockEnabled ? widget.allowOutOfStock : true;
 
-    // Hitung stok & sisa berdasarkan cart (boleh minus kalau oversell)
     final int stockRaw = matched?.stockQty ?? _p.totalStockQty;
     final int alreadyInCart = (matched == null)
         ? 0
         : _qtyInCartOfSku(prov, matched.idProductSku);
     final int leftRaw = stockRaw - alreadyInCart;
 
-    // Kalau TIDAK boleh oversell, qty dibatasi sampai stok tersisa (tidak minus)
-    if (!allowOversell) {
+    if (stockEnabled && !allowOversell) {
       final int maxLeft = leftRaw.clamp(0, 1 << 31);
       if (_qty > maxLeft && maxLeft >= 0) {
         _qty = maxLeft;
       }
     }
 
-    // Harga dasar SKU (tanpa grosir)
     final int basePrice = matched?.price ?? _p.basePrice ?? 0;
-    // Harga per pcs setelah grosir (tergantung qty yang lagi diset user)
     final int unitPrice = _computeUnitPriceWithWholesale(basePrice, _qty);
     final int lineTotal = unitPrice * _qty;
 
-    final int displayStock = leftRaw; // boleh 0, -1, -2, dst
+    final int displayStock = leftRaw;
     final bool nonPositive = displayStock <= 0;
-    final Color stockColor = (allowOversell && nonPositive)
-        ? Colors
-              .red // kalau bisnis boleh oversell & stok <= 0 → merah
+    final Color stockColor = (stockEnabled && allowOversell && nonPositive)
+        ? Colors.red
         : AppColors.textSecondary;
 
-    final bool ctaDisabled = widget.allowOutOfStock
-        ? (matched == null || _qty <= 0)
-        : (matched == null || leftRaw <= 0 || _qty <= 0);
+    final bool ctaDisabled = stockEnabled
+        ? (allowOversell
+              ? (matched == null || _qty <= 0)
+              : (matched == null || leftRaw <= 0 || _qty <= 0))
+        : (matched == null || _qty <= 0);
 
     final List<ProductPrice> wholesaleTiers = List<ProductPrice>.from(
       _p.productPrices,
@@ -2017,7 +2095,7 @@ class _SalesVariantAttributeSheetState
             const _SheetHeader(title: 'Choose Variants'),
             const SizedBox(height: 4),
 
-            // HERO + Info stok + harga grosir
+            // HERO + Info (Premium: show stock; Free: no stock)
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -2128,26 +2206,30 @@ class _SalesVariantAttributeSheetState
                             ),
                           ),
                         ],
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.inventory_2_outlined,
-                              size: 16,
-                              color: AppColors.textSecondary,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Stock: $displayStock'
-                              '${alreadyInCart > 0 ? "  •  In cart: $alreadyInCart" : ""}',
-                              style: TextStyle(
-                                color: stockColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
+
+                        // ✅ PREMIUM: tampilkan info stok persis seperti konteks sebelumnya
+                        if (stockEnabled) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.inventory_2_outlined,
+                                size: 16,
+                                color: AppColors.textSecondary,
                               ),
-                            ),
-                          ],
-                        ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Stock: $displayStock'
+                                '${alreadyInCart > 0 ? "  •  In cart: $alreadyInCart" : ""}',
+                                style: TextStyle(
+                                  color: stockColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -2235,7 +2317,7 @@ class _SalesVariantAttributeSheetState
               ),
             ),
 
-            // QTY + CTA (guard stok)
+            // QTY + CTA
             Container(
               decoration: const BoxDecoration(
                 color: Colors.white,
@@ -2283,11 +2365,13 @@ class _SalesVariantAttributeSheetState
                               ),
                               IconButton(
                                 visualDensity: VisualDensity.compact,
-                                onPressed: allowOversell
-                                    ? () => setState(() => _qty++)
-                                    : (leftRaw > 0 && _qty < leftRaw)
-                                    ? () => setState(() => _qty++)
-                                    : null,
+                                onPressed: stockEnabled
+                                    ? (allowOversell
+                                          ? () => setState(() => _qty++)
+                                          : (leftRaw > 0 && _qty < leftRaw)
+                                          ? () => setState(() => _qty++)
+                                          : null)
+                                    : () => setState(() => _qty++),
                                 icon: const Icon(Icons.add_rounded),
                               ),
                             ],
@@ -2302,14 +2386,18 @@ class _SalesVariantAttributeSheetState
                         onPressed: ctaDisabled
                             ? null
                             : () {
-                                final int toAdd = widget.allowOutOfStock
-                                    ? _qty.clamp(0, 1 << 31)
-                                    : _qty.clamp(0, leftRaw.clamp(0, 1 << 31));
+                                final int toAdd = stockEnabled
+                                    ? (widget.allowOutOfStock
+                                          ? _qty.clamp(0, 1 << 31)
+                                          : _qty.clamp(
+                                              0,
+                                              leftRaw.clamp(0, 1 << 31),
+                                            ))
+                                    : _qty.clamp(0, 1 << 31);
 
                                 final posSku = PosSku(
                                   skuId: matched!.idProductSku,
                                   skuCode: matched.code,
-                                  // harga SKU di cart sudah ikut harga grosir (per pcs)
                                   price: unitPrice,
                                   productId: _p.idProduct,
                                   productName: _p.name,
@@ -2317,7 +2405,6 @@ class _SalesVariantAttributeSheetState
                                   inStock: !_p.isHide,
                                 );
 
-                                // ⬇️ merge by sku, no double line
                                 prov.addQuantity(posSku, toAdd);
                                 prov.normalizeCart();
 
@@ -2334,7 +2421,9 @@ class _SalesVariantAttributeSheetState
                         child: Text(
                           (matched == null)
                               ? 'Pilih semua varian'
-                              : (!widget.allowOutOfStock && leftRaw <= 0)
+                              : (stockEnabled &&
+                                    !widget.allowOutOfStock &&
+                                    leftRaw <= 0)
                               ? 'Stok habis'
                               : 'Add to cart — Rp ${money.format(lineTotal)}',
                           style: const TextStyle(fontWeight: FontWeight.w700),
@@ -2351,7 +2440,6 @@ class _SalesVariantAttributeSheetState
     );
   }
 
-  // ==== helpers utk ProductSku ====
   Map<String, Set<String>> _extractAttributes(List<ProductSku> skus) {
     final result = <String, Set<String>>{};
     for (final sku in skus) {
@@ -2399,7 +2487,7 @@ class _SalesVariantAttributeSheetState
 }
 
 // ===============================
-// (Opsional) EXACT PURCHASE-STYLE VARIANT SHEET
+// (Opsional) EXACT PURCHASE-STYLE VARIANT SHEET (tidak diubah)
 // ===============================
 class _SalesPicked {
   final String skuId;
@@ -2464,7 +2552,6 @@ class _SalesVariantExactSheetState extends State<_SalesVariantExactSheet> {
     super.initState();
     product = _adaptGroup(widget.group);
 
-    // auto-pilih attr yg hanya punya 1 opsi
     final attrsList = _extractAttributes(product.productSkus);
     for (final e in attrsList.entries) {
       if (e.value.length == 1) {
@@ -2496,7 +2583,6 @@ class _SalesVariantExactSheetState extends State<_SalesVariantExactSheet> {
           children: [
             _PSheetHeader(title: 'Choose Variants', caption: product.name),
             const SizedBox(height: 4),
-
             _PSection(
               padding: const EdgeInsets.all(12),
               child: Row(
@@ -2554,10 +2640,7 @@ class _SalesVariantExactSheetState extends State<_SalesVariantExactSheet> {
                 ],
               ),
             ),
-
             const SizedBox(height: 12),
-
-            // attributes
             Expanded(
               child: ListView(
                 children: attrsList.entries.map((e) {
@@ -2597,8 +2680,6 @@ class _SalesVariantExactSheetState extends State<_SalesVariantExactSheet> {
                 }).toList(),
               ),
             ),
-
-            // qty + CTA
             Container(
               decoration: const BoxDecoration(
                 color: Colors.white,
@@ -2736,8 +2817,7 @@ class _SalesVariantExactSheetState extends State<_SalesVariantExactSheet> {
         .map((s) {
           final attrs = s.attributes
               .map((a) => _SAttr(a.name, a.value))
-              .toList(growable: false);
-
+              .toList();
           return _SSku(
             idProductSku: s.idProductSku,
             code: s.code,
@@ -2818,15 +2898,13 @@ class _PSheetHeader extends StatelessWidget {
 }
 
 /// Gambar network yang aman:
-/// - error: ganti ikon crash
-/// - loading: SizedBox.shrink() (tanpa spinner)
 class SafeNetImage extends StatelessWidget {
   final String? url;
   final double? width;
   final double? height;
   final BoxFit fit;
   final BorderRadius? borderRadius;
-  final Widget? crashIcon; // opsional override fallback
+  final Widget? crashIcon;
 
   const SafeNetImage({
     super.key,
@@ -2847,14 +2925,12 @@ class SafeNetImage extends StatelessWidget {
         color: const Color(0xFFF3F4F6),
         borderRadius: borderRadius ?? BorderRadius.circular(12),
       ),
-      child: Center(
-        child: Icon(Icons.broken_image_rounded, color: const Color(0xFFA3A3A3)),
+      child: const Center(
+        child: Icon(Icons.broken_image_rounded, color: Color(0xFFA3A3A3)),
       ),
     );
 
-    if (url == null || url!.isEmpty) {
-      return fallback;
-    }
+    if (url == null || url!.isEmpty) return fallback;
 
     Widget img = Image.network(
       url!,

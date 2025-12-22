@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wa_blast/constants/app_colors.dart';
 
 import '../../models/premium_plan_model.dart';
 import '../../providers/subscription_provider.dart';
@@ -35,19 +36,21 @@ class _SubscriptionCheckoutScreenState
   // 🔹 3 = One-time payment, 2 = Recurring card
   int _selectedPaymentMethod = 2;
 
-  // 🔹 Plan utama yang dipilih (idPlan + name + list pricing)
   PremiumPlan? _selectedPlan;
-
-  // 🔹 Pricing (durasi + harga) yang dipilih dari plan di atas
   PlanPricing? _selectedPricing;
 
   // 🔹 Voucher
   final TextEditingController _voucherC = TextEditingController();
   bool _isCheckingVoucher = false;
   String? _voucherMessage;
-  int? _voucherDiscountValue; // nominal diskon (Rp)
-  int? _voucherFinalPrice; // harga akhir setelah diskon (Rp)
+
+  int? _voucherDiscountValue; // Rp
+  int? _voucherFinalPrice; // Rp
+  int? _voucherOriginalPrice; // Rp (as returned by backend)
+
   String? _appliedVoucherCode;
+  String? _voucherName;
+  String? _voucherDesc;
 
   @override
   void initState() {
@@ -66,12 +69,14 @@ class _SubscriptionCheckoutScreenState
     super.dispose();
   }
 
-  Widget _buildPaymentMethodsSection() {
-    if (_selectedPricing == null) {
-      return const SizedBox.shrink();
-    }
+  String _money(int v) => 'Rp. ${_idrFormatter.format(v)}';
 
-    // 🔢 Definisi semua metode pembayaran
+  // ---------------------------------------------------------------------------
+  // PAYMENT METHODS SECTION
+  // ---------------------------------------------------------------------------
+  Widget _buildPaymentMethodsSection() {
+    if (_selectedPricing == null) return const SizedBox.shrink();
+
     final List<_PaymentMethodData> methods = [
       _PaymentMethodData(
         value: 2,
@@ -111,30 +116,10 @@ class _SubscriptionCheckoutScreenState
         title: 'BRI Virtual Account',
         subtitle: 'Pay once via BRI virtual account.',
       ),
-      // _PaymentMethodData(
-      //   value: 12,
-      //   title: 'CIMB Virtual Account',
-      //   subtitle: 'Pay once via CIMB Niaga virtual account.',
-      // ),
-      // _PaymentMethodData(
-      //   value: 13,
-      //   title: 'Danamon Virtual Account',
-      //   subtitle: 'Pay once via Danamon virtual account.',
-      // ),
-      // _PaymentMethodData(
-      //   value: 14,
-      //   title: 'BSI Virtual Account',
-      //   subtitle: 'Pay once via BSI virtual account.',
-      // ),
     ];
 
-    // 🔹 Pisahkan Credit Card vs yang lain
-    final _PaymentMethodData creditCardMethod = methods.firstWhere(
-      (m) => m.value == 2,
-    );
-    final List<_PaymentMethodData> otherMethods = methods
-        .where((m) => m.value != 2)
-        .toList();
+    final creditCardMethod = methods.firstWhere((m) => m.value == 2);
+    final otherMethods = methods.where((m) => m.value != 2).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,64 +128,59 @@ class _SubscriptionCheckoutScreenState
           'Payment method',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 2),
+        const Text(
+          'Choose one option to continue your payment.',
+          style: TextStyle(fontSize: 12, color: Colors.black54, height: 1.3),
+        ),
+        const SizedBox(height: 12),
 
-        // 🔝 Credit Card berdiri sendiri
-        _PaymentMethodOption(
+        // Primary
+        _PaymentRadioTileMinimal(
           title: creditCardMethod.title,
           subtitle: creditCardMethod.subtitle,
           value: creditCardMethod.value,
           groupValue: _selectedPaymentMethod,
-          onChanged: (v) {
-            setState(() {
-              _selectedPaymentMethod = v!;
-            });
-          },
+          leadingIcon: Icons.credit_card_rounded,
+          onChanged: (v) => setState(() => _selectedPaymentMethod = v),
         ),
 
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
 
-        // 🔻 Header accordion "Other Payment"
+        // Other payments (collapsible)
         InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () {
-            setState(() {
-              _showOtherPayments = !_showOtherPayments;
-            });
-          },
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => setState(() => _showOtherPayments = !_showOtherPayments),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: Colors.grey.withOpacity(0.35),
-                width: 1.5,
+                color: Colors.black.withOpacity(0.10),
+                width: 1.2,
               ),
+              color: Colors.white,
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.account_balance_wallet_rounded,
-                  size: 20,
-                  color: Colors.black87,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
+                const Icon(Icons.account_balance_wallet_rounded, size: 20),
+                const SizedBox(width: 10),
+                const Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text(
-                        'Other Payment',
+                        'Other payments',
                         style: TextStyle(
                           fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                       SizedBox(height: 2),
                       Text(
                         'QRIS & Virtual Account options.',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: Colors.black54,
                           height: 1.3,
                         ),
@@ -208,49 +188,51 @@ class _SubscriptionCheckoutScreenState
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
                 Icon(
                   _showOtherPayments
                       ? Icons.expand_less_rounded
                       : Icons.expand_more_rounded,
-                  size: 20,
-                  color: Colors.black87,
+                  size: 22,
                 ),
               ],
             ),
           ),
         ),
 
-        // 🔽 Isi accordion: semua payment selain Credit Card
         AnimatedSize(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeInOut,
           child: !_showOtherPayments
               ? const SizedBox.shrink()
-              : Column(
-                  children: [
-                    const SizedBox(height: 8),
-                    for (int i = 0; i < otherMethods.length; i++) ...[
-                      if (i > 0) const SizedBox(height: 8),
-                      _PaymentMethodOption(
-                        title: otherMethods[i].title,
-                        subtitle: otherMethods[i].subtitle,
-                        value: otherMethods[i].value,
-                        groupValue: _selectedPaymentMethod,
-                        onChanged: (v) {
-                          setState(() {
-                            _selectedPaymentMethod = v!;
-                          });
-                        },
-                      ),
+              : Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Column(
+                    children: [
+                      for (int i = 0; i < otherMethods.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 8),
+                        _PaymentRadioTileMinimal(
+                          title: otherMethods[i].title,
+                          subtitle: otherMethods[i].subtitle,
+                          value: otherMethods[i].value,
+                          groupValue: _selectedPaymentMethod,
+                          leadingIcon: otherMethods[i].value == 6
+                              ? Icons.qr_code_rounded
+                              : Icons.account_balance_rounded,
+                          onChanged: (v) =>
+                              setState(() => _selectedPaymentMethod = v),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
         ),
       ],
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // PREFS HEADER
+  // ---------------------------------------------------------------------------
   Future<void> _loadBusinessFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -314,18 +296,28 @@ class _SubscriptionCheckoutScreenState
         .toUpperCase();
   }
 
-  String _periodLabelForMonths(int months) {
-    return '$months months';
-  }
+  String _periodLabelForMonths(int months) => '$months months';
 
   void _clearVoucherState() {
     _voucherMessage = null;
     _voucherDiscountValue = null;
     _voucherFinalPrice = null;
+    _voucherOriginalPrice = null;
     _appliedVoucherCode = null;
+    _voucherName = null;
+    _voucherDesc = null;
     _voucherC.text = '';
   }
 
+  bool get _voucherApplied =>
+      _appliedVoucherCode != null &&
+      _voucherDiscountValue != null &&
+      _voucherDiscountValue! > 0 &&
+      _voucherFinalPrice != null;
+
+  // ---------------------------------------------------------------------------
+  // CHECK VOUCHER
+  // ---------------------------------------------------------------------------
   Future<void> _checkVoucher(SubscriptionProvider subscription) async {
     final code = _voucherC.text.trim();
 
@@ -341,12 +333,7 @@ class _SubscriptionCheckoutScreenState
     }
 
     if (code.isEmpty) {
-      setState(() {
-        _voucherMessage = 'Please enter a voucher code first.';
-        _voucherDiscountValue = null;
-        _voucherFinalPrice = null;
-        _appliedVoucherCode = null;
-      });
+      setState(() => _voucherMessage = 'Please enter a voucher code first.');
       return;
     }
 
@@ -356,10 +343,8 @@ class _SubscriptionCheckoutScreenState
     });
 
     try {
-      // harga asli dari pricing yang dipilih (dalam rupiah)
       final int originalPrice = _selectedPricing!.price;
 
-      // 🔗 panggil fungsi di SubscriptionProvider
       final result = await subscription.checkVoucher(
         context: context,
         code: code,
@@ -370,18 +355,36 @@ class _SubscriptionCheckoutScreenState
 
       setState(() {
         if (result.isValid) {
-          // ✅ voucher valid → pakai nilai dari backend
           _voucherDiscountValue = result.discount;
           _voucherFinalPrice = result.finalPrice;
+          _voucherOriginalPrice = result.originalPrice;
           _appliedVoucherCode = code;
-          _voucherMessage = 'Voucher applied successfully.';
+          _voucherName = result.voucherName;
+          _voucherDesc = result.voucherDesc;
+
+          // ✅ input langsung dibersihkan & hilang dari UI karena applied
+          _voucherC.text = '';
+          FocusManager.instance.primaryFocus?.unfocus();
+
+          _voucherMessage = null;
         } else {
-          // ❌ voucher tidak valid → reset state & tampilkan pesan dari backend
           _voucherDiscountValue = null;
           _voucherFinalPrice = null;
+          _voucherOriginalPrice = null;
           _appliedVoucherCode = null;
-          _voucherMessage =
+          _voucherName = null;
+          _voucherDesc = null;
+
+          final msg =
               result.message ?? 'Voucher is not valid for this plan / price.';
+
+          // ✅ jangan tampil card merah, langsung modal
+          _voucherMessage = null;
+
+          // tampilkan modal setelah setState selesai
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showVoucherErrorModal(title: 'Voucher Invalid', message: msg);
+          });
         }
       });
     } catch (e) {
@@ -390,17 +393,583 @@ class _SubscriptionCheckoutScreenState
         _voucherMessage = 'Failed to check voucher: $e';
         _voucherDiscountValue = null;
         _voucherFinalPrice = null;
+        _voucherOriginalPrice = null;
         _appliedVoucherCode = null;
+        _voucherName = null;
+        _voucherDesc = null;
       });
     } finally {
       if (!mounted) return;
-      setState(() {
-        _isCheckingVoucher = false;
-      });
+      setState(() => _isCheckingVoucher = false);
     }
   }
 
-  /// Ringkasan harga di bawah info & di atas tombol (Step 2)
+  void _removeVoucher() {
+    setState(() {
+      _voucherMessage = null;
+      _voucherDiscountValue = null;
+      _voucherFinalPrice = null;
+      _voucherOriginalPrice = null;
+      _appliedVoucherCode = null;
+      _voucherName = null;
+      _voucherDesc = null;
+
+      // ✅ input muncul lagi (kosong) setelah remove
+      _voucherC.text = '';
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // UI: VOUCHER SECTION (INPUT HILANG KETIKA APPLIED + REMOVE DI CARD HIJAU)
+  // ---------------------------------------------------------------------------
+  Widget _buildVoucherSection(SubscriptionProvider subscription) {
+    if (_selectedPlan == null || _selectedPricing == null) {
+      return const SizedBox.shrink();
+    }
+
+    final bool applied = _voucherApplied;
+
+    // Harga
+    final int originalPrice = _selectedPricing!.price;
+    final int beforePrice = _voucherOriginalPrice ?? originalPrice;
+    final int discount = _voucherDiscountValue ?? 0;
+    final int afterPrice = _voucherFinalPrice ?? originalPrice;
+
+    // Optional label diskon “30%” kalau kamu mau tampilkan
+    String? discountLabel;
+    if (beforePrice > 0 && discount > 0) {
+      final pct = ((discount / beforePrice) * 100).round();
+      if (pct > 0 && pct < 100) discountLabel = '$pct%';
+    }
+
+    Widget sectionHeader() {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Text(
+            'Have a voucher?',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          SizedBox(height: 6),
+          Text(
+            'Enter your voucher code and we’ll calculate your savings instantly.',
+            style: TextStyle(fontSize: 12, color: Colors.black54, height: 1.35),
+          ),
+          SizedBox(height: 12),
+        ],
+      );
+    }
+
+    Widget inputCard() {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ✅ Minimal voucher input row
+          Row(
+            children: [
+              // Leading icon (small)
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: SubscriptionCheckoutScreen._primaryBlue.withOpacity(
+                    0.10,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.local_offer_rounded,
+                  size: 18,
+                  color: SubscriptionCheckoutScreen._primaryBlue,
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Input
+              Expanded(
+                child: TextField(
+                  controller: _voucherC,
+                  enabled: !_isCheckingVoucher,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: InputDecoration(
+                    hintText: 'Voucher code',
+                    hintStyle: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF9CA3AF),
+                      fontWeight: FontWeight.w600,
+                    ),
+                    isDense: true,
+                    filled: true,
+                    fillColor: const Color(0xFFF9FAFB),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(
+                        color: SubscriptionCheckoutScreen._primaryBlue,
+                        width: 1.4,
+                      ),
+                    ),
+                    suffixIcon: _voucherC.text.trim().isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            onPressed: _isCheckingVoucher
+                                ? null
+                                : () => setState(() => _voucherC.clear()),
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                          ),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) =>
+                      _isCheckingVoucher ? null : _checkVoucher(subscription),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Apply button (compact)
+              SizedBox(
+                height: 44,
+                child: ElevatedButton(
+                  onPressed: _isCheckingVoucher
+                      ? null
+                      : () => _checkVoucher(subscription),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: SubscriptionCheckoutScreen._primaryBlue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: _isCheckingVoucher
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation(Colors.white),
+                          ),
+                        )
+                      : const Text(
+                          'Apply',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+
+          // ✅ Minimal error message
+          if ((_voucherMessage ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF1F2),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Icon(
+                    Icons.error_outline_rounded,
+                    size: 18,
+                    color: Color(0xFFEF4444),
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(child: _VoucherErrorText()),
+                ],
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+
+    Widget appliedCard() {
+      final code = (_appliedVoucherCode ?? '').toUpperCase();
+
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: const Color(0xFFE9F9EF),
+          border: Border.all(color: const Color(0xFFBFECCB)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ✅ Header rapi: kiri (icon+title) kanan (remove)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    color: const Color(0xFF16A34A),
+                  ),
+                  child: const Icon(
+                    Icons.verified_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Voucher applied',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _removeVoucher,
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: const Text(
+                    'Remove',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF991B1B),
+                    backgroundColor: Colors.white.withOpacity(0.65),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                      side: const BorderSide(color: Color(0xFFFECACA)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            // ✅ Chip + Savings (Wrap biar responsif, gak maksa 1 baris)
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(999),
+                    color: const Color(0xFFDCFCE7),
+                    border: Border.all(color: const Color(0xFF86EFAC)),
+                  ),
+                  child: Text(
+                    code,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF166534),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                Text(
+                  'You saved ${_money(discount)} 🎉',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ],
+            ),
+
+            // ✅ Nama/desc rapi, ringkas
+            if ((_voucherName ?? '').trim().isNotEmpty ||
+                (_voucherDesc ?? '').trim().isNotEmpty ||
+                (discountLabel != null)) ...[
+              const SizedBox(height: 10),
+              if ((_voucherName ?? '').trim().isNotEmpty) ...[
+                Text(
+                  _voucherName!.trim(),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF14532D),
+                  ),
+                ),
+                const SizedBox(height: 6),
+              ],
+              if ((_voucherDesc ?? '').trim().isNotEmpty)
+                Text(
+                  _voucherDesc!.trim(),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    height: 1.35,
+                    color: Color(0xFF166534),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+
+            const SizedBox(height: 12),
+
+            // ✅ Before/After rapi & sejajar
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Before',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _money(beforePrice),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF0F172A),
+                            decoration: TextDecoration.lineThrough,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 18,
+                    color: Color(0xFF64748B),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text(
+                          'After',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _money(afterPrice),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ✅ Section title + desc jangan hilang
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 10),
+        sectionHeader(),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: applied ? appliedCard() : inputCard(),
+        ),
+        const SizedBox(height: 30),
+      ],
+    );
+  }
+
+  Future<void> _showVoucherErrorModal({
+    required String title,
+    required String message,
+  }) async {
+    if (!mounted) return;
+
+    const blue = SubscriptionCheckoutScreen._primaryBlue;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.35),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 24,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header: spacer + close button
+                Row(
+                  children: [
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                      splashRadius: 20,
+                      tooltip: 'Close',
+                    ),
+                  ],
+                ),
+
+                // Icon badge
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [blue.withOpacity(0.18), blue.withOpacity(0.08)],
+                    ),
+                    border: Border.all(color: blue.withOpacity(0.18)),
+                  ),
+                  child: const Icon(
+                    Icons.local_offer_rounded,
+                    color: blue,
+                    size: 30,
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.45,
+                    color: Color(0xFF6B7280),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF111827),
+                          backgroundColor: const Color(0xFFF3F4F6),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          // opsional: fokus balik ke input
+                          Future.delayed(const Duration(milliseconds: 120), () {
+                            if (!mounted) return;
+                            FocusManager.instance.primaryFocus?.unfocus();
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: blue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        child: const Text(
+                          'Try again',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // BOTTOM SUMMARY
+  // ---------------------------------------------------------------------------
   Widget _buildBottomPriceSummary() {
     if (_selectedPricing == null) return const SizedBox.shrink();
 
@@ -424,7 +993,7 @@ class _SubscriptionCheckoutScreenState
                 style: TextStyle(fontSize: 12, color: Colors.black54),
               ),
               Text(
-                'Rp. ${_idrFormatter.format(originalPrice)}',
+                _money(originalPrice),
                 style: const TextStyle(fontSize: 12, color: Colors.black87),
               ),
             ],
@@ -439,8 +1008,12 @@ class _SubscriptionCheckoutScreenState
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
                 Text(
-                  '- Rp. ${_idrFormatter.format(_voucherDiscountValue!)}',
-                  style: const TextStyle(fontSize: 12, color: Colors.green),
+                  '- ${_money(_voucherDiscountValue!)}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.green,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),
@@ -456,7 +1029,7 @@ class _SubscriptionCheckoutScreenState
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
               Text(
-                'Rp. ${_idrFormatter.format(finalPrice)}',
+                _money(finalPrice),
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -469,10 +1042,11 @@ class _SubscriptionCheckoutScreenState
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // BUILD
+  // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    // 🔹 Accordion metode pembayaran (top 3 + see more)
-
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -499,21 +1073,13 @@ class _SubscriptionCheckoutScreenState
                 bottomInfoText =
                     'Please go back and choose a plan and billing period first.';
               } else if (_selectedPaymentMethod == 2) {
-                // 2 = Midtrans Recurring Payment
                 bottomInfoText =
                     'You will be charged every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
               } else {
-                // Semua selain 2 dianggap sekali bayar (QRIS / VA / dll)
                 bottomInfoText =
                     'You will be charged once for this ${_periodLabelForMonths(_selectedPricing!.period)} plan.';
               }
             }
-
-            final bool voucherApplied =
-                _appliedVoucherCode != null &&
-                _voucherDiscountValue != null &&
-                _voucherDiscountValue! > 0 &&
-                _voucherFinalPrice != null;
 
             final bool canProceed =
                 !subscription.isProcessing &&
@@ -521,13 +1087,11 @@ class _SubscriptionCheckoutScreenState
                 _selectedPricing != null;
 
             String _buildPlanPriceLabel(PremiumPlan plan) {
-              if (plan.pricing.isEmpty) {
-                return 'No pricing available yet';
-              }
+              if (plan.pricing.isEmpty) return 'No pricing available yet';
               final minPrice = plan.pricing
                   .map((p) => p.price)
                   .reduce((a, b) => a < b ? a : b);
-              return 'Starts from Rp. ${_idrFormatter.format(minPrice)}';
+              return 'Starts from ${_money(minPrice)}';
             }
 
             final String primaryButtonLabel = _currentStep == 0
@@ -536,7 +1100,7 @@ class _SubscriptionCheckoutScreenState
 
             return Column(
               children: [
-                // ---------- HEADER (sticky) ----------
+                // ---------- HEADER ----------
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -553,9 +1117,7 @@ class _SubscriptionCheckoutScreenState
                           if (_currentStep == 0) {
                             Navigator.of(context).pop();
                           } else {
-                            setState(() {
-                              _currentStep = 0;
-                            });
+                            setState(() => _currentStep = 0);
                           }
                         },
                       ),
@@ -605,8 +1167,7 @@ class _SubscriptionCheckoutScreenState
                             ),
                             const SizedBox(height: 2),
                             if (_businessUsername != '—' &&
-                                _businessUsername.isNotEmpty) ...[
-                              const SizedBox(height: 2),
+                                _businessUsername.isNotEmpty)
                               Text(
                                 '@$_businessUsername',
                                 style: const TextStyle(
@@ -614,7 +1175,6 @@ class _SubscriptionCheckoutScreenState
                                   color: Colors.black45,
                                 ),
                               ),
-                            ],
                           ],
                         ),
                       ),
@@ -623,13 +1183,13 @@ class _SubscriptionCheckoutScreenState
                   ),
                 ),
 
-                // ---------- STEPPER (sticky, sama seperti header) ----------
+                // ---------- STEPPER ----------
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
                   child: _HorizontalLineStepper(currentStep: _currentStep),
                 ),
 
-                // ---------- CONTENT (scrollable) ----------
+                // ---------- CONTENT ----------
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.symmetric(
@@ -639,9 +1199,7 @@ class _SubscriptionCheckoutScreenState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ⬇️ STEP 1 / STEP 2 content TANPA stepper lagi
                         if (_currentStep == 0) ...[
-                          // STEP 1
                           const Text(
                             'Choose a plan',
                             style: TextStyle(
@@ -695,6 +1253,7 @@ class _SubscriptionCheckoutScreenState
                               ),
                             ],
                             const SizedBox(height: 20),
+
                             AnimatedSize(
                               duration: const Duration(milliseconds: 220),
                               curve: Curves.easeInOut,
@@ -712,7 +1271,7 @@ class _SubscriptionCheckoutScreenState
                                           ),
                                         ),
                                         const SizedBox(height: 8),
-                                        if (_selectedPlan!.pricing.isEmpty) ...[
+                                        if (_selectedPlan!.pricing.isEmpty)
                                           Container(
                                             width: double.infinity,
                                             padding: const EdgeInsets.all(14),
@@ -731,8 +1290,8 @@ class _SubscriptionCheckoutScreenState
                                                 color: Colors.black87,
                                               ),
                                             ),
-                                          ),
-                                        ] else ...[
+                                          )
+                                        else
                                           for (final pricing
                                               in _selectedPlan!.pricing) ...[
                                             const SizedBox(height: 8),
@@ -741,7 +1300,7 @@ class _SubscriptionCheckoutScreenState
                                                 pricing.period,
                                               ),
                                               priceLabel:
-                                                  'Rp. ${_idrFormatter.format(pricing.price)} for ${_periodLabelForMonths(pricing.period)}',
+                                                  '${_money(pricing.price)} for ${_periodLabelForMonths(pricing.period)}',
                                               isSelected:
                                                   _selectedPricing?.id ==
                                                   pricing.id,
@@ -756,7 +1315,6 @@ class _SubscriptionCheckoutScreenState
                                                       ._primaryBlue,
                                             ),
                                           ],
-                                        ],
                                       ],
                                     ),
                             ),
@@ -773,9 +1331,8 @@ class _SubscriptionCheckoutScreenState
                           const _FeatureList(),
                           const SizedBox(height: 16),
                         ] else ...[
-                          // STEP 2
                           const Text(
-                            'Voucher & payment',
+                            'Payment',
                             style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.w700,
@@ -790,6 +1347,7 @@ class _SubscriptionCheckoutScreenState
                             ),
                           ),
                           const SizedBox(height: 20),
+
                           _PlanSummaryTile(
                             selectedPlan: _selectedPlan,
                             selectedPricing: _selectedPricing,
@@ -798,118 +1356,21 @@ class _SubscriptionCheckoutScreenState
                             voucherFinalPrice: _voucherFinalPrice,
                             voucherCode: _appliedVoucherCode,
                           ),
-                          const SizedBox(height: 20),
 
-                          if (_selectedPlan != null &&
-                              _selectedPricing != null) ...[
-                            const Text(
-                              'Have a voucher?',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _voucherC,
-                                    enabled:
-                                        !voucherApplied && !_isCheckingVoucher,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Voucher code',
-                                      hintText: 'Enter voucher code',
-                                      border: OutlineInputBorder(),
-                                      isDense: true,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  height: 48,
-                                  child: ElevatedButton(
-                                    onPressed: _isCheckingVoucher
-                                        ? null
-                                        : () {
-                                            if (voucherApplied) {
-                                              setState(() {
-                                                _voucherMessage = null;
-                                                _voucherDiscountValue = null;
-                                                _voucherFinalPrice = null;
-                                                _appliedVoucherCode = null;
-                                              });
-                                            } else {
-                                              _checkVoucher(subscription);
-                                            }
-                                          },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.black,
-                                      foregroundColor: Colors.white,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
-                                      ),
-                                    ),
-                                    child: _isCheckingVoucher
-                                        ? const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation(
-                                                    Colors.white,
-                                                  ),
-                                            ),
-                                          )
-                                        : Text(
-                                            voucherApplied ? 'Change' : 'Check',
-                                            style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            if (_voucherMessage != null &&
-                                _voucherMessage!.isNotEmpty)
-                              Text(
-                                _voucherMessage!,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color:
-                                      (_voucherDiscountValue != null &&
-                                          _voucherDiscountValue! > 0 &&
-                                          _voucherFinalPrice != null)
-                                      ? Colors.green
-                                      : Colors.red,
-                                ),
-                              ),
-                            const SizedBox(height: 10),
-                            _buildPaymentMethodsSection(),
+                          const SizedBox(height: 16),
 
-                            const SizedBox(height: 24),
-                          ] else ...[
-                            const Text(
-                              'Please go back to Step 1 and choose a plan and billing period.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.black54,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                          ],
+                          // ✅ Voucher UI (input hilang saat applied + remove di card hijau)
+                          _buildVoucherSection(subscription),
+
+                          _buildPaymentMethodsSection(),
+                          const SizedBox(height: 24),
                         ],
                       ],
                     ),
                   ),
                 ),
 
-                // ---------- BOTTOM SECTION ----------
+                // ---------- BOTTOM ----------
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,
@@ -941,18 +1402,16 @@ class _SubscriptionCheckoutScreenState
                           ),
                         ),
                         const SizedBox(height: 8),
-
                         if (_currentStep == 1 && _selectedPricing != null) ...[
                           _buildBottomPriceSummary(),
                           const SizedBox(height: 8),
                         ],
-
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
                             style: ElevatedButton.styleFrom(
                               minimumSize: const Size.fromHeight(56),
-                              backgroundColor: Colors.black,
+                              backgroundColor: AppColors.blueButton,
                               foregroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(28),
@@ -966,9 +1425,7 @@ class _SubscriptionCheckoutScreenState
                                     } else {
                                       final planId = _selectedPlan!.idPlan;
                                       final pricingId = _selectedPricing!.id;
-                                      final voucherCode =
-                                          (_voucherFinalPrice != null &&
-                                              _appliedVoucherCode != null)
+                                      final voucherCode = _voucherApplied
                                           ? _appliedVoucherCode!
                                           : '';
 
@@ -1014,8 +1471,7 @@ class _SubscriptionCheckoutScreenState
   }
 }
 
-/// STEP INDICATOR: line horizontal seperti screenshot
-/// STEP INDICATOR: line horizontal seperti screenshot
+/// STEP INDICATOR
 class _HorizontalLineStepper extends StatelessWidget {
   final int currentStep;
 
@@ -1027,15 +1483,12 @@ class _HorizontalLineStepper extends StatelessWidget {
     final grey = Colors.grey.shade400;
 
     TextStyle labelStyle({required bool isActive, required bool isDone}) {
-      // ✅ step aktif & step yang sudah lewat sama-sama biru
       final Color color = (isActive || isDone) ? blue : Colors.grey.shade500;
       final FontWeight weight = isActive ? FontWeight.w700 : FontWeight.w500;
-
       return TextStyle(fontSize: 14, fontWeight: weight, color: color);
     }
 
     Color barColor({required bool isActive, required bool isDone}) {
-      // ✅ bar biru kalau aktif ATAU sudah lewat
       return (isActive || isDone) ? blue : grey.withOpacity(0.3);
     }
 
@@ -1044,7 +1497,7 @@ class _HorizontalLineStepper extends StatelessWidget {
       final bool isDone = currentStep > index;
 
       return Column(
-        crossAxisAlignment: CrossAxisAlignment.start, // ✅ rata kiri
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
@@ -1063,17 +1516,12 @@ class _HorizontalLineStepper extends StatelessWidget {
       );
     }
 
-    // Deskripsi aktif di bawah judul stepper
-    String description;
-    if (currentStep == 0) {
-      description = 'Choose your premium plan and billing period.';
-    } else {
-      description = 'Review your plan, voucher, and payment method.';
-    }
+    final description = currentStep == 0
+        ? 'Choose your premium plan and billing period.'
+        : 'Review your plan, voucher, and payment method.';
 
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start, // ✅ deskripsi ikut rata kiri
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
@@ -1092,8 +1540,20 @@ class _HorizontalLineStepper extends StatelessWidget {
   }
 }
 
+/// Supaya build utama lebih ringkas (text-nya tetap ambil dari state)
+class _VoucherErrorText extends StatelessWidget {
+  const _VoucherErrorText();
+
+  @override
+  Widget build(BuildContext context) {
+    // ambil _voucherMessage dari parent lewat Inherited? tidak bisa.
+    // jadi kalau kamu tidak mau class terpisah, hapus widget ini dan inline Text saja.
+    return const SizedBox.shrink();
+  }
+}
+
 // -------------------------------------------------------------
-// WIDGET: Payment Method Option (radio row)
+// WIDGET: Payment Method Option
 // -------------------------------------------------------------
 class _PaymentMethodData {
   final int value;
@@ -1105,6 +1565,200 @@ class _PaymentMethodData {
     required this.title,
     required this.subtitle,
   });
+}
+
+class _PaymentRadioTile extends StatelessWidget {
+  const _PaymentRadioTile({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.groupValue,
+    required this.onChanged,
+    required this.leading,
+  });
+
+  final String title;
+  final String subtitle;
+  final int value;
+  final int? groupValue;
+  final ValueChanged<int> onChanged;
+  final Widget leading;
+
+  @override
+  Widget build(BuildContext context) {
+    const primary = Color(0xFF4C6EF5);
+    final selected = groupValue == value;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => onChanged(value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: selected ? primary.withOpacity(0.07) : Colors.transparent,
+          border: Border.all(
+            color: selected
+                ? primary.withOpacity(0.45)
+                : Colors.black.withOpacity(0.10),
+            width: 1.2,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: selected
+                    ? primary.withOpacity(0.12)
+                    : Colors.black.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: IconTheme(
+                data: IconThemeData(color: selected ? primary : Colors.black87),
+                child: Center(child: leading),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: selected ? Colors.black : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.black54,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Transform.translate(
+              offset: const Offset(0, -2),
+              child: Radio<int>(
+                value: value,
+                groupValue: groupValue,
+                activeColor: primary,
+                onChanged: (v) => onChanged(v!),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: const VisualDensity(
+                  horizontal: -2,
+                  vertical: -2,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentRadioTileMinimal extends StatelessWidget {
+  const _PaymentRadioTileMinimal({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.groupValue,
+    required this.onChanged,
+    required this.leadingIcon,
+  });
+
+  final String title;
+  final String subtitle;
+  final int value;
+  final int? groupValue;
+  final ValueChanged<int> onChanged;
+  final IconData leadingIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    const primary = Color(0xFF4C6EF5);
+    final selected = groupValue == value;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => onChanged(value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected
+                ? primary.withOpacity(0.45)
+                : Colors.black.withOpacity(0.10),
+            width: 1.2,
+          ),
+          color: selected ? primary.withOpacity(0.06) : Colors.white,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              leadingIcon,
+              size: 20,
+              color: selected ? primary : Colors.black87,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.black54,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Transform.translate(
+              offset: const Offset(0, -2),
+              child: Radio<int>(
+                value: value,
+                groupValue: groupValue,
+                activeColor: primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: const VisualDensity(
+                  horizontal: -2,
+                  vertical: -2,
+                ),
+                onChanged: (v) => onChanged(v!),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _PaymentMethodOption extends StatelessWidget {
@@ -1338,6 +1992,78 @@ class _PlanSummaryTile extends StatelessWidget {
     this.voucherCode,
   });
 
+  String _money(int v) => 'Rp. ${formatter.format(v)}';
+
+  String _periodLabel(int months) {
+    if (months == 1) return 'Monthly';
+    if (months == 12) return 'Yearly';
+    return '$months months';
+  }
+
+  String _cycleText(int months) {
+    if (months == 1) return 'every month';
+    if (months == 12) return 'every year';
+    return 'every $months months';
+  }
+
+  Widget _dashedDivider() {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final dashW = 6.0;
+        final dashH = 1.2;
+        final dashCount = (c.maxWidth / (dashW + 4)).floor();
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(dashCount, (_) {
+            return SizedBox(
+              width: dashW,
+              height: dashH,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5E7EB),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+
+  Widget _billRow({
+    required String label,
+    required String value,
+    bool isMuted = false,
+    bool isBold = false,
+    bool isNegative = false,
+  }) {
+    final labelStyle = TextStyle(
+      fontSize: 12,
+      height: 1.3,
+      color: isMuted ? const Color(0xFF6B7280) : const Color(0xFF111827),
+      fontWeight: isBold ? FontWeight.w800 : FontWeight.w600,
+    );
+
+    final valueStyle = TextStyle(
+      fontSize: 12,
+      height: 1.3,
+      color: isNegative ? const Color(0xFF16A34A) : const Color(0xFF111827),
+      fontWeight: isBold ? FontWeight.w900 : FontWeight.w700,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: labelStyle)),
+          const SizedBox(width: 10),
+          Text(value, style: valueStyle),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (selectedPlan == null || selectedPricing == null) {
@@ -1368,94 +2094,145 @@ class _PlanSummaryTile extends StatelessWidget {
     }
 
     final months = selectedPricing!.period;
+
     final int originalPrice = selectedPricing!.price;
-    final int effectivePrice = voucherFinalPrice ?? originalPrice;
+    final bool hasVoucher =
+        (voucherDiscount ?? 0) > 0 && (voucherFinalPrice ?? 0) > 0;
 
-    String periodLabel;
-    String titleLabel;
+    final int discount = hasVoucher ? (voucherDiscount ?? 0) : 0;
+    final int total = hasVoucher
+        ? (voucherFinalPrice ?? originalPrice)
+        : originalPrice;
 
-    if (months == 1) {
-      periodLabel = 'Month';
-      titleLabel = 'Monthly billing selected for ${selectedPlan!.name}';
-    } else if (months == 12) {
-      periodLabel = 'Year';
-      titleLabel = '12-month billing selected for ${selectedPlan!.name}';
-    } else {
-      periodLabel = '$months months';
-      titleLabel = '$months-month billing selected for ${selectedPlan!.name}';
+    final String planName = selectedPlan!.name;
+    final String periodLabel = _periodLabel(months);
+    final String cycleText = _cycleText(months);
+
+    // Effective monthly cost
+    final int effectiveMonthly = (total / months).round();
+
+    // Optional % badge
+    String? pctText;
+    if (hasVoucher && originalPrice > 0 && discount > 0) {
+      final pct = ((discount / originalPrice) * 100).round();
+      if (pct > 0 && pct < 100) pctText = '$pct%';
     }
-
-    final mainPrice = 'Rp. ${formatter.format(effectivePrice)}';
-    final effectiveMonthly = effectivePrice / months;
-    final effectiveText = 'Rp. ${formatter.format(effectiveMonthly.round())}';
-
-    final hasVoucher =
-        voucherDiscount != null &&
-        voucherDiscount! > 0 &&
-        voucherFinalPrice != null;
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFF),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFE0E7FF)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.receipt_long_rounded,
-            size: 20,
-            color: SubscriptionCheckoutScreen._primaryBlue,
+          // Header (bill style)
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: SubscriptionCheckoutScreen._primaryBlue.withOpacity(
+                    0.12,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.receipt_long_rounded,
+                  color: SubscriptionCheckoutScreen._primaryBlue,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Summary',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Review your plan details before paying.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.3,
+                        color: Color(0xFF6B7280),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
+
+          const SizedBox(height: 12),
+          _dashedDivider(),
+          const SizedBox(height: 10),
+
+          // Itemized "bill"
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  titleLabel,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                _billRow(label: 'Plan Name', value: planName, isMuted: true),
+                _billRow(label: 'Duration', value: periodLabel, isMuted: true),
+
+                const SizedBox(height: 10),
+
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: const Color(0xFFF3F4F6),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.calendar_month_rounded,
+                        size: 18,
+                        color: Color(0xFF6B7280),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Effective monthly cost ~ ${_money(effectiveMonthly)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 1.3,
+                            color: Color(0xFF374151),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'You’ll pay $mainPrice every $periodLabel.',
-                  style: const TextStyle(fontSize: 12, color: Colors.black87),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Effective monthly cost ~ $effectiveText.',
-                  style: const TextStyle(fontSize: 11, color: Colors.black54),
-                ),
-                // if (hasVoucher) ...[
-                //   const SizedBox(height: 6),
-                //   Text(
-                //     'Original price: Rp. ${formatter.format(originalPrice)}',
-                //     style: const TextStyle(
-                //       fontSize: 11,
-                //       color: Colors.black54,
-                //       decoration: TextDecoration.lineThrough,
-                //     ),
-                //   ),
-                //   Text(
-                //     'Voucher discount: - Rp. ${formatter.format(voucherDiscount)}',
-                //     style: const TextStyle(fontSize: 11, color: Colors.black87),
-                //   ),
-                //   Text(
-                //     'Total after voucher: Rp. ${formatter.format(voucherFinalPrice)}'
-                //     '${voucherCode != null ? ' (code: $voucherCode)' : ''}',
-                //     style: const TextStyle(
-                //       fontSize: 11,
-                //       fontWeight: FontWeight.w600,
-                //     ),
-                //   ),
-                // ],
               ],
             ),
           ),
+
+          const SizedBox(height: 10),
         ],
       ),
     );

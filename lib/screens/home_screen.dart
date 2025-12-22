@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/helper/route_observer.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
@@ -54,6 +55,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with RouteAware, WidgetsBindingObserver {
   bool _didKickRoleLoad = false;
+  bool _handledRefreshArg = false;
 
   final GlobalKey<_HeaderGradientState> _headerKey =
       GlobalKey<_HeaderGradientState>();
@@ -178,9 +180,31 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    // ✅ existing: subscribe routeObserver
     final route = ModalRoute.of(context);
     if (route is PageRoute) {
       routeObserver.subscribe(this, route);
+    }
+
+    // ✅ NEW: handle refresh argument once
+    if (_handledRefreshArg) return;
+    _handledRefreshArg = true;
+
+    final args = route?.settings.arguments;
+    final bool shouldRefresh =
+        args is Map && (args['refresh'] == true || args['refresh'] == 'true');
+
+    if (shouldRefresh) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+
+        // ✅ ini yang kamu mau: sama seperti refresh HomeScreen normal
+        await _refreshCurrentUserAndHeader();
+
+        // (opsional) bersihkan args supaya kalau dependencies berubah, tidak ke-trigger lagi
+        // tapi karena _handledRefreshArg sudah true, sebenarnya tidak perlu.
+      });
     }
   }
 
@@ -1716,7 +1740,12 @@ class _TransactionFeeDialog extends StatelessWidget {
                             ),
                             InkWell(
                               borderRadius: BorderRadius.circular(999),
-                              onTap: () => Navigator.of(context).pop(),
+                              onTap: () {
+                                context
+                                    .read<SubscriptionProvider>()
+                                    .resetTransactionFeeState();
+                                Navigator.of(context).pop();
+                              },
                               child: const Padding(
                                 padding: EdgeInsets.all(6),
                                 child: Icon(
@@ -1981,61 +2010,130 @@ class _TransactionFeeDialog extends StatelessWidget {
 
                         const SizedBox(height: 16),
 
-                        // ===== Actions =====
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFF6B7280),
-                                  side: const BorderSide(color: _border),
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 13,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                onPressed: () => Navigator.of(context).pop(),
-                                child: const Text(
-                                  'Not now',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _primaryBlue,
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 13,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                onPressed: () {
-                                  Navigator.of(context).pop();
+                        Consumer<SubscriptionProvider>(
+                          builder: (context, sp, _) {
+                            final bool isUnpaid = totalUnpaid > 0;
 
-                                  // sementara tetap arahkan ke subscription flow (sesuai instruksi awalmu sebelumnya)
-                                  Navigator.pushNamed(context, '/subscription');
-                                },
-                                child: const Text(
-                                  'Pay now',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 13,
+                            // shimmer ketika belum bayar & (lagi fetch fee atau lagi proses bayar)
+                            final bool shimmerButtons =
+                                isUnpaid &&
+                                (sp.isLoadingTransactionFees ||
+                                    sp.isProcessingTransactionFee);
+
+                            final radius = BorderRadius.circular(14);
+
+                            // saat shimmer, semua tombol di-disable biar ga bisa diklik
+                            final bool disableButtons =
+                                !isUnpaid || shimmerButtons;
+
+                            Widget shimmerOverlay(Color baseColor) {
+                              return Positioned.fill(
+                                child: IgnorePointer(
+                                  child: ClipRRect(
+                                    borderRadius: radius,
+                                    child: Shimmer.fromColors(
+                                      baseColor: baseColor,
+                                      highlightColor: const Color(0xFFFFFFFF),
+                                      child: Container(color: baseColor),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          ],
+                              );
+                            }
+
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: Stack(
+                                    children: [
+                                      SizedBox(
+                                        height: 46,
+                                        width: double.infinity,
+                                        child: OutlinedButton(
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: const Color(
+                                              0xFF6B7280,
+                                            ),
+                                            side: const BorderSide(
+                                              color: _border,
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 13,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: radius,
+                                            ),
+                                          ),
+                                          onPressed: disableButtons
+                                              ? null
+                                              : () =>
+                                                    Navigator.of(context).pop(),
+                                          child: const Text(
+                                            'Not now',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+
+                                      // shimmer untuk Not now
+                                      if (shimmerButtons)
+                                        shimmerOverlay(
+                                          const Color(0xFFF3F4F6),
+                                        ), // skeleton gray
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Stack(
+                                    children: [
+                                      SizedBox(
+                                        height: 46,
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: _primaryBlue,
+                                            foregroundColor: Colors.white,
+                                            elevation: 0,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 13,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: radius,
+                                            ),
+                                          ),
+                                          onPressed: disableButtons
+                                              ? null
+                                              : () async {
+                                                  await sp
+                                                      .goToTransactionFeePayment(
+                                                        context: context,
+                                                      );
+                                                },
+                                          child: const Text(
+                                            'Pay now',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+
+                                      // shimmer untuk Pay now
+                                      if (shimmerButtons)
+                                        shimmerOverlay(
+                                          const Color(0xFFDBEAFE),
+                                        ), // skeleton blue-ish
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ],
                     );
@@ -2045,6 +2143,96 @@ class _TransactionFeeDialog extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _Shimmer extends StatefulWidget {
+  final Widget child;
+  final BorderRadius borderRadius;
+
+  const _Shimmer({required this.child, required this.borderRadius});
+
+  @override
+  State<_Shimmer> createState() => _ShimmerState();
+}
+
+class _ShimmerState extends State<_Shimmer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) {
+        final t = _c.value; // 0..1
+        return ClipRRect(
+          borderRadius: widget.borderRadius,
+          child: Stack(
+            fit: StackFit.passthrough,
+            children: [
+              widget.child,
+              Positioned.fill(
+                child: ShaderMask(
+                  blendMode: BlendMode.srcATop,
+                  shaderCallback: (rect) {
+                    return LinearGradient(
+                      begin: Alignment(-1.0 - 2.0 * (1 - t), 0),
+                      end: Alignment(1.0 + 2.0 * t, 0),
+                      colors: const [
+                        Color(0x00FFFFFF),
+                        Color(0x66FFFFFF),
+                        Color(0x00FFFFFF),
+                      ],
+                      stops: const [0.35, 0.5, 0.65],
+                    ).createShader(rect);
+                  },
+                  child: Container(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ButtonShimmerSkeleton extends StatelessWidget {
+  final double height;
+  final BorderRadius radius;
+  final Color baseColor;
+
+  const _ButtonShimmerSkeleton({
+    required this.height,
+    required this.radius,
+    required this.baseColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _Shimmer(
+      borderRadius: radius,
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(color: baseColor, borderRadius: radius),
       ),
     );
   }

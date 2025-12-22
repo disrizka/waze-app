@@ -176,6 +176,18 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            _ListCard(
+              children: [
+                _MenuTile(
+                  icon: Icons.storefront_rounded,
+                  title: "Payment History",
+                  subtitle: "Platform fee payment history",
+                  onTap: () =>
+                      Navigator.pushNamed(context, '/business/fee/history'),
+                ),
+              ],
+            ),
           ],
         ),
       ),
