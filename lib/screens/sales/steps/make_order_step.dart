@@ -6,28 +6,19 @@ import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/models/product_model.dart';
-import 'package:wa_blast/providers/product_provider.dart' as catalog;
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart' as st;
-import 'package:wa_blast/widgets/show_fancy_bar.dart';
-import 'package:wa_blast/widgets/show_fancy_snack_bar.dart';
 
 import '../../../constants/app_colors.dart';
 import '../../../constants/design_system.dart';
 import '../../../widgets/stepper_header.dart';
 import '../../../widgets/reusable_pickers.dart';
 
-import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-
 // ===============================
 // Minimal UI helpers (theme tokens)
 // ===============================
 
-// NOTE: jika CheckOrderStep dipisah file, import di sini, contoh:
-// import 'check_order_step.dart'; // berisi class CheckOrderStep & CheckOrderStepState
-
-// Expose helper agar bisa dipanggil dari AppBar di wrapper
 Future<bool?> openAddProductSheet(BuildContext context) async {
   final parentSp = context.read<SalesProvider>();
 
@@ -469,8 +460,6 @@ Widget _orderSummaryList(SalesProvider prov, BuildContext context) {
   );
 
   if (!needScroll) return list;
-
-  // batasi tinggi sesuai device: 5 baris (mobile) / 10 baris (tablet)
   final double maxHeight = (_rowExtent * maxVisible) + (1.0 * (maxVisible - 1));
 
   return ConstrainedBox(

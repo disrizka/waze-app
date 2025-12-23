@@ -17,6 +17,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 import 'package:wa_blast/providers/subscription_provider.dart';
 import 'package:wa_blast/models/premium_plan_model.dart';
+import 'package:wa_blast/widgets/app_snackbar.dart';
 import '../l10n/app_localizations.dart';
 
 // Key untuk menyimpan waktu terakhir modal subscription ditampilkan
@@ -260,31 +261,12 @@ class _HomeScreenState extends State<HomeScreen>
 
             if (!mounted) return;
 
-            // 4) tampilkan snackbar hasil refresh
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    Icon(
-                      ok ? Icons.check_circle_outline : Icons.error_outline,
-                      color: Colors.white,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(ok ? t.refresh_success : t.refresh_failed),
-                    ),
-                  ],
-                ),
-                backgroundColor: ok
-                    ? Colors.green.shade600
-                    : Colors.red.shade600,
-                behavior: SnackBarBehavior.floating,
-                margin: const EdgeInsets.only(top: 16, left: 12, right: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                duration: const Duration(seconds: 2),
-              ),
+            AppSnackbar.show(
+              context,
+              type: ok ? AppSnackType.success : AppSnackType.error,
+              title: ok ? 'Success' : 'Failed',
+              message: ok ? t.refresh_success : t.refresh_failed,
+              duration: const Duration(seconds: 2),
             );
           },
           child: SingleChildScrollView(
@@ -897,23 +879,12 @@ class _HeaderGradientState extends State<_HeaderGradient> {
       if (!mounted) return;
 
       // 4️⃣ Snackbar sukses switch
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle_outline, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(child: Text(t.snackbar_business_switch_success)),
-            ],
-          ),
-          backgroundColor: Colors.green.shade600,
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.only(top: 16, left: 12, right: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          duration: const Duration(seconds: 2),
-        ),
+      AppSnackbar.show(
+        context,
+        type: AppSnackType.success,
+        title: 'Success',
+        message: t.snackbar_business_switch_success,
+        duration: const Duration(seconds: 2),
       );
     }
   }

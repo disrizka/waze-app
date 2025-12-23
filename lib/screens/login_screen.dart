@@ -9,6 +9,7 @@ import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:wa_blast/widgets/app_snackbar.dart';
 
 // HAPUS: import 'package:wa_blast/utils/core_permission.dart';
 import '../providers/auth_provider.dart';
@@ -84,9 +85,13 @@ class _LoginScreenState extends State<LoginScreen> {
     final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(
+      AppSnackbar.show(
         context,
-      ).showSnackBar(SnackBar(content: Text(t.login_empty_fields)));
+        type: AppSnackType.warning,
+        title: 'Missing info',
+        message: t.login_empty_fields,
+      );
+
       return;
     }
 
@@ -126,9 +131,12 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     if (!success) {
       final errorMsg = authProvider.error ?? t.login_failed;
-      ScaffoldMessenger.of(
+      AppSnackbar.show(
         context,
-      ).showSnackBar(SnackBar(content: Text(errorMsg)));
+        type: AppSnackType.error,
+        title: 'Login failed',
+        message: errorMsg,
+      );
     }
   }
 
@@ -172,9 +180,12 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     if (!success) {
       final errorMsg = authProvider.error ?? t.login_failed;
-      ScaffoldMessenger.of(
+      AppSnackbar.show(
         context,
-      ).showSnackBar(SnackBar(content: Text(errorMsg)));
+        type: AppSnackType.error,
+        title: 'Login failed',
+        message: errorMsg,
+      );
     }
   }
 

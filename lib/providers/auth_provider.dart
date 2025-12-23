@@ -13,6 +13,7 @@ import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/services/api_service.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:path/path.dart' as p;
+import 'package:wa_blast/widgets/app_snackbar.dart';
 
 /// =========================
 /// Model ringan untuk UI
@@ -171,6 +172,9 @@ class AuthProvider with ChangeNotifier {
   String? get activeAccountEmail => _email;
   final nav = appNavigatorKey.currentState;
 
+  static const String kActiveBizCanSellOutOfStockKey =
+      'activeBizCanSellOutOfStock';
+
   // ========= Optional getters role aktif (buat UI)
   Future<String?> getActiveBusinessRoleId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -258,35 +262,33 @@ class AuthProvider with ChangeNotifier {
   /// =========================
 
   /// Tampilkan SnackBar di post-frame (aman dipanggil kapan pun).
+  /// Tampilkan AppSnackbar di post-frame (aman dipanggil kapan pun).
   Future<void> _snackLater(
     BuildContext context, {
-    required Widget content,
-    Color? bg,
+    required String message,
+    AppSnackType type = AppSnackType.info,
+    String? title,
+    String? actionLabel,
+    VoidCallback? onAction,
     Duration duration = const Duration(seconds: 4),
     String? tag,
-    SnackBarAction? action,
   }) async {
     if (tag != null) _log(tag, '🕒 snackLater() scheduled (post-frame)');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!context.mounted) {
-        if (tag != null) _log(tag, '⚠️ context not mounted; skip SnackBar');
+        if (tag != null) _log(tag, '⚠️ context not mounted; skip AppSnackbar');
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: bg,
-          elevation: 6,
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          duration: duration,
-          content: content,
-          action: action,
-        ),
+      AppSnackbar.show(
+        context,
+        message: message,
+        type: type,
+        title: title,
+        actionLabel: actionLabel,
+        onAction: onAction,
+        duration: duration,
       );
-      if (tag != null) _log(tag, '🔔 SnackBar shown (post-frame)');
+      if (tag != null) _log(tag, '🔔 AppSnackbar shown (post-frame)');
     });
   }
 
@@ -388,23 +390,11 @@ class AuthProvider with ChangeNotifier {
         await _snackLater(
           context,
           tag: tag,
-          bg: Colors.red.shade600,
-          content: const Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Please fill in both name and username.',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          type: AppSnackType.error,
+          title: 'Error',
+          message: 'Please fill in both name and username.',
         );
+
         _isLoading = false;
         notifyLater(tag: tag);
         return false;
@@ -421,22 +411,9 @@ class AuthProvider with ChangeNotifier {
         await _snackLater(
           context,
           tag: tag,
-          bg: Colors.red.shade600,
-          content: const Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Access token tidak tersedia. Silakan login dulu.',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          type: AppSnackType.error,
+          title: 'Error',
+          message: 'Access token tidak tersedia. Silakan login dulu.',
         );
         _isLoading = false;
         notifyLater(tag: tag);
@@ -493,22 +470,9 @@ class AuthProvider with ChangeNotifier {
         await _snackLater(
           context,
           tag: tag,
-          bg: Colors.red.shade600,
-          content: Row(
-            children: [
-              const Icon(Icons.error_outline, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _error!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          type: AppSnackType.error,
+          title: 'Error',
+          message: _error!,
         );
         _isLoading = false;
         notifyLater(tag: tag);
@@ -545,22 +509,9 @@ class AuthProvider with ChangeNotifier {
       await _snackLater(
         context,
         tag: tag,
-        bg: Colors.red.shade600,
-        content: const Row(
-          children: [
-            Icon(Icons.error_outline, color: Colors.white),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Failed to create business.',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
+        type: AppSnackType.error,
+        title: 'Error',
+        message: 'Failed to create business.',
       );
 
       _isLoading = false;
@@ -637,6 +588,8 @@ class AuthProvider with ChangeNotifier {
     required String deviceId,
     required String deviceName,
   }) async {
+    const tag = '🔐 [LOGIN]';
+
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -677,11 +630,17 @@ class AuthProvider with ChangeNotifier {
             fallback: 'Login gagal',
           );
           _error = msg;
+
           if (context.mounted) {
-            ScaffoldMessenger.of(
+            await _snackLater(
               context,
-            ).showSnackBar(SnackBar(content: Text(msg)));
+              tag: tag,
+              type: AppSnackType.error,
+              title: 'Login failed',
+              message: msg,
+            );
           }
+
           _isLoading = false;
           notifyListeners();
           return false;
@@ -705,6 +664,17 @@ class AuthProvider with ChangeNotifier {
         final refreshToken = tokenObj['refresh_token'] as String?;
         if (accessToken == null || accessToken.isEmpty) {
           _error = "Login berhasil tapi token kosong";
+
+          if (context.mounted) {
+            await _snackLater(
+              context,
+              tag: tag,
+              type: AppSnackType.error,
+              title: 'Login failed',
+              message: _error!,
+            );
+          }
+
           _isLoading = false;
           notifyListeners();
           return false;
@@ -744,11 +714,11 @@ class AuthProvider with ChangeNotifier {
         await prefs.setString('login_raw', rawBody);
         await prefs.setString('token', jsonEncode(tokenObj));
         await prefs.setString('user', jsonEncode(userObj));
-        // ⬇️ simpan list business yang sudah dinormalisasi + flag out of stock
         await prefs.setString('business', jsonEncode(normalizedBizList));
         await prefs.setString('accessToken', _accessToken!);
-        if (_refreshToken != null)
+        if (_refreshToken != null) {
           await prefs.setString('refreshToken', _refreshToken!);
+        }
         if (_name != null) await prefs.setString('name', _name!);
         await prefs.setString('email', _email!);
         await prefs.setBool('isActivated', _isActivated);
@@ -770,11 +740,10 @@ class AuthProvider with ChangeNotifier {
         if (normalizedBizList.isEmpty) {
           await _clearActiveBusinessPrefs(prefs);
 
-          // snapshot akun (tanpa activeBusiness)
           final accountSnapshot = {
             'token': tokenObj,
             'user': userObj,
-            'business': normalizedBizList, // []
+            'business': normalizedBizList,
             'accessToken': _accessToken,
             'refreshToken': _refreshToken,
             'name': _name,
@@ -796,25 +765,13 @@ class AuthProvider with ChangeNotifier {
           }
           await prefs.setString(kActiveAccountKey, _email!);
 
-          // Info + navigasi
           await _snackLater(
             context,
-            bg: Colors.blue.shade700,
-            content: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.white),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Hold up! You need to create your first business account before using WaveUp.',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            tag: tag,
+            type: AppSnackType.info,
+            title: 'Info',
+            message:
+                'Hold up! You need to create your first business account before using WaveUp.',
             duration: const Duration(seconds: 4),
           );
 
@@ -829,15 +786,21 @@ class AuthProvider with ChangeNotifier {
         final Map<String, dynamic>? firstBiz = normalizedBizList.isNotEmpty
             ? normalizedBizList.first
             : null;
+
         final String activeBizId = (firstBiz?['idBusiness'] ?? '').toString();
         final String activeBizName = (firstBiz?['name'] ?? '').toString();
         final String activeBizUsername = (firstBiz?['username'] ?? '')
             .toString();
         final String activeBizLogoPath = (firstBiz?['logoPath'] ?? '')
             .toString();
+
         await prefs.setBool(
           'activeBizIsPremium',
           (firstBiz?['isPremium'] ?? false) == true,
+        );
+        await prefs.setBool(
+          kActiveBizCanSellOutOfStockKey,
+          (firstBiz?['can_be_sold_out_of_stock'] ?? false) == true,
         );
         await prefs.setString(
           'activeBizPremiumStartAt',
@@ -858,7 +821,6 @@ class AuthProvider with ChangeNotifier {
             roleMap: roleMap,
           );
         } else {
-          // data anomali: ada list tapi id kosong → bersihkan pointer
           await _clearActiveBusinessPrefs(prefs);
         }
 
@@ -936,18 +898,28 @@ class AuthProvider with ChangeNotifier {
         fallback: 'Login gagal',
       );
       _error = msg;
+
       if (context.mounted) {
-        ScaffoldMessenger.of(
+        await _snackLater(
           context,
-        ).showSnackBar(SnackBar(content: Text(msg)));
+          tag: tag,
+          type: AppSnackType.error,
+          title: 'Login failed',
+          message: msg,
+        );
       }
     } catch (e, st) {
       _error = "Terjadi kesalahan: $e";
       debugPrint("LOGIN ❌ exception: $e");
       debugPrint("$st");
+
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Terjadi kesalahan saat login.')),
+        await _snackLater(
+          context,
+          tag: tag,
+          type: AppSnackType.error,
+          title: 'Error',
+          message: 'Terjadi kesalahan saat login.',
         );
       }
     }
@@ -1186,6 +1158,8 @@ class AuthProvider with ChangeNotifier {
       await prefs.remove(kActiveBizRoleNameKey);
       await prefs.remove(kActiveBizRoleIsPrimaryKey);
 
+      await prefs.remove(kActiveBizCanSellOutOfStockKey);
+
       // 6) Sign out dari Google
       try {
         await _ensureGoogleSignInInitialized();
@@ -1279,6 +1253,8 @@ class AuthProvider with ChangeNotifier {
     required String fcmToken,
     String referralCode = "",
   }) async {
+    const tag = '🟦 [LOGIN_GOOGLE]';
+
     debugPrint('====== [LOGIN_GOOGLE] START ======');
     debugPrint('[LOGIN_GOOGLE] deviceId=$deviceId, deviceName=$deviceName');
 
@@ -1297,6 +1273,14 @@ class AuthProvider with ChangeNotifier {
         _isLoading = false;
         notifyListeners();
         debugPrint('[LOGIN_GOOGLE] ERROR init GoogleSignIn: $e\n$st');
+
+        await _snackLater(
+          context,
+          tag: tag,
+          type: AppSnackType.error,
+          title: 'Google Sign-In',
+          message: 'Failed to initialize Google Sign-In. Please try again.',
+        );
         return false;
       }
 
@@ -1320,18 +1304,44 @@ class AuthProvider with ChangeNotifier {
         );
       } on GoogleSignInException catch (e, st) {
         debugPrint('[LOGIN_GOOGLE] Google sign-in error: $e\n$st');
+
         if (e.code == GoogleSignInExceptionCode.canceled) {
           _error = 'Google sign-in dibatalkan.';
+          await _snackLater(
+            context,
+            tag: tag,
+            type: AppSnackType.info,
+            title: 'Canceled',
+            message: 'Google sign-in was canceled.',
+          );
         } else {
           _error =
               'Google sign-in gagal: ${e.description ?? e.code.toString()}';
+          await _snackLater(
+            context,
+            tag: tag,
+            type: AppSnackType.error,
+            title: 'Google Sign-In Failed',
+            message: _error!,
+          );
         }
+
         _isLoading = false;
         notifyListeners();
         return false;
       } catch (e, st) {
         debugPrint('[LOGIN_GOOGLE] Unexpected Google sign-in error: $e\n$st');
         _error = 'Terjadi kesalahan saat Google sign-in: $e';
+
+        await _snackLater(
+          context,
+          tag: tag,
+          type: AppSnackType.error,
+          title: 'Google Sign-In Failed',
+          message:
+              'Something went wrong during Google sign-in. Please try again.',
+        );
+
         _isLoading = false;
         notifyListeners();
         return false;
@@ -1342,6 +1352,15 @@ class AuthProvider with ChangeNotifier {
           '[LOGIN_GOOGLE] googleUser == null (kemungkinan dibatalkan user)',
         );
         _error = 'Google sign-in dibatalkan.';
+
+        await _snackLater(
+          context,
+          tag: tag,
+          type: AppSnackType.info,
+          title: 'Canceled',
+          message: 'Google sign-in was canceled.',
+        );
+
         _isLoading = false;
         notifyListeners();
         return false;
@@ -1437,6 +1456,16 @@ class AuthProvider with ChangeNotifier {
           '[LOGIN_GOOGLE] Login gagal TAPI bukan userNotFound. '
           'Tidak melakukan register. _error="${_error ?? '(null)'}"',
         );
+
+        // tampilkan error dari login() jika ada
+        await _snackLater(
+          context,
+          tag: tag,
+          type: AppSnackType.error,
+          title: 'Login Failed',
+          message: (_error ?? 'Login failed. Please try again.'),
+        );
+
         return false;
       }
 
@@ -1446,6 +1475,15 @@ class AuthProvider with ChangeNotifier {
       );
       _error = null;
       notifyListeners();
+
+      await _snackLater(
+        context,
+        tag: tag,
+        type: AppSnackType.info,
+        title: 'Creating account',
+        message: 'We’re creating your account using Google Sign-In…',
+        duration: const Duration(seconds: 3),
+      );
 
       // 8) Jalankan REGISTER dengan payload seperti registerStep1
       final registerOk = await registerStep1(
@@ -1467,14 +1505,38 @@ class AuthProvider with ChangeNotifier {
         debugPrint(
           '====== [LOGIN_GOOGLE] SUCCESS (REGISTER + LOGIN GOOGLE) ======',
         );
+
+        await _snackLater(
+          context,
+          tag: tag,
+          type: AppSnackType.success,
+          title: 'Welcome!',
+          message: 'Your account has been created successfully.',
+        );
       } else {
         debugPrint('====== [LOGIN_GOOGLE] FAILED (REGISTER) ======');
+
+        await _snackLater(
+          context,
+          tag: tag,
+          type: AppSnackType.error,
+          title: 'Register Failed',
+          message: (_error ?? 'Failed to create account. Please try again.'),
+        );
       }
 
       return registerOk;
     } catch (e, st) {
       _error = 'Terjadi kesalahan saat login dengan Google: $e';
       debugPrint('[LOGIN_GOOGLE] ❌ UNCAUGHT ERROR: $e\n$st');
+
+      await _snackLater(
+        context,
+        tag: tag,
+        type: AppSnackType.error,
+        title: 'Google Login Failed',
+        message: 'Something went wrong. Please try again.',
+      );
 
       _isLoading = false;
       notifyListeners();
@@ -2209,6 +2271,11 @@ class AuthProvider with ChangeNotifier {
           (selected['premiumExpiresAt'] ?? '').toString(),
         );
 
+        final bool canSellOutOfStock =
+            (selected['can_be_sold_out_of_stock'] ?? false) == true;
+
+        await prefs.setBool(kActiveBizCanSellOutOfStockKey, canSellOutOfStock);
+
         // 6) Sinkronkan snapshot akun aktif (account_<email>)
         final rb = _resolveRBForBusiness(
           (selected['idBusiness'] ?? '').toString(),
@@ -2266,6 +2333,8 @@ class AuthProvider with ChangeNotifier {
         await prefs.remove(kActiveBizRoleIdKey);
         await prefs.remove(kActiveBizRoleNameKey);
         await prefs.remove(kActiveBizRoleIsPrimaryKey);
+
+        await prefs.remove(kActiveBizCanSellOutOfStockKey);
 
         // ⬇️ NEW: bersihkan juga info subscription aktif
         await prefs.remove('activeBizIsPremium');
@@ -2375,6 +2444,26 @@ class AuthProvider with ChangeNotifier {
         'activeBizPremiumExpiresAt',
         target.premiumExpiresAt ?? '',
       );
+
+      // target berasal dari getBusinesses() => BusinessInfo.fromJson()
+      // jadi butuh sumber flag can_be_sold_out_of_stock.
+      // Kamu bisa ambil dari prefs.business map (lebih akurat) atau simpan di BusinessInfo.
+      final rawBizList = prefs.getString('business') ?? '';
+      bool canSellOut = false;
+      if (rawBizList.isNotEmpty) {
+        try {
+          final list = (jsonDecode(rawBizList) as List)
+              .map((e) => (e as Map).cast<String, dynamic>())
+              .toList();
+          final found = list.firstWhere(
+            (m) => (m['idBusiness'] ?? '').toString() == target.idBusiness,
+            orElse: () => const <String, dynamic>{},
+          );
+          canSellOut = (found['can_be_sold_out_of_stock'] ?? false) == true;
+        } catch (_) {}
+      }
+
+      await prefs.setBool(kActiveBizCanSellOutOfStockKey, canSellOut);
     }
 
     _error = null;
@@ -2705,28 +2794,12 @@ class AuthProvider with ChangeNotifier {
         await _snackLater(
           context,
           tag: tag,
-          bg: Colors.green.shade600,
-          content: Row(
-            children: const [
-              Icon(Icons.check_circle_outline, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Account deactivated',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          action: SnackBarAction(
-            label: 'OK',
-            textColor: Colors.white,
-            onPressed: () =>
-                ScaffoldMessenger.of(context).hideCurrentSnackBar(),
-          ),
+          type: AppSnackType.success,
+          title: 'Success',
+          message: 'Account deactivated',
+          actionLabel: 'OK',
+          onAction:
+              () {}, // cukup kosong; AppSnackbar auto-hide setelah tap action
         );
 
         await logout(context);
@@ -2743,22 +2816,9 @@ class AuthProvider with ChangeNotifier {
         await _snackLater(
           context,
           tag: tag,
-          bg: Colors.red.shade600,
-          content: Row(
-            children: [
-              const Icon(Icons.error_outline, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _error!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          type: AppSnackType.error,
+          title: 'Error',
+          message: _error!,
         );
 
         _isLoading = false;
@@ -2775,22 +2835,11 @@ class AuthProvider with ChangeNotifier {
       await _snackLater(
         context,
         tag: tag,
-        bg: Colors.red.shade600,
-        content: const Row(
-          children: [
-            Icon(Icons.error_outline, color: Colors.white),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Failed to deactivate account.',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
+        type: AppSnackType.success,
+        title: 'Success',
+        message: 'Account deleted permanently',
+        actionLabel: 'OK',
+        onAction: () {},
       );
 
       _isLoading = false;
@@ -2854,28 +2903,11 @@ class AuthProvider with ChangeNotifier {
         await _snackLater(
           context,
           tag: tag,
-          bg: Colors.green.shade600,
-          content: Row(
-            children: const [
-              Icon(Icons.check_circle_outline, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Account deleted permanently',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          action: SnackBarAction(
-            label: 'OK',
-            textColor: Colors.white,
-            onPressed: () =>
-                ScaffoldMessenger.of(context).hideCurrentSnackBar(),
-          ),
+          type: AppSnackType.success,
+          title: 'Success',
+          message: 'Account deleted permanently',
+          actionLabel: 'OK',
+          onAction: () {},
         );
 
         await logout(context);
@@ -2892,28 +2924,11 @@ class AuthProvider with ChangeNotifier {
         await _snackLater(
           context,
           tag: tag,
-          bg: Colors.red.shade600,
-          content: Row(
-            children: [
-              const Icon(Icons.error_outline, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _error!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          action: SnackBarAction(
-            label: 'DISMISS',
-            textColor: Colors.white,
-            onPressed: () =>
-                ScaffoldMessenger.of(context).hideCurrentSnackBar(),
-          ),
+          type: AppSnackType.error,
+          title: 'Error',
+          message: _error!,
+          actionLabel: 'Dismiss',
+          onAction: () {},
         );
 
         _isLoading = false;
@@ -2930,22 +2945,11 @@ class AuthProvider with ChangeNotifier {
       await _snackLater(
         context,
         tag: tag,
-        bg: Colors.red.shade600,
-        content: const Row(
-          children: [
-            Icon(Icons.error_outline, color: Colors.white),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Failed to delete account.',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
+        type: AppSnackType.error,
+        title: 'Failed',
+        message: 'Failed to delete account.',
+        actionLabel: 'Dismiss',
+        onAction: () {},
       );
 
       _isLoading = false;

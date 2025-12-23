@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/providers/change_password_provider.dart';
+import 'package:wa_blast/widgets/app_snackbar.dart';
 import 'forgot_shared.dart';
 
 class ForgotStep1Screen extends StatefulWidget {
@@ -37,49 +38,18 @@ class _ForgotStep1ScreenState extends State<ForgotStep1Screen> {
     final prov = context.read<ChangePasswordProvider>();
     final email = _emailC.text.trim();
 
+    if (!mounted) return;
+
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          content: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1565C0), // warna biru utama
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Row(
-              children: const [
-                Icon(Icons.check_circle, color: Colors.white, size: 22),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'OTP sent! Please check your email.',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          duration: const Duration(seconds: 3),
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        ),
+      AppSnackbar.show(
+        context,
+        type: AppSnackType.success,
+        title: 'Success',
+        message: 'OTP sent! Please check your email.',
+        duration: const Duration(seconds: 3),
       );
       widget.onNext(email);
     } else {
-      if (!mounted) return;
       showErrorDialog(context, prov.lastError ?? 'Failed to request OTP');
     }
   }
