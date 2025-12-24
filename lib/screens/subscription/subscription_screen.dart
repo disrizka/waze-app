@@ -248,11 +248,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 child: _TopGradientHeader(
                   isPremium: isPremiumView,
                   onClose: () => Navigator.of(context).pop(),
-                  onHistory: isPremiumView
-                      ? () => Navigator.of(
-                          context,
-                        ).pushNamed('/subscription/history')
-                      : null,
+                  onHistory: () =>
+                      Navigator.of(context).pushNamed('/subscription/history'),
                   title: isPremiumView ? 'Premium' : 'Subscription',
                   subtitle: isPremiumView
                       ? 'You’re all set'

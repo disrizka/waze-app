@@ -16,12 +16,18 @@ class SubscriptionCheckoutHistoryScreen extends StatefulWidget {
 
 class _SubscriptionCheckoutHistoryScreenState
     extends State<SubscriptionCheckoutHistoryScreen> {
+  static const String _type = SubscriptionProvider.kHistoryTypePremiumBusiness;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      context.read<SubscriptionProvider>().fetchSubscriptionHistory(context);
+      await context.read<SubscriptionProvider>().fetchPaymentHistory(
+        context,
+        type: _type,
+        refresh: true,
+      );
     });
   }
 
@@ -29,7 +35,6 @@ class _SubscriptionCheckoutHistoryScreenState
   Widget build(BuildContext context) {
     return const Scaffold(
       backgroundColor: Color(0xFFF6F7FB),
-      // ✅ SafeArea jangan di luar, biar SliverAppBar yang handle inset/status bar
       body: _HistoryBody(),
     );
   }
@@ -43,13 +48,41 @@ class _HistoryBody extends StatefulWidget {
 }
 
 class _HistoryBodyState extends State<_HistoryBody> {
+  static const String _type = SubscriptionProvider.kHistoryTypePremiumBusiness;
+
   bool _isPremiumUser = false;
   bool _loadingPremium = true;
+
+  final ScrollController _scrollC = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _loadPremiumFlag();
+
+    _scrollC.addListener(() {
+      if (!mounted) return;
+
+      final prov = context.read<SubscriptionProvider>();
+      if (!_scrollC.hasClients) return;
+
+      final pos = _scrollC.position;
+      if (pos.pixels >= (pos.maxScrollExtent - 320)) {
+        final hasMore = prov.historyHasMoreOf(_type);
+        final isLoading = prov.isLoadingHistoryOf(_type);
+        final isLoadingMore = prov.isLoadingMoreHistoryOf(_type);
+
+        if (hasMore && !isLoading && !isLoadingMore) {
+          prov.fetchMorePaymentHistory(context, type: _type);
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollC.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPremiumFlag() async {
@@ -84,19 +117,22 @@ class _HistoryBodyState extends State<_HistoryBody> {
 
     return Consumer<SubscriptionProvider>(
       builder: (context, prov, _) {
-        final items = prov.history;
-        final isLoading = prov.isLoadingHistory;
-        final error = prov.historyError;
+        final items = prov.historyOf(_type);
+        final isLoading = prov.isLoadingHistoryOf(_type);
+        final isLoadingMore = prov.isLoadingMoreHistoryOf(_type);
+        final error = prov.historyErrorOf(_type);
+        final moreError = prov.historyMoreErrorOf(_type);
+        final hasMore = prov.historyHasMoreOf(_type);
 
         return RefreshIndicator(
           color: const Color(0xFF426FD4),
           onRefresh: () => context
               .read<SubscriptionProvider>()
-              .fetchSubscriptionHistory(context),
+              .fetchPaymentHistory(context, type: _type, refresh: true),
           child: CustomScrollView(
+            controller: _scrollC,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              // ✅ STICKY APPBAR
               _StickyAppBar(
                 title: 'Subscription',
                 subtitle: 'Payment history',
@@ -119,8 +155,8 @@ class _HistoryBodyState extends State<_HistoryBody> {
                   ),
                 ),
 
-              // Error state
-              if (error != null && items.isEmpty)
+              // Error page 1
+              if (error != null && items.isEmpty && !isLoading)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
@@ -128,7 +164,11 @@ class _HistoryBodyState extends State<_HistoryBody> {
                       message: error,
                       onRetry: () => context
                           .read<SubscriptionProvider>()
-                          .fetchSubscriptionHistory(context),
+                          .fetchPaymentHistory(
+                            context,
+                            type: _type,
+                            refresh: true,
+                          ),
                     ),
                   ),
                 ),
@@ -142,10 +182,10 @@ class _HistoryBodyState extends State<_HistoryBody> {
                   ),
                 ),
 
-              // List (grouped by month)
+              // List items
               if (items.isNotEmpty)
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate((context, index) {
                       final row = items[index];
@@ -179,11 +219,8 @@ class _HistoryBodyState extends State<_HistoryBody> {
                       final showMonthHeader =
                           index == 0 || currentMonthKey != prevMonthKey;
 
-                      // ✅ rule "bulan ini"
                       final inCurrentMonth = _isInCurrentMonth(row.createdAt);
 
-                      // Kalau premium flag masih loading, kita anggap premium=false dulu
-                      // supaya UI tetap jalan; nanti rebuild otomatis saat flag selesai.
                       final premiumUser = _loadingPremium
                           ? false
                           : _isPremiumUser;
@@ -222,6 +259,83 @@ class _HistoryBodyState extends State<_HistoryBody> {
                     }, childCount: items.length),
                   ),
                 ),
+
+              // Bottom loader / error load more / end
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                  child: Column(
+                    children: [
+                      if (isLoadingMore) ...[
+                        const SizedBox(height: 8),
+                        const SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Loading more...',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ] else if (moreError != null) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFFDE68A)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_rounded,
+                                color: Color(0xFF92400E),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  moreError,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF92400E),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              TextButton(
+                                onPressed: () => context
+                                    .read<SubscriptionProvider>()
+                                    .fetchMorePaymentHistory(
+                                      context,
+                                      type: _type,
+                                    ),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: const Color(0xFF1D4ED8),
+                                ),
+                                child: const Text(
+                                  'Retry',
+                                  style: TextStyle(fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ] else if (!hasMore && items.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                      ] else ...[
+                        const SizedBox(height: 8),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         );
@@ -313,7 +427,7 @@ class _StickyAppBar extends StatelessWidget {
 }
 
 /// =======================
-///  CARD V2 (Modern)
+///  CARD V2
 /// =======================
 class _HistoryCardV2 extends StatelessWidget {
   final SubscriptionHistoryItem row;
@@ -322,7 +436,6 @@ class _HistoryCardV2 extends StatelessWidget {
   final String amountText;
   final bool isPaid;
 
-  // ✅ tambahan untuk rule tombol
   final bool isPremiumUser;
   final bool isInCurrentMonth;
 
@@ -338,6 +451,9 @@ class _HistoryCardV2 extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // NOTE:
+    // Kalau model SubscriptionHistoryItem kamu BELUM punya field "description",
+    // pakai planName aja biar tidak error compile.
     final planText = row.planName.isNotEmpty ? row.planName : 'Premium Plan';
 
     final invoiceText = row.number.isNotEmpty
@@ -359,17 +475,10 @@ class _HistoryCardV2 extends StatelessWidget {
         ? row.paidStatus
         : (isPaid ? 'Paid' : 'Unpaid');
 
-    // ✅ RULES:
-    // - Paid -> tombol Download Invoice
+    // RULES:
     final showDownloadInvoice = isPaid;
-
-    // - Belum premium + bulan ini + unpaid -> tombol Pay again
     final showPayAgain = (!isPremiumUser) && (!isPaid) && isInCurrentMonth;
-
-    // - Sudah premium + bulan ini + unpaid -> tidak ada tombol
-    //   (otomatis karena showPayAgain false, showDownloadInvoice false)
-
-    final bool showActionButton = showDownloadInvoice || showPayAgain;
+    final showActionButton = showDownloadInvoice || showPayAgain;
 
     return Material(
       color: Colors.white,
@@ -554,56 +663,52 @@ class _HistoryCardV2 extends StatelessWidget {
                   ],
                 ),
               ),
-
               if (showActionButton) ...[
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: showPayAgain
-                              ? const Color(0xFF111827)
-                              : const Color(0xFF426FD4),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        onPressed: () async {
-                          if (showPayAgain) {
-                            await context
-                                .read<SubscriptionProvider>()
-                                .retryPaymentFromHistory(
-                                  context: context,
-                                  item: row,
-                                );
-                            return;
-                          }
-
-                          await context
-                              .read<SubscriptionProvider>()
-                              .downloadInvoicePdfFromHistory(
-                                context: context,
-                                item: row,
-                                openAfterSave: true,
-                              );
-                        },
-                        icon: Icon(
-                          showPayAgain
-                              ? Icons.refresh_rounded
-                              : Icons.download_rounded,
-                          size: 18,
-                        ),
-                        label: Text(
-                          showPayAgain ? 'Pay again' : 'Download Invoice',
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        ),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: showPayAgain
+                          ? const Color(0xFF111827)
+                          : const Color(0xFF426FD4),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                  ],
+                    onPressed: () async {
+                      if (showPayAgain) {
+                        await context
+                            .read<SubscriptionProvider>()
+                            .retryPaymentFromHistory(
+                              context: context,
+                              item: row,
+                            );
+                        return;
+                      }
+
+                      await context
+                          .read<SubscriptionProvider>()
+                          .downloadInvoicePdfFromHistory(
+                            context: context,
+                            item: row,
+                            openAfterSave: true,
+                          );
+                    },
+                    icon: Icon(
+                      showPayAgain
+                          ? Icons.refresh_rounded
+                          : Icons.download_rounded,
+                      size: 18,
+                    ),
+                    label: Text(
+                      showPayAgain ? 'Pay again' : 'Download Invoice',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
                 ),
               ],
             ],
@@ -635,7 +740,7 @@ class _HistoryErrorBox extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Gagal memuat riwayat',
+            'Failed to load history',
             style: TextStyle(
               fontWeight: FontWeight.w900,
               color: Color(0xFF9F1239),
@@ -655,7 +760,7 @@ class _HistoryErrorBox extends StatelessWidget {
             child: TextButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Coba lagi'),
+              label: const Text('Retry'),
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFF9F1239),
               ),
@@ -692,7 +797,7 @@ class _HistoryEmptyBox extends StatelessWidget {
           Icon(Icons.receipt_long_rounded, size: 38, color: Color(0xFF9CA3AF)),
           SizedBox(height: 12),
           Text(
-            'Belum ada riwayat pembayaran',
+            'No payment history yet',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w900,
@@ -701,7 +806,7 @@ class _HistoryEmptyBox extends StatelessWidget {
           ),
           SizedBox(height: 8),
           Text(
-            'Setelah kamu menyelesaikan pembayaran subscription, riwayatnya akan muncul di sini.',
+            'After you complete a subscription payment, it will appear here.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontWeight: FontWeight.w600,
@@ -717,7 +822,7 @@ class _HistoryEmptyBox extends StatelessWidget {
 }
 
 /// =======================
-///  Skeleton (No package)
+///  Skeleton
 /// =======================
 class _SkeletonCard extends StatefulWidget {
   const _SkeletonCard();
@@ -836,13 +941,7 @@ class _SkeletonCardState extends State<_SkeletonCard>
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: bar(h: 44)),
-                  const SizedBox(width: 10),
-                  bar(w: 44, h: 44),
-                ],
-              ),
+              Row(children: [Expanded(child: bar(h: 44))]),
             ],
           ),
         );
