@@ -494,6 +494,29 @@ class _AddProductScreenState extends State<AddProductScreen> {
     }
   }
 
+  bool get _canSubmitSilently {
+    // jangan panggil _formKey.validate() di sini
+
+    // minimal check sesuai kebutuhanmu
+    if (_nameC.text.trim().isEmpty) return false;
+
+    if (!_useVariants) {
+      if (_toInt(_singleSkuPriceC.text) <= 0) return false;
+      if (_skuNoSpaceValidator(_singleSkuNameC.text) != null) return false;
+    } else {
+      final st = variantsKey.currentState;
+      if (st == null || !st.hasAtLeastOneRow) return false;
+      if (_useMultiPrice && !_variantPricesUniform) return false;
+    }
+
+    if (_useMultiPrice) {
+      if (_prices.where((e) => e.isFilled).isEmpty) return false;
+      if (!_allTierPricesValid) return false;
+    }
+
+    return true;
+  }
+
   Future<void> _onSubmit() async {
     try {
       setState(() => _attemptedSubmit = true);
@@ -623,6 +646,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canSubmit = _canSubmitSilently;
     final mq = MediaQuery.of(context);
     final padBottom = mq.viewInsets.bottom;
     final base = _skuBasePrice;
@@ -651,7 +675,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
             child: SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + padBottom),
               child: Form(
-                autovalidateMode: AutovalidateMode.onUserInteraction,
+                autovalidateMode: _attemptedSubmit
+                    ? AutovalidateMode.onUserInteraction
+                    : AutovalidateMode.disabled,
                 key: _formKey,
                 onChanged: () => setState(() {}),
                 child: Column(
@@ -1187,12 +1213,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     ),
                   )
                 : ElevatedButton(
-                    onPressed: _isValid ? _onSubmit : null,
+                    onPressed: _isSubmitting ? null : _onSubmit,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _isValid
+                      backgroundColor: canSubmit
                           ? AppColors.primary
                           : const Color(0xFFE5E7EB),
-                      foregroundColor: _isValid
+                      foregroundColor: canSubmit
                           ? Colors.white
                           : const Color(0xFF9CA3AF),
                       shape: RoundedRectangleBorder(

@@ -209,17 +209,17 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
                   ),
                   decoration: BoxDecoration(
                     color: n.isRead
-                        ? const Color(0xFFF3F4F6)
+                        ? Colors.transparent
                         : const Color(0xFFEEF2FF),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    n.isRead ? 'Read' : 'NEW',
+                    n.isRead ? '' : 'NEW',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                       color: n.isRead
-                          ? const Color(0xFF6B7280)
+                          ? Colors.transparent
                           : const Color(0xFF4F46E5),
                     ),
                   ),

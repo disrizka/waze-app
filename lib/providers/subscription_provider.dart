@@ -1689,68 +1689,182 @@ class SubscriptionProvider with ChangeNotifier {
     bool openAfterSave = true,
   }) async {
     try {
-      // ===== Ambil data bisnis dari prefs =====
+      // =========================
+      // Helper: sanitize text (ASCII only) supaya tidak kena warning Helvetica Unicode
+      // =========================
+      String safePdfText(String input) {
+        var s = input;
+
+        // replace karakter umum yang sering bikin warning
+        s = s.replaceAll('•', '-');
+        s = s.replaceAll('—', '-');
+        s = s.replaceAll('–', '-');
+        s = s.replaceAll('…', '...');
+        s = s.replaceAll('“', '"').replaceAll('”', '"');
+        s = s.replaceAll('‘', "'").replaceAll('’', "'");
+
+        // buang semua non-ASCII lainnya (paling aman)
+        s = s.replaceAll(RegExp(r'[^\x00-\x7F]'), '');
+
+        // rapihin spasi
+        s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+        return s.isEmpty ? '-' : s;
+      }
+
+      String prettyTypeLabel(String raw) {
+        final t = raw.trim().toLowerCase();
+        if (t == 'premium_business') return 'Premium Business';
+        if (t == 'transaction_fee') return 'Platform Transaction Fee';
+        if (t.isEmpty) return '-';
+
+        // fallback: snake_case -> Title Case
+        final parts = t.split('_').where((e) => e.isNotEmpty).toList();
+        if (parts.isEmpty) return raw.trim();
+        return parts
+            .map(
+              (w) => w.isEmpty
+                  ? ''
+                  : w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : ''),
+            )
+            .join(' ')
+            .trim();
+      }
+
+      // =========================
+      // Ambil data bisnis dari prefs
+      // =========================
       final prefs = await SharedPreferences.getInstance();
-      final activeBizName = (prefs.getString('activeBizName') ?? '').trim();
-      final activeBizUsername = (prefs.getString('activeBizUsername') ?? '')
+      final activeBizNameRaw = (prefs.getString('activeBizName') ?? '').trim();
+      final activeBizUsernameRaw = (prefs.getString('activeBizUsername') ?? '')
           .trim();
 
-      final paidByName = activeBizName.isNotEmpty ? activeBizName : '-';
-      final paidByUser = activeBizUsername.isNotEmpty
-          ? '@$activeBizUsername'
-          : '-';
+      final paidByName = safePdfText(
+        activeBizNameRaw.isNotEmpty ? activeBizNameRaw : '-',
+      );
+      final paidByUser = safePdfText(
+        activeBizUsernameRaw.isNotEmpty ? '@$activeBizUsernameRaw' : '-',
+      );
 
-      final doc = pw.Document();
-
+      // =========================
       // Formatter
+      // =========================
       final rupiah = NumberFormat.currency(
         locale: 'id_ID',
         symbol: 'Rp ',
         decimalDigits: 0,
       );
       final dateFmt = DateFormat('dd MMM yyyy, HH:mm', 'id_ID');
-
       String fmtDate(DateTime? d) =>
           d == null ? '-' : dateFmt.format(d.toLocal());
 
-      final createdAt = fmtDate(item.createdAt);
-      final paidAt = fmtDate(item.paidAt);
+      final createdAt = safePdfText(fmtDate(item.createdAt));
+      final paidAt = safePdfText(fmtDate(item.paidAt));
 
-      final statusText = (item.paidStatus.isNotEmpty)
-          ? item.paidStatus
-          : (item.paid == 1 ? 'Paid' : 'Unpaid');
+      final isPaid = item.paid == 1 || item.paidStatus.toLowerCase() == 'paid';
 
-      final planName = item.planName.isNotEmpty
-          ? item.planName
-          : 'Premium Plan';
-      final methodName = item.paymentMethodName.isNotEmpty
-          ? item.paymentMethodName
-          : 'Payment method ${item.paymentMethod}';
+      final statusText = safePdfText(
+        item.paidStatus.trim().isNotEmpty
+            ? item.paidStatus.trim()
+            : (isPaid ? 'Paid' : 'Unpaid'),
+      );
 
-      final invoiceNo = item.number.isNotEmpty ? item.number : item.id;
+      final methodName = safePdfText(
+        item.paymentMethodName.trim().isNotEmpty
+            ? item.paymentMethodName.trim()
+            : 'Payment method ${item.paymentMethod}',
+      );
+
+      final invoiceNo = safePdfText(
+        item.number.trim().isNotEmpty ? item.number.trim() : '-',
+      );
+
+      String itemTitle() {
+        final desc = item.description.trim();
+        if (desc.isNotEmpty) return safePdfText(desc);
+
+        final plan = item.planName.trim();
+        if (plan.isNotEmpty) return safePdfText(plan);
+
+        final t = item.type.trim().toLowerCase();
+        if (t == 'transaction_fee') return 'Platform Transaction Fee';
+        if (t == 'premium_business') return 'Premium Business';
+        return 'WaveUp Invoice Item';
+      }
+
+      final periodLabel = safePdfText(
+        item.period.trim().isNotEmpty ? item.period.trim() : '-',
+      );
+      final typeLabel = safePdfText(prettyTypeLabel(item.type));
+
+      // =========================
+      // PDF Theme Colors (simple & safe)
+      // =========================
+      const pdfBlue = p.PdfColor.fromInt(0xFF1D4ED8);
+      const pdfBlueSoft = p.PdfColor.fromInt(0xFFEFF6FF);
+
+      const pdfGreenBg = p.PdfColor.fromInt(0xFFE8F5E9);
+      const pdfGreen = p.PdfColor.fromInt(0xFF2E7D32);
+
+      const pdfRedBg = p.PdfColor.fromInt(0xFFFEE2E2);
+      const pdfRed = p.PdfColor.fromInt(0xFFB91C1C);
+
+      final doc = pw.Document();
 
       pw.Widget kv(String k, String v) => pw.Expanded(
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.Text(
-              k,
+              safePdfText(k),
               style: pw.TextStyle(fontSize: 9, color: p.PdfColors.grey700),
             ),
             pw.SizedBox(height: 2),
-            pw.Text(
-              v.isEmpty ? '-' : v,
-              style: const pw.TextStyle(fontSize: 10),
-            ),
+            pw.Text(safePdfText(v), style: const pw.TextStyle(fontSize: 10)),
           ],
         ),
       );
 
+      // ✅ Badge status aman: radius normal (hindari radius 999 yang bisa bikin garis aneh)
+      pw.Widget statusBadge() {
+        final bg = isPaid ? pdfGreenBg : pdfRedBg;
+        final fg = isPaid ? pdfGreen : pdfRed;
+
+        return pw.Container(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: pw.BoxDecoration(
+            color: bg,
+            borderRadius: pw.BorderRadius.circular(10),
+            border: pw.Border.all(color: fg, width: 0.8),
+          ),
+          child: pw.Text(
+            statusText,
+            style: pw.TextStyle(
+              fontSize: 10,
+              fontWeight: pw.FontWeight.bold,
+              color: fg,
+            ),
+          ),
+        );
+      }
+
+      pw.Widget sectionTitle(String t) => pw.Text(
+        safePdfText(t),
+        style: pw.TextStyle(
+          fontSize: 12,
+          fontWeight: pw.FontWeight.bold,
+          color: pdfBlue,
+        ),
+      );
+
+      // =========================
+      // Build PDF page (layout aman seperti sebelumnya)
+      // =========================
       doc.addPage(
         pw.Page(
           pageFormat: p.PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(24),
-          build: (pw.Context ctx) {
+          build: (_) {
             return pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
@@ -1767,6 +1881,7 @@ class SubscriptionProvider with ChangeNotifier {
                           style: pw.TextStyle(
                             fontSize: 22,
                             fontWeight: pw.FontWeight.bold,
+                            color: pdfBlue,
                           ),
                         ),
                         pw.SizedBox(height: 6),
@@ -1775,7 +1890,7 @@ class SubscriptionProvider with ChangeNotifier {
                           style: const pw.TextStyle(fontSize: 10),
                         ),
                         pw.Text(
-                          'Email: waveup.mail.com',
+                          'www.up.wave.id',
                           style: const pw.TextStyle(fontSize: 10),
                         ),
                       ],
@@ -1794,7 +1909,7 @@ class SubscriptionProvider with ChangeNotifier {
                           invoiceNo,
                           style: const pw.TextStyle(fontSize: 10),
                         ),
-                        pw.SizedBox(height: 6),
+                        pw.SizedBox(height: 8),
                         pw.Text(
                           'Status',
                           style: pw.TextStyle(
@@ -1802,10 +1917,8 @@ class SubscriptionProvider with ChangeNotifier {
                             fontWeight: pw.FontWeight.bold,
                           ),
                         ),
-                        pw.Text(
-                          statusText,
-                          style: const pw.TextStyle(fontSize: 10),
-                        ),
+                        pw.SizedBox(height: 6),
+                        statusBadge(),
                       ],
                     ),
                   ],
@@ -1814,19 +1927,35 @@ class SubscriptionProvider with ChangeNotifier {
                 pw.SizedBox(height: 14),
                 pw.Divider(color: p.PdfColors.grey300),
 
-                // ===== Bill To / Paid by =====
-                pw.SizedBox(height: 8),
-                pw.Text(
-                  'Dibayar oleh',
-                  style: pw.TextStyle(
-                    fontSize: 12,
-                    fontWeight: pw.FontWeight.bold,
+                // ===== Created / Paid bar =====
+                pw.Container(
+                  width: double.infinity,
+                  padding: const pw.EdgeInsets.all(12),
+                  decoration: pw.BoxDecoration(
+                    color: pdfBlueSoft,
+                    borderRadius: pw.BorderRadius.circular(12),
+                    border: pw.Border.all(
+                      color: p.PdfColors.grey300,
+                      width: 0.6,
+                    ),
+                  ),
+                  child: pw.Row(
+                    children: [
+                      kv('Created at', createdAt),
+                      pw.SizedBox(width: 10),
+                      kv('Paid at', paidAt),
+                    ],
                   ),
                 ),
-                pw.SizedBox(height: 6),
+
+                pw.SizedBox(height: 16),
+
+                // ===== Paid by =====
+                sectionTitle('Paid by'),
+                pw.SizedBox(height: 8),
                 pw.Row(
                   children: [
-                    kv('Nama bisnis', paidByName),
+                    kv('Business name', paidByName),
                     kv('Username', paidByUser),
                   ],
                 ),
@@ -1834,37 +1963,22 @@ class SubscriptionProvider with ChangeNotifier {
                 pw.SizedBox(height: 14),
                 pw.Divider(color: p.PdfColors.grey300),
 
-                // ===== Detail transaksi =====
+                // ===== Transaction details =====
+                pw.SizedBox(height: 10),
+                sectionTitle('Transaction details'),
                 pw.SizedBox(height: 8),
-                pw.Text(
-                  'Detail Transaksi',
-                  style: pw.TextStyle(
-                    fontSize: 12,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-                pw.SizedBox(height: 8),
-                pw.Row(
-                  children: [
-                    kv('Tanggal dibuat', createdAt),
-                    kv('Paid at', paidAt),
-                  ],
-                ),
+                pw.Row(children: [kv('Payment method', methodName)]),
                 pw.SizedBox(height: 6),
-                pw.Row(children: [kv('Metode pembayaran', methodName)]),
+                pw.Row(
+                  children: [kv('Type', typeLabel), kv('Period', periodLabel)],
+                ),
 
                 pw.SizedBox(height: 14),
                 pw.Divider(color: p.PdfColors.grey300),
 
-                // ===== Item =====
+                // ===== Items =====
                 pw.SizedBox(height: 10),
-                pw.Text(
-                  'Item',
-                  style: pw.TextStyle(
-                    fontSize: 12,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
+                sectionTitle('Items'),
                 pw.SizedBox(height: 8),
 
                 pw.Table(
@@ -1879,17 +1993,16 @@ class SubscriptionProvider with ChangeNotifier {
                   },
                   children: [
                     pw.TableRow(
-                      decoration: const pw.BoxDecoration(
-                        color: p.PdfColors.grey200,
-                      ),
+                      decoration: const pw.BoxDecoration(color: pdfBlueSoft),
                       children: [
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
                           child: pw.Text(
-                            'Deskripsi',
+                            'Description',
                             style: pw.TextStyle(
                               fontSize: 10,
                               fontWeight: pw.FontWeight.bold,
+                              color: pdfBlue,
                             ),
                           ),
                         ),
@@ -1901,17 +2014,19 @@ class SubscriptionProvider with ChangeNotifier {
                             style: pw.TextStyle(
                               fontSize: 10,
                               fontWeight: pw.FontWeight.bold,
+                              color: pdfBlue,
                             ),
                           ),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
                           child: pw.Text(
-                            'Harga',
+                            'Price',
                             textAlign: pw.TextAlign.right,
                             style: pw.TextStyle(
                               fontSize: 10,
                               fontWeight: pw.FontWeight.bold,
+                              color: pdfBlue,
                             ),
                           ),
                         ),
@@ -1922,7 +2037,7 @@ class SubscriptionProvider with ChangeNotifier {
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
                           child: pw.Text(
-                            planName,
+                            itemTitle(),
                             style: const pw.TextStyle(fontSize: 10),
                           ),
                         ),
@@ -1937,7 +2052,7 @@ class SubscriptionProvider with ChangeNotifier {
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
                           child: pw.Text(
-                            rupiah.format(item.amount),
+                            safePdfText(rupiah.format(item.amount)),
                             textAlign: pw.TextAlign.right,
                             style: const pw.TextStyle(fontSize: 10),
                           ),
@@ -1961,7 +2076,7 @@ class SubscriptionProvider with ChangeNotifier {
                           color: p.PdfColors.grey300,
                           width: 0.8,
                         ),
-                        borderRadius: pw.BorderRadius.circular(8),
+                        borderRadius: pw.BorderRadius.circular(10),
                       ),
                       child: pw.Column(
                         children: [
@@ -1974,13 +2089,15 @@ class SubscriptionProvider with ChangeNotifier {
                                 style: pw.TextStyle(
                                   fontSize: 12,
                                   fontWeight: pw.FontWeight.bold,
+                                  color: pdfBlue,
                                 ),
                               ),
                               pw.Text(
-                                rupiah.format(item.amount),
+                                safePdfText(rupiah.format(item.amount)),
                                 style: pw.TextStyle(
                                   fontSize: 12,
                                   fontWeight: pw.FontWeight.bold,
+                                  color: pdfBlue,
                                 ),
                               ),
                             ],
@@ -1988,7 +2105,7 @@ class SubscriptionProvider with ChangeNotifier {
                           pw.SizedBox(height: 6),
                           pw.Divider(color: p.PdfColors.grey300),
                           pw.Text(
-                            'Dokumen dibuat otomatis dari aplikasi.',
+                            'Generated automatically by WaveUp app.',
                             style: pw.TextStyle(
                               fontSize: 9,
                               color: p.PdfColors.grey700,
@@ -2001,24 +2118,52 @@ class SubscriptionProvider with ChangeNotifier {
                 ),
 
                 pw.Spacer(),
-
                 pw.Divider(color: p.PdfColors.grey300),
+                pw.SizedBox(height: 6),
+                pw.Text(
+                  'WaveUp - Jakarta, Indonesia', // ✅ ASCII only
+                  style: pw.TextStyle(fontSize: 9, color: p.PdfColors.grey700),
+                ),
               ],
             );
           },
         ),
       );
 
-      // ===== Save file =====
+      // =========================
+      // Save file (overwrite)
+      // =========================
       final dir = await getApplicationDocumentsDirectory();
-
       String safe(String s) => s.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+
+      final typeSlugRaw = item.type.trim().toLowerCase();
+      final typeSlug = (typeSlugRaw == 'premium_business')
+          ? 'premium'
+          : (typeSlugRaw == 'transaction_fee')
+          ? 'transaction_fee'
+          : (typeSlugRaw.isEmpty ? 'unknown' : typeSlugRaw);
+
+      final dateSlug = DateFormat(
+        'yyyyMMdd',
+        'id_ID',
+      ).format((item.createdAt ?? DateTime.now()).toLocal());
+
       final safeNo = safe(invoiceNo);
 
-      final file = File('${dir.path}/invoice_$safeNo.pdf');
+      final fileName = 'waveup_invoice_${safe(typeSlug)}_${safe(dateSlug)}.pdf';
+      final file = File('${dir.path}/$fileName');
+      debugPrint(fileName);
+
+      if (await file.exists()) {
+        await file.delete(); // ✅ force overwrite
+      }
+
       final bytes = await doc.save();
       await file.writeAsBytes(bytes, flush: true);
 
+      // =========================
+      // SnackBar custom (seperti sebelumnya)
+      // =========================
       if (context.mounted) {
         final messenger = ScaffoldMessenger.of(context);
 
@@ -2107,28 +2252,29 @@ class SubscriptionProvider with ChangeNotifier {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    TextButton(
-                      onPressed: () => OpenFilex.open(file.path),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
+                    if (openAfterSave)
+                      TextButton(
+                        onPressed: () => OpenFilex.open(file.path),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          backgroundColor: const Color(0xFFEFF6FF),
+                          foregroundColor: const Color(0xFF1D4ED8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                            side: const BorderSide(color: Color(0xFFD7E6FF)),
+                          ),
                         ),
-                        backgroundColor: const Color(0xFFEFF6FF),
-                        foregroundColor: const Color(0xFF1D4ED8),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(999),
-                          side: const BorderSide(color: Color(0xFFD7E6FF)),
+                        child: const Text(
+                          'OPEN',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.3,
+                          ),
                         ),
                       ),
-                      child: const Text(
-                        'OPEN',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),

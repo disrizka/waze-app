@@ -1,88 +1,91 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:provider/provider.dart';
 
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:wa_blast/providers/hr_provider.dart';
+
+// App
+import 'firebase_options.dart';
 import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/env.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/services/deep_link_service.dart';
+
+// Providers (third-party + app)
+import 'package:wa_blast/providers/auth_provider.dart';
 import 'package:wa_blast/providers/change_password_provider.dart';
+import 'package:wa_blast/providers/chat_provider.dart';
+import 'package:wa_blast/providers/chat_detail_provider.dart';
+import 'package:wa_blast/providers/edit_profile_provider.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
+import 'package:wa_blast/providers/product_provider.dart';
+import 'package:wa_blast/providers/purchase_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
 import 'package:wa_blast/providers/role_provider.dart';
+import 'package:wa_blast/providers/sales_provider.dart';
+import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/providers/stock_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/providers/subscription_provider.dart';
-import 'package:wa_blast/screens/change_password_screen.dart';
-import 'package:wa_blast/screens/edit_profile_screen.dart';
-import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.dart';
-import 'package:wa_blast/screens/hr/employee_list_screen.dart';
-import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
-import 'package:wa_blast/screens/hr/role_screen.dart';
-import 'package:wa_blast/screens/inventory/add_initial_stock_screen.dart';
-import 'package:wa_blast/screens/inventory/initial_stock_screen.dart';
-import 'package:wa_blast/screens/inventory/inventory_screen.dart';
-import 'package:wa_blast/screens/inventory/manage_stock_screen.dart';
-import 'package:wa_blast/screens/inventory/product_stock_history.dart';
-import 'package:wa_blast/screens/report/manage_report_screen.dart';
-import 'package:wa_blast/screens/notification_detail_list.dart';
-import 'package:wa_blast/screens/products/create_edit_screen/add_product_screen.dart';
-import 'package:wa_blast/screens/products/product_stock_inventory.dart';
-import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
-import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
-import 'package:wa_blast/screens/register/business_register_screen.dart';
-import 'package:wa_blast/screens/report/report_purchase_screen.dart';
-import 'package:wa_blast/screens/report/report_sales_screen.dart';
-import 'package:wa_blast/screens/sales/costumer_screen.dart';
-import 'package:wa_blast/screens/sales/manage_sales_screen.dart';
-import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
-import 'package:wa_blast/screens/sales_report_detail_screen.dart';
-import 'package:wa_blast/screens/sales_report_screen.dart';
-import 'package:wa_blast/screens/settings/business/business_edit_screen.dart';
-import 'package:wa_blast/screens/settings/business/business_settings_screen.dart';
-import 'package:wa_blast/screens/settings/thermal_printer_setting.dart';
-import 'package:wa_blast/screens/store_list_screen.dart';
-import 'package:wa_blast/screens/subscription/subscription_checkout_history_screen.dart';
-import 'package:wa_blast/screens/subscription/subscription_screen.dart';
-import 'package:wa_blast/services/deep_link_service.dart';
-import 'firebase_options.dart';
+import 'package:wa_blast/providers/notification_provider.dart';
 
-// providers
-import 'package:wa_blast/providers/auth_provider.dart';
-import 'package:wa_blast/providers/splash_provider.dart';
-import 'package:wa_blast/providers/chat_provider.dart';
-import 'package:wa_blast/providers/chat_detail_provider.dart';
-import 'package:wa_blast/providers/product_provider.dart';
-import 'package:wa_blast/providers/purchase_provider.dart';
-import 'package:wa_blast/providers/edit_profile_provider.dart';
-import 'package:wa_blast/providers/hr_provider.dart';
-import 'package:wa_blast/providers/sales_provider.dart';
-
-// screens
+// Screens
 import 'package:wa_blast/screens/splash_screen.dart';
 import 'package:wa_blast/screens/login_screen.dart';
 import 'package:wa_blast/screens/register/register_screen_wrapper.dart';
+import 'package:wa_blast/screens/register/business_register_screen.dart';
 import 'package:wa_blast/screens/main_wrapper.dart';
 import 'package:wa_blast/screens/products/manage_product.dart';
 import 'package:wa_blast/screens/products/product_screen.dart';
 import 'package:wa_blast/screens/products/product_detail_screen.dart';
+import 'package:wa_blast/screens/products/create_edit_screen/add_product_screen.dart';
+import 'package:wa_blast/screens/products/product_stock_inventory.dart';
 import 'package:wa_blast/screens/products/category_list_screen.dart';
 import 'package:wa_blast/screens/products/brand_list_screen.dart';
+import 'package:wa_blast/screens/inventory/manage_stock_screen.dart';
+import 'package:wa_blast/screens/inventory/inventory_screen.dart';
+import 'package:wa_blast/screens/inventory/initial_stock_screen.dart';
+import 'package:wa_blast/screens/inventory/add_initial_stock_screen.dart';
+import 'package:wa_blast/screens/inventory/product_stock_history.dart';
 import 'package:wa_blast/screens/purchase/manage_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/purchase_screen.dart';
+import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
 import 'package:wa_blast/screens/purchase/supplier_list_screen.dart';
+import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
 import 'package:wa_blast/screens/detail_purchase_screen.dart';
+import 'package:wa_blast/screens/store_list_screen.dart';
+import 'package:wa_blast/screens/settings/business/business_settings_screen.dart';
+import 'package:wa_blast/screens/settings/business/business_edit_screen.dart';
+import 'package:wa_blast/screens/settings/thermal_printer_setting.dart';
+import 'package:wa_blast/screens/change_password_screen.dart';
+import 'package:wa_blast/screens/edit_profile_screen.dart';
+import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.dart';
+import 'package:wa_blast/screens/report/manage_report_screen.dart';
+import 'package:wa_blast/screens/report/report_sales_screen.dart';
+import 'package:wa_blast/screens/report/report_purchase_screen.dart';
+import 'package:wa_blast/screens/payment_history_base_screen.dart';
+import 'package:wa_blast/screens/subscription/subscription_screen.dart';
+import 'package:wa_blast/screens/subscription/subscription_checkout_history_screen.dart';
+import 'package:wa_blast/screens/notification_detail_list.dart';
+import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/hr_screen.dart';
-
-import 'providers/notification_provider.dart';
+import 'package:wa_blast/screens/hr/role_screen.dart';
+import 'package:wa_blast/screens/hr/employee_list_screen.dart';
+import 'package:wa_blast/screens/sales/manage_sales_screen.dart';
+import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
+import 'package:wa_blast/screens/sales/costumer_screen.dart';
+import 'package:wa_blast/screens/sales_report_screen.dart';
+import 'package:wa_blast/screens/sales_report_detail_screen.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
@@ -93,16 +96,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('BG notification: ${message.notification?.title}');
 }
 
-void startApp() async {
+void startApp() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await _initEnvSafe();
-
-  Env.debugPrintEnv(' @startApp');
-
-  BuildDiag.printSummary(' @startApp');
-
-  runApp(const _AppShell());
+  _initEnvSafe().then((_) {
+    Env.debugPrintEnv(' @startApp');
+    BuildDiag.printSummary(' @startApp');
+    runApp(const _AppShell());
+  });
 }
 
 Future<void> _initEnvSafe() async {
@@ -111,19 +111,16 @@ Future<void> _initEnvSafe() async {
     '.env',
   ];
 
-  bool loaded = false;
-
+  var loaded = false;
   for (final file in candidates) {
     try {
       await dotenv.load(fileName: file);
       debugPrint('✅ dotenv loaded: $file');
       loaded = true;
       break;
-    } on FileSystemException catch (_) {
-      // File tidak ditemukan → lanjut ke file berikut
+    } on FileSystemException {
       debugPrint('⚠️ dotenv file "$file" tidak ditemukan, coba yang lain...');
     } catch (e) {
-      // Error lain (parse error, permission, dsb.)
       debugPrint('⚠️ dotenv gagal load ($file): $e');
     }
   }
@@ -180,7 +177,7 @@ class _AppShell extends StatelessWidget {
   }
 }
 
-/// (SEMUA KODE DI BAWAH INI TETAP SAMA persis DENGAN punyamu)
+/// Bootstrapper: inisialisasi Firebase, FCM, deep link, dsb.
 class _Bootstrapper extends StatefulWidget {
   final Widget child;
   const _Bootstrapper({required this.child});
@@ -196,9 +193,7 @@ class _BootstrapperState extends State<_Bootstrapper> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _bootstrap();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
   Future<void> _bootstrap() async {
@@ -223,7 +218,6 @@ class _BootstrapperState extends State<_Bootstrapper> {
       );
 
       unawaited(_askNotifPermissionAndToken());
-
       _deepLinkService.init();
     } catch (e) {
       debugPrint('Bootstrap error: $e');
@@ -312,495 +306,505 @@ class MyApp extends StatelessWidget {
         ),
       ),
       initialRoute: '/splash',
-      // === onGenerateRoute lengkap ===
-      onGenerateRoute: (settings) {
-        switch (settings.name) {
-          case '/splash':
-            return _platformRouteAnimated(
-              settings,
-              const SplashScreen(),
-              android: AndroidTransition.fade,
-            );
-
-          case '/login':
-            return _platformRouteAnimated(
-              settings,
-              const LoginScreen(),
-              android: AndroidTransition.fade,
-            );
-
-          case '/register':
-            return _platformRouteAnimated(
-              settings,
-              const RegisterWrapper(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/register/business':
-            return _platformRouteAnimated(
-              settings,
-              const BusinessRegisterScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/home':
-            return _platformRouteAnimated(
-              settings,
-              const MainWrapper(),
-              android: AndroidTransition.fade,
-            );
-
-          // ===== PRODUCT =====
-          case '/product':
-            return _platformRouteAnimated(
-              settings,
-              const ManageProductScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/product/list':
-            return _platformRouteAnimated(
-              settings,
-              const ProductScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/product/add':
-            return _platformRouteAnimated(
-              settings,
-              const AddProductScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/product/edit':
-            return _platformRouteAnimated(
-              settings,
-              const AddProductScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/product/list/detail':
-            {
-              final id = settings.arguments as String?;
-              if (id == null || id.isEmpty) {
-                return _platformRouteAnimated(
-                  settings,
-                  const _RouteErrorScreen(
-                    message:
-                        'Route /product/list/detail membutuhkan argumen idProduct',
-                  ),
-                  android: AndroidTransition.fade,
-                );
-              }
-              return _platformRouteAnimated(
-                settings,
-                ProductDetailScreen(idProduct: id),
-                android: AndroidTransition.slideUp,
-              );
-            }
-
-          case '/product/sku/inventory':
-            {
-              // Argumen yang diterima bisa:
-              // - String  -> dianggap idProductSKU langsung
-              // - Map     -> dukung beberapa key umum:
-              //              id / idProductSKU / idProductSku / skuId
-              //              skuCode / code
-              //              initialPrice / price (num atau String)
-              final args = settings.arguments;
-              String? id;
-              String? skuCode;
-              num? initialPrice;
-
-              if (args is String) {
-                id = args;
-              } else if (args is Map) {
-                final m = args.cast<Object?, Object?>();
-
-                id =
-                    (m['id'] ??
-                            m['idProductSKU'] ??
-                            m['idProductSku'] ??
-                            m['skuId'])
-                        ?.toString();
-
-                final codeRaw = m['skuCode'] ?? m['code'];
-                if (codeRaw != null) skuCode = codeRaw.toString();
-
-                final priceRaw = m['initialPrice'] ?? m['price'];
-                if (priceRaw is num) {
-                  initialPrice = priceRaw;
-                } else if (priceRaw is String) {
-                  initialPrice = num.tryParse(priceRaw);
-                }
-              }
-
-              if (id == null || id.isEmpty) {
-                return _platformRouteAnimated(
-                  settings,
-                  const _RouteErrorScreen(
-                    message:
-                        'Route /product/sku/inventory membutuhkan argumen idProductSKU.',
-                  ),
-                  android: AndroidTransition.fade,
-                );
-              }
-
-              return _platformRouteAnimated(
-                settings,
-                StockSkuHistory(
-                  idProductSKU: id,
-                  skuCode: skuCode,
-                  initialPrice: initialPrice,
-                ),
-                android: AndroidTransition.slideUp,
-              );
-            }
-
-          case '/product/category':
-            return _platformRouteAnimated(
-              settings,
-              const CategoryListScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/product/brand':
-            return _platformRouteAnimated(
-              settings,
-              const BrandListScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/stock':
-            return _platformRouteAnimated(
-              settings,
-              const ManageStockScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/stock/initial-stock':
-            return _platformRouteAnimated(
-              settings,
-              const StockScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/stock/initial-stock/add':
-            return _platformRouteAnimated(
-              settings,
-              const AddInitialStockPage(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/stock/inventory':
-            return _platformRouteAnimated(
-              settings,
-              const InventoryScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/stock/inventory/detail':
-            {
-              final args = settings.arguments as ProductStockHistoryArgs?;
-
-              return _platformRouteAnimated(
-                settings,
-                ProductStockHistoryScreen(
-                  productName: args?.productName ?? '',
-                  skus: args?.skus ?? const <ProductSku>[],
-                  initialSkuId: args?.initialSkuId,
-                ),
-                android: AndroidTransition.slideRight,
-              );
-            }
-
-          // ===== PURCHASE =====
-          case '/purchase':
-            return _platformRouteAnimated(
-              settings,
-              const ManagePurchaseScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/purchase/list':
-            return _platformRouteAnimated(
-              settings,
-              const PurchaseScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/purchase/list/detail':
-            {
-              final args = settings.arguments;
-              String? id;
-              if (args is String) {
-                id = args;
-              } else if (args is Map) {
-                id = (args['id'] ?? args['idTransaction'])?.toString();
-              }
-              if (id == null || id.isEmpty) {
-                return _platformRouteAnimated(
-                  settings,
-                  const _RouteErrorScreen(
-                    message:
-                        'DetailPurchaseScreen membutuhkan argumen "id" (idTransaction).',
-                  ),
-                  android: AndroidTransition.fade,
-                );
-              }
-              return _platformRouteAnimated(
-                settings,
-                const DetailPurchaseScreen(),
-                android: AndroidTransition.slideUp,
-              );
-            }
-
-          case '/purchase/add':
-            return _platformRouteAnimated(
-              settings,
-              const AddPurchasePage(),
-              android: AndroidTransition.slideUp,
-            );
-
-          case '/purchase/supplier':
-            return _platformRouteAnimated(
-              settings,
-              const SupplierScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/purchase/supplier/detail':
-            {
-              final args = settings.arguments;
-              String? id;
-              if (args is String) {
-                id = args;
-              } else if (args is Map) {
-                id = (args['id'] ?? args['supplierId']) as String?;
-              }
-              if (id == null || id.isEmpty) {
-                return _platformRouteAnimated(
-                  settings,
-                  const _RouteErrorScreen(
-                    message:
-                        'SupplierDetailScreen membutuhkan argumen "id" (supplierId).',
-                  ),
-                  android: AndroidTransition.fade,
-                );
-              }
-              return _platformRouteAnimated(
-                settings,
-                SupplierDetailScreen(supplierId: id),
-                android: AndroidTransition.slideUp,
-              );
-            }
-
-          case '/purchase/store':
-            return _platformRouteAnimated(
-              settings,
-              const StoreListScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          // ===== EDIT/REPORT/HR =====
-          case '/edit-profile':
-            return _platformRouteAnimated(
-              settings,
-              const EditProfileScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/password/change':
-            return _platformRouteAnimated(
-              settings,
-              const ChangePasswordScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/password/forgot':
-            return _platformRouteAnimated(
-              settings,
-              const ForgotPasswordWrapperScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/report':
-            return _platformRouteAnimated(
-              settings,
-              const ManageReportScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/report/sales':
-            return _platformRouteAnimated(
-              settings,
-              const ReportSalesScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/report/purchase':
-            return _platformRouteAnimated(
-              settings,
-              const PurchaseReportScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/hr':
-            return _platformRouteAnimated(
-              settings,
-              const ManageHRScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/hr/role':
-            return _platformRouteAnimated(
-              settings,
-              const RoleScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/hr/employee/list':
-            return _platformRouteAnimated(
-              settings,
-              const EmployeeListScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/hr/employee/invitation':
-            return _platformRouteAnimated(
-              settings,
-              const HrScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          // ===== SALES =====
-          case '/sales':
-            return _platformRouteAnimated(
-              settings,
-              const ManageSalesScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/sales/list':
-            return _platformRouteAnimated(
-              settings,
-              const SalesReportScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/sales/list/detail':
-            {
-              final args = settings.arguments;
-              String? id;
-              if (args is String) {
-                id = args;
-              } else if (args is Map) {
-                id = (args['id'] ?? args['idTransaction'])?.toString();
-              }
-              if (id == null || id.isEmpty) {
-                return _platformRouteAnimated(
-                  settings,
-                  const _RouteErrorScreen(
-                    message:
-                        'SalesReportDetailScreen membutuhkan argumen "id" (idTransaction).',
-                  ),
-                  android: AndroidTransition.fade,
-                );
-              }
-              return _platformRouteAnimated(
-                settings,
-                SalesReportDetailScreen(idTransaction: id),
-                android: AndroidTransition.slideUp,
-              );
-            }
-
-          case '/sales/add':
-            return _platformRouteAnimated(
-              settings,
-              const SalesStepperWrapper(),
-              android: AndroidTransition.slideUp,
-            );
-
-          case '/sales/customer':
-            return _platformRouteAnimated(
-              settings,
-              const CustomerListScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/printer':
-            return _platformRouteAnimated(
-              settings,
-              const ThermalPrinterSettingsScreen(),
-              android: AndroidTransition.slideUp,
-            );
-          // ===== SALES =====
-          case '/subscription':
-            return _platformRouteAnimated(
-              settings,
-              const SubscriptionScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/subscription/history':
-            return _platformRouteAnimated(
-              settings,
-              const SubscriptionCheckoutHistoryScreen(),
-              android: AndroidTransition.slideRight,
-            );
-
-          case '/business':
-            return _platformRouteAnimated(
-              settings,
-              const BusinessSettingsScreen(),
-              android: AndroidTransition.slideUp,
-            );
-
-          case '/business/edit':
-            return _platformRouteAnimated(
-              settings,
-              const BusinessEditScreen(),
-              android: AndroidTransition.slideUp,
-            );
-
-          case '/notification/detail': // '/notification/detail'
-            {
-              final id = settings.arguments as String?;
-              if (id == null || id.isEmpty) {
-                return _platformRouteAnimated(
-                  settings,
-                  const _RouteErrorScreen(
-                    message:
-                        'Route /notification/detail butuh argument idNotification (String).',
-                  ),
-                  android: AndroidTransition.fade,
-                );
-              }
-              return _platformRouteAnimated(
-                settings,
-                NotificationDetailScreen(idNotification: id),
-                android: AndroidTransition.slideUp,
-              );
-            }
-
-          default:
-            return _platformRouteAnimated(
-              settings,
-              const SplashScreen(),
-              android: AndroidTransition.fade,
-            );
-        }
-      },
+      onGenerateRoute: _onGenerateRoute,
     );
+  }
+
+  Route<dynamic>? _onGenerateRoute(RouteSettings settings) {
+    switch (settings.name) {
+      case '/splash':
+        return _platformRouteAnimated(
+          settings,
+          const SplashScreen(),
+          android: AndroidTransition.fade,
+        );
+
+      case '/login':
+        return _platformRouteAnimated(
+          settings,
+          const LoginScreen(),
+          android: AndroidTransition.fade,
+        );
+
+      case '/register':
+        return _platformRouteAnimated(
+          settings,
+          const RegisterWrapper(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/register/business':
+        return _platformRouteAnimated(
+          settings,
+          const BusinessRegisterScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/home':
+        return _platformRouteAnimated(
+          settings,
+          const MainWrapper(),
+          android: AndroidTransition.fade,
+        );
+
+      // PRODUCT
+      case '/product':
+        return _platformRouteAnimated(
+          settings,
+          const ManageProductScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/product/list':
+        return _platformRouteAnimated(
+          settings,
+          const ProductScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/product/add':
+      case '/product/edit':
+        return _platformRouteAnimated(
+          settings,
+          const AddProductScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/product/list/detail':
+        {
+          final id = settings.arguments as String?;
+          if (id == null || id.isEmpty) {
+            return _platformRouteAnimated(
+              settings,
+              const _RouteErrorScreen(
+                message:
+                    'Route /product/list/detail membutuhkan argumen idProduct',
+              ),
+              android: AndroidTransition.fade,
+            );
+          }
+          return _platformRouteAnimated(
+            settings,
+            ProductDetailScreen(idProduct: id),
+            android: AndroidTransition.slideUp,
+          );
+        }
+
+      case '/product/sku/inventory':
+        {
+          final args = settings.arguments;
+          String? id;
+          String? skuCode;
+          num? initialPrice;
+
+          if (args is String) {
+            id = args;
+          } else if (args is Map) {
+            final m = args.cast<Object?, Object?>();
+            id =
+                (m['id'] ??
+                        m['idProductSKU'] ??
+                        m['idProductSku'] ??
+                        m['skuId'])
+                    ?.toString();
+            final codeRaw = m['skuCode'] ?? m['code'];
+            if (codeRaw != null) skuCode = codeRaw.toString();
+            final priceRaw = m['initialPrice'] ?? m['price'];
+            if (priceRaw is num) {
+              initialPrice = priceRaw;
+            } else if (priceRaw is String) {
+              initialPrice = num.tryParse(priceRaw);
+            }
+          }
+
+          if (id == null || id.isEmpty) {
+            return _platformRouteAnimated(
+              settings,
+              const _RouteErrorScreen(
+                message:
+                    'Route /product/sku/inventory membutuhkan argumen idProductSKU.',
+              ),
+              android: AndroidTransition.fade,
+            );
+          }
+
+          return _platformRouteAnimated(
+            settings,
+            StockSkuHistory(
+              idProductSKU: id,
+              skuCode: skuCode,
+              initialPrice: initialPrice,
+            ),
+            android: AndroidTransition.slideUp,
+          );
+        }
+
+      case '/product/category':
+        return _platformRouteAnimated(
+          settings,
+          const CategoryListScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/product/brand':
+        return _platformRouteAnimated(
+          settings,
+          const BrandListScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      // STOCK
+      case '/stock':
+        return _platformRouteAnimated(
+          settings,
+          const ManageStockScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/stock/initial-stock':
+        return _platformRouteAnimated(
+          settings,
+          const StockScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/stock/initial-stock/add':
+        return _platformRouteAnimated(
+          settings,
+          const AddInitialStockPage(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/stock/inventory':
+        return _platformRouteAnimated(
+          settings,
+          const InventoryScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/stock/inventory/detail':
+        {
+          final args = settings.arguments as ProductStockHistoryArgs?;
+          return _platformRouteAnimated(
+            settings,
+            ProductStockHistoryScreen(
+              productName: args?.productName ?? '',
+              skus: args?.skus ?? const <ProductSku>[],
+              initialSkuId: args?.initialSkuId,
+            ),
+            android: AndroidTransition.slideRight,
+          );
+        }
+
+      // PURCHASE
+      case '/purchase':
+        return _platformRouteAnimated(
+          settings,
+          const ManagePurchaseScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/purchase/list':
+        return _platformRouteAnimated(
+          settings,
+          const PurchaseScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/purchase/list/detail':
+        {
+          final args = settings.arguments;
+          String? id;
+          if (args is String) {
+            id = args;
+          } else if (args is Map) {
+            id = (args['id'] ?? args['idTransaction'])?.toString();
+          }
+          if (id == null || id.isEmpty) {
+            return _platformRouteAnimated(
+              settings,
+              const _RouteErrorScreen(
+                message:
+                    'DetailPurchaseScreen membutuhkan argumen "id" (idTransaction).',
+              ),
+              android: AndroidTransition.fade,
+            );
+          }
+          return _platformRouteAnimated(
+            settings,
+            const DetailPurchaseScreen(),
+            android: AndroidTransition.slideUp,
+          );
+        }
+
+      case '/purchase/add':
+        return _platformRouteAnimated(
+          settings,
+          const AddPurchasePage(),
+          android: AndroidTransition.slideUp,
+        );
+
+      case '/purchase/supplier':
+        return _platformRouteAnimated(
+          settings,
+          const SupplierScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/purchase/supplier/detail':
+        {
+          final args = settings.arguments;
+          String? id;
+          if (args is String) {
+            id = args;
+          } else if (args is Map) {
+            id = (args['id'] ?? args['supplierId']) as String?;
+          }
+          if (id == null || id.isEmpty) {
+            return _platformRouteAnimated(
+              settings,
+              const _RouteErrorScreen(
+                message:
+                    'SupplierDetailScreen membutuhkan argumen "id" (supplierId).',
+              ),
+              android: AndroidTransition.fade,
+            );
+          }
+          return _platformRouteAnimated(
+            settings,
+            SupplierDetailScreen(supplierId: id),
+            android: AndroidTransition.slideUp,
+          );
+        }
+
+      case '/purchase/store':
+        return _platformRouteAnimated(
+          settings,
+          const StoreListScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      // EDIT / REPORT / HR
+      case '/edit-profile':
+        return _platformRouteAnimated(
+          settings,
+          const EditProfileScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/password/change':
+        return _platformRouteAnimated(
+          settings,
+          const ChangePasswordScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/password/forgot':
+        return _platformRouteAnimated(
+          settings,
+          const ForgotPasswordWrapperScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/report':
+        return _platformRouteAnimated(
+          settings,
+          const ManageReportScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/report/sales':
+        return _platformRouteAnimated(
+          settings,
+          const ReportSalesScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/report/purchase':
+        return _platformRouteAnimated(
+          settings,
+          const PurchaseReportScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/hr':
+        return _platformRouteAnimated(
+          settings,
+          const ManageHRScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/hr/role':
+        return _platformRouteAnimated(
+          settings,
+          const RoleScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/hr/employee/list':
+        return _platformRouteAnimated(
+          settings,
+          const EmployeeListScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/hr/employee/invitation':
+        return _platformRouteAnimated(
+          settings,
+          const HrScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      // SALES
+      case '/sales':
+        return _platformRouteAnimated(
+          settings,
+          const ManageSalesScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/sales/list':
+        return _platformRouteAnimated(
+          settings,
+          const SalesReportScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/sales/list/detail':
+        {
+          final args = settings.arguments;
+          String? id;
+          if (args is String) {
+            id = args;
+          } else if (args is Map) {
+            id = (args['id'] ?? args['idTransaction'])?.toString();
+          }
+          if (id == null || id.isEmpty) {
+            return _platformRouteAnimated(
+              settings,
+              const _RouteErrorScreen(
+                message:
+                    'SalesReportDetailScreen membutuhkan argumen "id" (idTransaction).',
+              ),
+              android: AndroidTransition.fade,
+            );
+          }
+          return _platformRouteAnimated(
+            settings,
+            SalesReportDetailScreen(idTransaction: id),
+            android: AndroidTransition.slideUp,
+          );
+        }
+
+      case '/sales/add':
+        return _platformRouteAnimated(
+          settings,
+          const SalesStepperWrapper(),
+          android: AndroidTransition.slideUp,
+        );
+
+      case '/sales/customer':
+        return _platformRouteAnimated(
+          settings,
+          const CustomerListScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/printer':
+        return _platformRouteAnimated(
+          settings,
+          const ThermalPrinterSettingsScreen(),
+          android: AndroidTransition.slideUp,
+        );
+
+      // SUBSCRIPTION / BUSINESS / NOTIFICATION
+      case '/subscription':
+        return _platformRouteAnimated(
+          settings,
+          const SubscriptionScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/subscription/history':
+        return _platformRouteAnimated(
+          settings,
+          const SubscriptionCheckoutHistoryScreen(),
+          android: AndroidTransition.slideRight,
+        );
+
+      case '/business':
+        return _platformRouteAnimated(
+          settings,
+          const BusinessSettingsScreen(),
+          android: AndroidTransition.slideUp,
+        );
+
+      case '/business/edit':
+        return _platformRouteAnimated(
+          settings,
+          const BusinessEditScreen(),
+          android: AndroidTransition.slideUp,
+        );
+
+      case '/business/fee/history':
+        {
+          final args = settings.arguments;
+
+          // default: transaction fee
+          String initialType = SubscriptionProvider.kHistoryTypeTransactionFee;
+
+          if (args is Map) {
+            final t = (args['type'] ?? '').toString().trim();
+            if (t == SubscriptionProvider.kHistoryTypePremiumBusiness ||
+                t == SubscriptionProvider.kHistoryTypeTransactionFee) {
+              initialType = t;
+            }
+          } else if (args is String) {
+            final t = args.trim();
+            if (t == SubscriptionProvider.kHistoryTypePremiumBusiness ||
+                t == SubscriptionProvider.kHistoryTypeTransactionFee) {
+              initialType = t;
+            }
+          }
+
+          return _platformRouteAnimated(
+            settings,
+            PlatformPaymentHistoryScreen(initialType: initialType),
+            android: AndroidTransition.slideUp,
+          );
+        }
+
+      case '/notification/detail':
+        {
+          final id = settings.arguments as String?;
+          if (id == null || id.isEmpty) {
+            return _platformRouteAnimated(
+              settings,
+              const _RouteErrorScreen(
+                message:
+                    'Route /notification/detail butuh argument idNotification (String).',
+              ),
+              android: AndroidTransition.fade,
+            );
+          }
+          return _platformRouteAnimated(
+            settings,
+            NotificationDetailScreen(idNotification: id),
+            android: AndroidTransition.slideUp,
+          );
+        }
+
+      default:
+        return _platformRouteAnimated(
+          settings,
+          const SplashScreen(),
+          android: AndroidTransition.fade,
+        );
+    }
   }
 }
 
-enum AndroidTransition {
-  slideRight, // default: dari kanan ke kiri (mirip iOS)
-  slideUp, // dari bawah ke atas (cocok untuk detail/sheet)
-  fade,
-  scale,
-}
+enum AndroidTransition { slideRight, slideUp, fade, scale }
 
 Route<dynamic> _platformRouteAnimated(
   RouteSettings settings,
@@ -808,13 +812,11 @@ Route<dynamic> _platformRouteAnimated(
   AndroidTransition android = AndroidTransition.slideRight,
   Duration duration = const Duration(milliseconds: 280),
 }) {
-  // iOS/macOS: gunakan CupertinoPageRoute supaya swipe-back tetap aktif
   if (defaultTargetPlatform == TargetPlatform.iOS ||
       defaultTargetPlatform == TargetPlatform.macOS) {
     return CupertinoPageRoute(settings: settings, builder: (_) => page);
   }
 
-  // Android/desktop: PageRouteBuilder dengan animasi kustom
   return PageRouteBuilder(
     settings: settings,
     transitionDuration: duration,
@@ -881,9 +883,7 @@ class _RouteErrorScreen extends StatelessWidget {
   }
 }
 
-// ===== Build/Flavor diagnostics =====
 class BuildDiag {
-  // Kirim via --dart-define=FLAVOR=dev|prod (lihat bagian 4 di bawah)
   static const String flavor = String.fromEnvironment(
     'FLAVOR',
     defaultValue: 'unknown',
@@ -905,8 +905,7 @@ class BuildDiag {
         ? 'RELEASE'
         : 'UNKNOWN';
     debugPrint(
-      '🔧 BuildDiag$where → flavor=$flavor '
-      '(isDev=$isDev isProd=$isProd)  mode=$mode '
+      '🔧 BuildDiag$where → flavor=$flavor (isDev=$isDev isProd=$isProd)  mode=$mode '
       '(isDebug=$isDebug isProfile=$isProfile isRelease=$isRelease)',
     );
   }
