@@ -12,6 +12,9 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:wa_blast/providers/hr_provider.dart';
+import 'package:wa_blast/providers/order_provider.dart';
+import 'package:wa_blast/screens/order/order_list_screen.dart';
+import 'package:wa_blast/screens/transaction_fee_detail_screen.dart';
 
 // App
 import 'firebase_options.dart';
@@ -171,6 +174,7 @@ class _AppShell extends StatelessWidget {
           lazy: true,
         ),
         ChangeNotifierProvider(create: (_) => StockProvider(), lazy: true),
+        ChangeNotifierProvider(create: (_) => OrderProvider(), lazy: true),
       ],
       child: const _Bootstrapper(child: MyApp()),
     );
@@ -662,6 +666,12 @@ class MyApp extends StatelessWidget {
           const ManageSalesScreen(),
           android: AndroidTransition.slideRight,
         );
+      case '/sales/order-external':
+        return _platformRouteAnimated(
+          settings,
+          const StoreOrderListScreen(),
+          android: AndroidTransition.slideRight,
+        );
 
       case '/sales/list':
         return _platformRouteAnimated(
@@ -769,10 +779,21 @@ class MyApp extends StatelessWidget {
 
           return _platformRouteAnimated(
             settings,
-            PlatformPaymentHistoryScreen(initialType: initialType),
+            PlatformPaymentHistoryScreen(),
             android: AndroidTransition.slideUp,
           );
         }
+
+      case '/business/transaction-fee/detail':
+        final args =
+            (settings.arguments as Map?)?.cast<String, dynamic>() ?? {};
+        final id = (args['idTransactionFee'] ?? '').toString();
+
+        return _platformRouteAnimated(
+          settings,
+          TransactionFeeDetailScreen(idTransactionFee: id),
+          android: AndroidTransition.slideUp,
+        );
 
       case '/notification/detail':
         {

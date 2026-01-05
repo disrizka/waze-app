@@ -6,16 +6,7 @@ import 'package:provider/provider.dart';
 import '../../providers/subscription_provider.dart';
 
 class PlatformPaymentHistoryScreen extends StatefulWidget {
-  /// initial tab/type ketika screen dibuka dari route
-  /// valid:
-  /// - SubscriptionProvider.kHistoryTypeTransactionFee
-  /// - SubscriptionProvider.kHistoryTypePremiumBusiness
-  final String initialType;
-
-  const PlatformPaymentHistoryScreen({
-    super.key,
-    this.initialType = SubscriptionProvider.kHistoryTypeTransactionFee,
-  });
+  const PlatformPaymentHistoryScreen({super.key});
 
   @override
   State<PlatformPaymentHistoryScreen> createState() =>
@@ -29,12 +20,14 @@ class _PlatformPaymentHistoryScreenState
   static const Color _blueDark = Color(0xFF2F5FD0);
   static const Color _blueSoft = Color(0xFFEFF6FF);
 
+  static const Color _bg = Color(0xFFF6F7FB);
   static const Color _border = Color(0xFFE5E7EB);
   static const Color _text = Color(0xFF111827);
   static const Color _muted = Color(0xFF6B7280);
+  static const Color _muted2 = Color(0xFF9CA3AF);
 
   // ✅ Neutral palette for "Payment Method" row (no blue tint)
-  static const Color _neutralSoft = Color(0xFFF3F4F6); // light gray background
+  static const Color _neutralSoft = Color(0xFFF3F4F6);
   static const Color _neutralBorder = Color(0xFFE5E7EB);
   static const Color _neutralIcon = Color(0xFF374151);
   static const Color _neutralText = Color(0xFF111827);
@@ -51,32 +44,18 @@ class _PlatformPaymentHistoryScreenState
 
   final ScrollController _scrollC = ScrollController();
 
-  /// ✅ current selected filter
-  late String _selectedType;
-
-  static const _typeOptions = <_HistoryTypeOption>[
-    _HistoryTypeOption(
-      type: SubscriptionProvider.kHistoryTypeTransactionFee,
-      label: 'Transaction fee',
-      icon: Icons.receipt_long_rounded,
-    ),
-    _HistoryTypeOption(
-      type: SubscriptionProvider.kHistoryTypePremiumBusiness,
-      label: 'Premium',
-      icon: Icons.workspace_premium_rounded,
-    ),
+  static const List<String> _allTypes = <String>[
+    SubscriptionProvider.kHistoryTypeTransactionFee,
+    SubscriptionProvider.kHistoryTypePremiumBusiness,
   ];
 
   @override
   void initState() {
     super.initState();
 
-    // ✅ apply initial type from route/widget
-    _selectedType = _sanitizeType(widget.initialType);
-
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      await _fetchFirstPage();
+      await _fetchFirstPageAll();
     });
 
     _scrollC.addListener(() {
@@ -87,55 +66,62 @@ class _PlatformPaymentHistoryScreenState
       final pos = _scrollC.position;
 
       if (pos.pixels >= (pos.maxScrollExtent - 320)) {
-        final hasMore = prov.historyHasMoreOf(_selectedType);
-        final loading = prov.isLoadingHistoryOf(_selectedType);
-        final loadingMore = prov.isLoadingMoreHistoryOf(_selectedType);
+        for (final t in _allTypes) {
+          final hasMore = prov.historyHasMoreOf(t);
+          final loading = prov.isLoadingHistoryOf(t);
+          final loadingMore = prov.isLoadingMoreHistoryOf(t);
 
-        if (hasMore && !loading && !loadingMore) {
-          prov.fetchMorePaymentHistory(context, type: _selectedType);
+          if (hasMore && !loading && !loadingMore) {
+            prov.fetchMorePaymentHistory(context, type: t);
+          }
         }
       }
     });
   }
 
-  String _sanitizeType(String t) {
-    final v = t.trim();
-    if (v == SubscriptionProvider.kHistoryTypePremiumBusiness ||
-        v == SubscriptionProvider.kHistoryTypeTransactionFee) {
-      return v;
-    }
-    return SubscriptionProvider.kHistoryTypeTransactionFee;
-  }
-
-  Future<void> _fetchFirstPage() async {
-    await context.read<SubscriptionProvider>().fetchPaymentHistory(
-      context,
-      type: _selectedType,
-      refresh: true,
+  Future<void> _fetchFirstPageAll() async {
+    final prov = context.read<SubscriptionProvider>();
+    await Future.wait(
+      _allTypes.map(
+        (t) => prov.fetchPaymentHistory(context, type: t, refresh: true),
+      ),
     );
   }
 
-  Future<void> _onChangeType(String newType) async {
-    final sanitized = _sanitizeType(newType);
-    if (sanitized == _selectedType) return;
-
-    setState(() => _selectedType = sanitized);
-
-    if (!mounted) return;
-
-    if (_scrollC.hasClients) {
-      try {
-        _scrollC.jumpTo(0);
-      } catch (_) {}
+  Future<void> _fetchMoreAll() async {
+    final prov = context.read<SubscriptionProvider>();
+    for (final t in _allTypes) {
+      final hasMore = prov.historyHasMoreOf(t);
+      final loading = prov.isLoadingHistoryOf(t);
+      final loadingMore = prov.isLoadingMoreHistoryOf(t);
+      if (hasMore && !loading && !loadingMore) {
+        await prov.fetchMorePaymentHistory(context, type: t);
+      }
     }
-
-    await _fetchFirstPage();
   }
 
   @override
   void dispose() {
     _scrollC.dispose();
     super.dispose();
+  }
+
+  String _rowTypeOf(SubscriptionHistoryItem row) {
+    final t = row.type.trim();
+    if (t == SubscriptionProvider.kHistoryTypePremiumBusiness) {
+      return SubscriptionProvider.kHistoryTypePremiumBusiness;
+    }
+    if (t == SubscriptionProvider.kHistoryTypeTransactionFee) {
+      return SubscriptionProvider.kHistoryTypeTransactionFee;
+    }
+    return SubscriptionProvider.kHistoryTypeTransactionFee;
+  }
+
+  IconData _typeIcon(String t) {
+    if (t == SubscriptionProvider.kHistoryTypePremiumBusiness) {
+      return Icons.workspace_premium_rounded;
+    }
+    return Icons.receipt_long_rounded;
   }
 
   @override
@@ -148,27 +134,70 @@ class _PlatformPaymentHistoryScreenState
     final fMonthKey = DateFormat('yyyy-MM');
     final currentMonthKey = fMonthKey.format(DateTime.now());
 
-    final selectedLabel = _typeOptions
-        .firstWhere(
-          (e) => e.type == _selectedType,
-          orElse: () => _typeOptions.first,
-        )
-        .label;
-
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
+      backgroundColor: _bg,
       body: Consumer<SubscriptionProvider>(
         builder: (context, prov, _) {
-          final items = prov.historyOf(_selectedType);
-          final isLoading = prov.isLoadingHistoryOf(_selectedType);
-          final isLoadingMore = prov.isLoadingMoreHistoryOf(_selectedType);
-          final error = prov.historyErrorOf(_selectedType);
-          final moreError = prov.historyMoreErrorOf(_selectedType);
-          final hasMore = prov.historyHasMoreOf(_selectedType);
+          final itemsA = prov.historyOf(
+            SubscriptionProvider.kHistoryTypeTransactionFee,
+          );
+          final itemsB = prov.historyOf(
+            SubscriptionProvider.kHistoryTypePremiumBusiness,
+          );
 
-          // ✅ PRECOMPUTE: bulan mana saja yang sudah ada paid
-          final Set<String> monthsWithPaid = <String>{};
-          for (final it in items) {
+          final merged = <SubscriptionHistoryItem>[...itemsA, ...itemsB]
+            ..sort((a, b) {
+              final ad = a.createdAt?.toLocal();
+              final bd = b.createdAt?.toLocal();
+              if (ad == null && bd == null) return 0;
+              if (ad == null) return 1;
+              if (bd == null) return -1;
+              return bd.compareTo(ad); // newest first
+            });
+
+          final loadingA = prov.isLoadingHistoryOf(
+            SubscriptionProvider.kHistoryTypeTransactionFee,
+          );
+          final loadingB = prov.isLoadingHistoryOf(
+            SubscriptionProvider.kHistoryTypePremiumBusiness,
+          );
+          final isLoading = loadingA || loadingB;
+
+          final loadingMoreA = prov.isLoadingMoreHistoryOf(
+            SubscriptionProvider.kHistoryTypeTransactionFee,
+          );
+          final loadingMoreB = prov.isLoadingMoreHistoryOf(
+            SubscriptionProvider.kHistoryTypePremiumBusiness,
+          );
+          final isLoadingMore = loadingMoreA || loadingMoreB;
+
+          final errorA = prov.historyErrorOf(
+            SubscriptionProvider.kHistoryTypeTransactionFee,
+          );
+          final errorB = prov.historyErrorOf(
+            SubscriptionProvider.kHistoryTypePremiumBusiness,
+          );
+
+          final moreErrorA = prov.historyMoreErrorOf(
+            SubscriptionProvider.kHistoryTypeTransactionFee,
+          );
+          final moreErrorB = prov.historyMoreErrorOf(
+            SubscriptionProvider.kHistoryTypePremiumBusiness,
+          );
+          final moreError = moreErrorA ?? moreErrorB;
+
+          final hasMoreA = prov.historyHasMoreOf(
+            SubscriptionProvider.kHistoryTypeTransactionFee,
+          );
+          final hasMoreB = prov.historyHasMoreOf(
+            SubscriptionProvider.kHistoryTypePremiumBusiness,
+          );
+          final hasMore = hasMoreA || hasMoreB;
+
+          // ✅ PRECOMPUTE: bulan mana saja yang sudah ada PAID (per type)
+          // key: "$type|$monthKey"
+          final Set<String> paidKeys = <String>{};
+          for (final it in merged) {
             final paidStatus = (it.paidStatus).toString().toLowerCase();
             final isPaid = it.paid == 1 || paidStatus == 'paid';
 
@@ -176,29 +205,31 @@ class _PlatformPaymentHistoryScreenState
                 ? fMonthKey.format(it.createdAt!.toLocal())
                 : 'unknown';
 
-            if (isPaid) monthsWithPaid.add(mk);
+            final type = _rowTypeOf(it);
+            if (isPaid) paidKeys.add('$type|$mk');
+          }
+
+          String? combinedError;
+          if (errorA != null || errorB != null) {
+            final parts = <String>[];
+            if (errorA != null) parts.add('Transaction fee: $errorA');
+            if (errorB != null) parts.add('Premium: $errorB');
+            combinedError = parts.join('\n');
           }
 
           return RefreshIndicator(
             color: _blue,
-            onRefresh: _fetchFirstPage,
+            onRefresh: _fetchFirstPageAll,
             child: CustomScrollView(
               controller: _scrollC,
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
-                _StickyAppBar(
+                const _StickyAppBarSimple(
                   title: 'WaveUp',
                   subtitle: 'Payment history',
-                  selectedType: _selectedType,
-                  options: _typeOptions,
-                  onChanged: _onChangeType,
-                  blue: _blue,
-                  border: _border,
-                  muted: _muted,
                 ),
 
-                // Initial loading skeleton
-                if (isLoading && items.isEmpty)
+                if (isLoading && merged.isEmpty)
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
                     sliver: SliverList(
@@ -212,40 +243,33 @@ class _PlatformPaymentHistoryScreenState
                     ),
                   ),
 
-                // Error first page
-                if (error != null && items.isEmpty && !isLoading)
+                if (combinedError != null && merged.isEmpty && !isLoading)
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
                       child: _HistoryErrorBox(
-                        message: error,
-                        onRetry: _fetchFirstPage,
+                        message: combinedError,
+                        onRetry: _fetchFirstPageAll,
                         blue: _blue,
                         border: _border,
                       ),
                     ),
                   ),
 
-                // Empty state
-                if (!isLoading && error == null && items.isEmpty)
+                if (!isLoading && combinedError == null && merged.isEmpty)
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-                      child: _HistoryEmptyBox(
-                        label: selectedLabel,
-                        blue: _blue,
-                        border: _border,
-                      ),
+                      child: _HistoryEmptyBox(blue: _blue, border: _border),
                     ),
                   ),
 
-                // List
-                if (items.isNotEmpty)
+                if (merged.isNotEmpty)
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate((context, index) {
-                        final row = items[index];
+                        final row = merged[index];
 
                         final createdAtText = row.createdAt != null
                             ? fDateShort.format(row.createdAt!.toLocal())
@@ -273,7 +297,7 @@ class _PlatformPaymentHistoryScreenState
 
                         String? prevMonthHeader;
                         if (index > 0) {
-                          final prev = items[index - 1];
+                          final prev = merged[index - 1];
                           prevMonthHeader = prev.createdAt != null
                               ? fMonthHeader.format(prev.createdAt!.toLocal())
                               : 'Unknown date';
@@ -282,20 +306,25 @@ class _PlatformPaymentHistoryScreenState
                         final showMonthHeader =
                             index == 0 || rowMonthHeader != prevMonthHeader;
 
-                        // ✅ kondisi inti
-                        final monthHasPaid = monthsWithPaid.contains(
-                          rowMonthKey,
+                        final type = _rowTypeOf(row);
+
+                        // ✅ kondisi inti (per type)
+                        final monthHasPaid = paidKeys.contains(
+                          '$type|$rowMonthKey',
                         );
                         final isCurrentMonth = rowMonthKey == currentMonthKey;
 
-                        // ✅ pay again hanya saat:
-                        // - bulan berjalan
-                        // - bulan tsb BELUM ada paid sama sekali
-                        // - item ini unpaid
-                        final showPayAgain =
-                            isCurrentMonth && !monthHasPaid && !isPaid;
+                        final isTxnFee =
+                            type ==
+                            SubscriptionProvider.kHistoryTypeTransactionFee;
 
-                        // ✅ download invoice selalu ada (paid & unpaid)
+                        // ✅ transaction_fee: boleh muncul pay walaupun bulan lalu/asalkan month tsb belum ada PAID
+                        // ✅ premium_business: tetap hanya current month (behavior lama)
+                        final showPayAgain =
+                            !isPaid &&
+                            !monthHasPaid &&
+                            (isTxnFee || isCurrentMonth);
+
                         const showDownloadInvoice = true;
 
                         return Column(
@@ -330,9 +359,10 @@ class _PlatformPaymentHistoryScreenState
                               blueSoft: _blueSoft,
                               border: _border,
                               muted: _muted,
+                              muted2: _muted2,
                               text: _text,
+                              typeIcon: _typeIcon(type),
 
-                              // ✅ inject neutral + status palette
                               neutralSoft: _neutralSoft,
                               neutralBorder: _neutralBorder,
                               neutralIcon: _neutralIcon,
@@ -348,11 +378,10 @@ class _PlatformPaymentHistoryScreenState
                             const SizedBox(height: 12),
                           ],
                         );
-                      }, childCount: items.length),
+                      }, childCount: merged.length),
                     ),
                   ),
 
-                // Bottom loader / load-more error / end label
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
@@ -383,7 +412,7 @@ class _PlatformPaymentHistoryScreenState
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               color: _blueSoft,
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: const Color(0xFFBFDBFE),
                               ),
@@ -404,12 +433,7 @@ class _PlatformPaymentHistoryScreenState
                                 ),
                                 const SizedBox(width: 10),
                                 TextButton(
-                                  onPressed: () => context
-                                      .read<SubscriptionProvider>()
-                                      .fetchMorePaymentHistory(
-                                        context,
-                                        type: _selectedType,
-                                      ),
+                                  onPressed: _fetchMoreAll,
                                   style: TextButton.styleFrom(
                                     foregroundColor: _blue,
                                   ),
@@ -423,7 +447,7 @@ class _PlatformPaymentHistoryScreenState
                               ],
                             ),
                           ),
-                        ] else if (!hasMore && items.isNotEmpty) ...[
+                        ] else if (!hasMore && merged.isNotEmpty) ...[
                           const SizedBox(height: 6),
                         ] else ...[
                           const SizedBox(height: 8),
@@ -441,43 +465,11 @@ class _PlatformPaymentHistoryScreenState
   }
 }
 
-class _HistoryTypeOption {
-  final String type;
-  final String label;
-  final IconData icon;
-
-  const _HistoryTypeOption({
-    required this.type,
-    required this.label,
-    required this.icon,
-  });
-}
-
-/// =======================
-///  STICKY APPBAR + FILTER
-/// =======================
-class _StickyAppBar extends StatelessWidget {
+class _StickyAppBarSimple extends StatelessWidget {
   final String title;
   final String subtitle;
 
-  final String selectedType;
-  final List<_HistoryTypeOption> options;
-  final ValueChanged<String> onChanged;
-
-  final Color blue;
-  final Color border;
-  final Color muted;
-
-  const _StickyAppBar({
-    required this.title,
-    required this.subtitle,
-    required this.selectedType,
-    required this.options,
-    required this.onChanged,
-    required this.blue,
-    required this.border,
-    required this.muted,
-  });
+  const _StickyAppBarSimple({required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -514,10 +506,10 @@ class _StickyAppBar extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: muted,
+                    color: Color(0xFF6B7280),
                   ),
                 ),
               ],
@@ -525,66 +517,9 @@ class _StickyAppBar extends StatelessWidget {
           ),
         ],
       ),
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(54),
-        child: Column(
-          children: [
-            Container(height: 1, color: border),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: border),
-                ),
-                child: Row(
-                  children: options.map((opt) {
-                    final selected = opt.type == selectedType;
-
-                    return Expanded(
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(999),
-                        onTap: () => onChanged(opt.type),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: selected ? blue : Colors.transparent,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                opt.icon,
-                                size: 16,
-                                color: selected ? Colors.white : muted,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                opt.label,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w900,
-                                  color: selected ? Colors.white : muted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ],
-        ),
+      bottom: const PreferredSize(
+        preferredSize: Size.fromHeight(1),
+        child: Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
       ),
     );
   }
@@ -592,6 +527,8 @@ class _StickyAppBar extends StatelessWidget {
 
 /// =======================
 ///  HISTORY CARD
+///  - badge hanya PAID/UNPAID
+///  - harga benar-benar kanan (Expanded + Align end)
 /// =======================
 class _HistoryCard extends StatelessWidget {
   final SubscriptionHistoryItem row;
@@ -608,9 +545,11 @@ class _HistoryCard extends StatelessWidget {
   final Color blueSoft;
   final Color border;
   final Color muted;
+  final Color muted2;
   final Color text;
 
-  // ✅ injected neutral + status palette
+  final IconData typeIcon;
+
   final Color neutralSoft;
   final Color neutralBorder;
   final Color neutralIcon;
@@ -638,7 +577,9 @@ class _HistoryCard extends StatelessWidget {
     required this.blueSoft,
     required this.border,
     required this.muted,
+    required this.muted2,
     required this.text,
+    required this.typeIcon,
     required this.neutralSoft,
     required this.neutralBorder,
     required this.neutralIcon,
@@ -651,6 +592,9 @@ class _HistoryCard extends StatelessWidget {
     required this.dangerBorder,
     required this.dangerFg,
   });
+
+  static const double _radius = 18;
+  static const double _innerRadius = 14;
 
   Future<void> _download(BuildContext context) async {
     await context.read<SubscriptionProvider>().downloadInvoicePdfFromHistory(
@@ -667,6 +611,42 @@ class _HistoryCard extends StatelessWidget {
     );
   }
 
+  Widget _statusPill({
+    required String label,
+    required IconData icon,
+    required Color bg,
+    required Color bd,
+    required Color fg,
+  }) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: bd),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w900,
+              color: fg,
+              height: 1.0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final titleText = row.description.trim().isNotEmpty
@@ -677,13 +657,17 @@ class _HistoryCard extends StatelessWidget {
         ? row.number
         : (row.id.isNotEmpty ? row.id : '-');
 
-    final methodText = row.paymentMethodName.trim().isNotEmpty
-        ? row.paymentMethodName
-        : (row.paymentMethod != 0
-              ? 'Payment method ${row.paymentMethod}'
-              : 'Unknown');
+    final rawMethod = row.paymentMethodName.trim();
+    final isUnknownMethod =
+        rawMethod.isEmpty || rawMethod.toLowerCase() == 'unknown';
 
-    // ✅ Status: green (paid) / red (unpaid)
+    final isTransactionFee =
+        row.type.trim().toLowerCase() ==
+        SubscriptionProvider.kHistoryTypeTransactionFee;
+
+    // kalau unknown, kita set null biar gampang hide
+    final String? methodText = isUnknownMethod ? null : rawMethod;
+
     final statusBg = isPaid ? successBg : dangerBg;
     final statusBorder = isPaid ? successBorder : dangerBorder;
     final statusFg = isPaid ? successFg : dangerFg;
@@ -698,34 +682,72 @@ class _HistoryCard extends StatelessWidget {
 
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(_radius),
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(_radius),
           border: Border.all(color: border),
           boxShadow: const [
             BoxShadow(
               blurRadius: 18,
               offset: Offset(0, 10),
-              color: Color(0x14000000),
+              color: Color(0x12000000),
             ),
           ],
-          color: Colors.white,
         ),
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ✅ Header: status kiri, amount benar-benar kanan
+            Row(
+              children: [
+                _statusPill(
+                  label: statusText,
+                  icon: statusIcon,
+                  bg: statusBg,
+                  bd: statusBorder,
+                  fg: statusFg,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        amountText,
+                        textAlign: TextAlign.right,
+                        softWrap: false,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: text,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(
-                  width: 42,
-                  height: 42,
-                  child: Icon(
-                    Icons.receipt_long_rounded,
-                    color: Color(0xFF426FD4),
-                    size: 20,
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: blueSoft,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFBFDBFE)),
                   ),
+                  child: Icon(typeIcon, color: blueDark, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -735,175 +757,228 @@ class _HistoryCard extends StatelessWidget {
                       Text(
                         titleText,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 14.5,
                           fontWeight: FontWeight.w900,
                           color: text,
+                          height: 1.2,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Invoice • $invoiceText',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: muted,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Created • $createdAtText',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF9CA3AF),
-                        ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            'Invoice $invoiceText',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: muted,
+                              height: 1.0,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Container(
+                            width: 4,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: muted2,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          Text(
+                            'Created $createdAtText',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: muted2,
+                              height: 1.0,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: statusBg,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: statusBorder),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(statusIcon, size: 14, color: statusFg),
-                          const SizedBox(width: 6),
-                          Text(
-                            statusText,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w900,
-                              color: statusFg,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      amountText,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                        color: text,
-                      ),
-                    ),
-                  ],
-                ),
               ],
             ),
+
             const SizedBox(height: 12),
 
-            // ✅ Payment method row: neutral dark-gray style (not blue)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: neutralSoft,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: neutralBorder),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.account_balance_wallet_rounded,
-                    size: 16,
-                    color: neutralIcon,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      methodText,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: neutralText,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (paidAtText != null && paidAtText!.isNotEmpty) ...[
-                    const SizedBox(width: 10),
+            if (methodText != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: neutralSoft,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: neutralBorder),
+                ),
+                child: Row(
+                  children: [
                     Icon(
-                      Icons.schedule_rounded,
+                      Icons.account_balance_wallet_rounded,
                       size: 16,
-                      color: neutralSubText,
+                      color: neutralIcon,
                     ),
-                    const SizedBox(width: 6),
-                    Flexible(
+                    const SizedBox(width: 8),
+                    Expanded(
                       child: Text(
-                        paidAtText!,
+                        methodText,
                         style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: neutralSubText,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: neutralText,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    if (paidAtText != null && paidAtText!.isNotEmpty) ...[
+                      const SizedBox(width: 10),
+                      Icon(
+                        Icons.schedule_rounded,
+                        size: 16,
+                        color: neutralSubText,
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          paidAtText!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: neutralSubText,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
+              const SizedBox(height: 12),
+            ] else ...[
+              const SizedBox(height: 2),
+            ],
+
             const SizedBox(height: 12),
 
-            // ✅ BUTTONS (blue & white only)
+            // ✅ View detail transaction fee
+            if (isTransactionFee) ...[
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    // ✅ Aman walau field transactionFeeId belum ada di model
+                    var feeId = row.id.trim();
+
+                    try {
+                      final dyn = row as dynamic;
+                      final v = dyn.transactionFeeId;
+                      final s = v?.toString().trim() ?? '';
+                      if (s.isNotEmpty && s.toLowerCase() != 'null') {
+                        feeId = s;
+                      }
+                    } catch (_) {
+                      // ignore: kalau getter tidak ada, tetap pakai row.id
+                    }
+
+                    if (feeId.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Transaction fee id not available.'),
+                        ),
+                      );
+                      return;
+                    }
+
+                    Navigator.pushNamed(
+                      context,
+                      '/business/transaction-fee/detail',
+                      arguments: {'idTransactionFee': feeId},
+                    );
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: blue,
+                    side: const BorderSide(color: Color(0xFFBFDBFE)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(_innerRadius),
+                    ),
+                    backgroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.receipt_long_rounded, size: 18),
+                  label: const Text(
+                    'View detail transaction',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+
             if (showPayAgain && showDownloadInvoice) ...[
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _download(context),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: blue,
-                        side: const BorderSide(color: Color(0xFFBFDBFE)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                    child: SizedBox(
+                      height: 44,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _download(context),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: blue,
+                          side: const BorderSide(color: Color(0xFFBFDBFE)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(_innerRadius),
+                          ),
+                          backgroundColor: Colors.white,
                         ),
-                        backgroundColor: Colors.white,
-                      ),
-                      icon: const Icon(Icons.download_rounded, size: 18),
-                      label: const Text(
-                        'Download Invoice',
-                        style: TextStyle(fontWeight: FontWeight.w900),
+                        icon: const Icon(Icons.download_rounded, size: 18),
+                        label: const Text(
+                          'Invoice',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13.5,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _payAgain(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: blue,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _payAgain(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: blue,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(_innerRadius),
+                          ),
                         ),
-                      ),
-                      icon: const Icon(Icons.refresh_rounded, size: 18),
-                      label: const Text(
-                        'Pay again',
-                        style: TextStyle(fontWeight: FontWeight.w900),
+                        icon: const Icon(Icons.payment, size: 18),
+                        label: const Text(
+                          'Pay',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13.5,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -912,21 +987,24 @@ class _HistoryCard extends StatelessWidget {
             ] else if (showDownloadInvoice) ...[
               SizedBox(
                 width: double.infinity,
+                height: 44,
                 child: ElevatedButton.icon(
                   onPressed: () => _download(context),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: blue,
                     foregroundColor: Colors.white,
                     elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(_innerRadius),
                     ),
                   ),
                   icon: const Icon(Icons.download_rounded, size: 18),
                   label: const Text(
                     'Download Invoice',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13.5,
+                    ),
                   ),
                 ),
               ),
@@ -938,9 +1016,6 @@ class _HistoryCard extends StatelessWidget {
   }
 }
 
-/// =======================
-///  Empty & Error
-/// =======================
 class _HistoryErrorBox extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
@@ -992,15 +1067,10 @@ class _HistoryErrorBox extends StatelessWidget {
 }
 
 class _HistoryEmptyBox extends StatelessWidget {
-  final String label;
   final Color blue;
   final Color border;
 
-  const _HistoryEmptyBox({
-    required this.label,
-    required this.blue,
-    required this.border,
-  });
+  const _HistoryEmptyBox({required this.blue, required this.border});
 
   @override
   Widget build(BuildContext context) {
@@ -1023,9 +1093,9 @@ class _HistoryEmptyBox extends StatelessWidget {
           const SizedBox(height: 6),
           Icon(Icons.receipt_long_rounded, size: 38, color: blue),
           const SizedBox(height: 12),
-          Text(
-            'No $label payments yet',
-            style: const TextStyle(
+          const Text(
+            'No payments yet',
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w900,
               color: Color(0xFF111827),
@@ -1048,9 +1118,6 @@ class _HistoryEmptyBox extends StatelessWidget {
   }
 }
 
-/// =======================
-///  Skeleton
-/// =======================
 class _SkeletonCard extends StatefulWidget {
   const _SkeletonCard();
 
@@ -1099,22 +1166,31 @@ class _SkeletonCardState extends State<_SkeletonCard>
         }
 
         return Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: const Color(0xFFE5E7EB)),
           ),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
+                  bar(w: 86, h: 28),
+                  const Spacer(),
+                  bar(w: 120, h: 22),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
                   Container(
-                    width: 42,
-                    height: 42,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
                       color: c,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1122,22 +1198,11 @@ class _SkeletonCardState extends State<_SkeletonCard>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        bar(w: 180, h: 12),
+                        bar(w: 220, h: 12),
                         const SizedBox(height: 8),
-                        bar(w: 120, h: 10),
-                        const SizedBox(height: 6),
-                        bar(w: 160, h: 10),
+                        bar(w: 180, h: 10),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      bar(w: 64, h: 22),
-                      const SizedBox(height: 10),
-                      bar(w: 88, h: 12),
-                    ],
                   ),
                 ],
               ),
@@ -1168,7 +1233,7 @@ class _SkeletonCardState extends State<_SkeletonCard>
                 ),
               ),
               const SizedBox(height: 12),
-              Row(children: [Expanded(child: bar(h: 44))]),
+              bar(h: 44),
             ],
           ),
         );
