@@ -123,26 +123,6 @@ class _PaymentStepState extends State<PaymentStep> {
     }
   }
 
-  Future<void> _onCancelPayment() async {
-    final prov = context.read<SalesProvider>();
-    final ok = await prov.cancelPendingPayment(
-      context,
-      payload: const {'reason': 'user_cancel'},
-    );
-    if (!mounted) return;
-
-    if (ok) {
-      await showPaymentCancelledDialog(
-        context,
-        reference: prov.currentReference ?? '-',
-        paymentMethodLabel: _PayMethod.byId(prov.paymentMethod ?? 1).label,
-      );
-    } else {
-      final err = prov.consumeLastError() ?? 'Failed to cancel payment';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<SalesProvider>();
@@ -153,9 +133,6 @@ class _PaymentStepState extends State<PaymentStep> {
 
     // Diskon order-level (yang diinput user di field Discount)
     final disc = prov.discount ?? 0;
-
-    // Service fee tetap 0
-    const serviceFee = 0;
 
     // Platform fee hanya untuk non-premium
     final int platformFee = _isPremium ? 0 : _kPlatformFeeNonPremium;

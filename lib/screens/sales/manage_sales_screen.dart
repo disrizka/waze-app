@@ -52,6 +52,13 @@ class ManageSalesScreen extends StatelessWidget {
               title: 'Customer List',
               onTap: () => Navigator.pushNamed(context, '/sales/customer'),
             ),
+            const SizedBox(height: 8),
+            _MenuTile(
+              icon: Icons.store,
+              title: 'Order External',
+              onTap: () =>
+                  Navigator.pushNamed(context, '/sales/order-external'),
+            ),
           ],
         ),
       ),

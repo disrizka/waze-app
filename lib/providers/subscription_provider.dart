@@ -40,18 +40,20 @@ class SubscriptionHistoryItem {
   final int paymentMethod;
   final String paymentMethodName;
 
-  // Premium fields (kadang ada)
   final String planId;
   final String planName;
   final String pricingId;
 
-  // ✅ tambahan dari response terbaru
-  final String description; // contoh: "Biaya Transaksi 12/2025 ..."
-  final String period; // contoh: "12/2025"
-  final String type; // contoh: "premium_business" / "transaction_fee" / dll
+  final String description;
+  final String period;
+  final String type;
 
   final String paymentLink;
   final String paymentToken;
+
+  // ✅ NEW: idTransactionFee untuk detail platform fee
+  // backend bisa kirim dengan key berbeda, kita parse beberapa kemungkinan
+  final String transactionFeeId;
 
   SubscriptionHistoryItem({
     required this.id,
@@ -71,6 +73,7 @@ class SubscriptionHistoryItem {
     required this.type,
     required this.paymentLink,
     required this.paymentToken,
+    required this.transactionFeeId,
   });
 
   factory SubscriptionHistoryItem.fromJson(Map<String, dynamic> json) {
@@ -83,6 +86,32 @@ class SubscriptionHistoryItem {
       }
     }
 
+    String _pickTxFeeId(Map<String, dynamic> j) {
+      // beberapa kemungkinan key dari backend
+      final candidates = [
+        'idTransactionFee',
+        'id_transaction_fee',
+        'transaction_fee_id',
+        'transactionFeeId',
+        'transaction_fee', // kalau backend ngirim object/string
+      ];
+
+      for (final k in candidates) {
+        final v = j[k];
+        if (v == null) continue;
+
+        // kalau bentuknya object: { id: "..." }
+        if (v is Map && v['id'] != null) {
+          final s = v['id'].toString().trim();
+          if (s.isNotEmpty) return s;
+        }
+
+        final s = v.toString().trim();
+        if (s.isNotEmpty && s.toLowerCase() != 'null') return s;
+      }
+      return '';
+    }
+
     return SubscriptionHistoryItem(
       id: json['id']?.toString() ?? '',
       number: json['number']?.toString() ?? '',
@@ -93,19 +122,168 @@ class SubscriptionHistoryItem {
       paidStatus: json['paid_status']?.toString() ?? '',
       paymentMethod: (json['payment_method'] as num?)?.toInt() ?? 0,
       paymentMethodName: json['payment_method_name']?.toString() ?? '',
-
       planId: json['plan_id']?.toString() ?? '',
       planName: json['plan_name']?.toString() ?? '',
       pricingId: json['pricing_id']?.toString() ?? '',
-
       description: json['description']?.toString() ?? '',
       period: json['period']?.toString() ?? '',
       type: json['type']?.toString() ?? '',
-
       paymentLink: json['payment_link']?.toString() ?? '',
       paymentToken: json['payment_token']?.toString() ?? '',
+      transactionFeeId: _pickTxFeeId(json),
     );
   }
+}
+
+class TransactionFeeInfo {
+  final String id;
+  final int month;
+  final int year;
+  final String period;
+  final String status; // pending / paid / etc
+  final int totalFee;
+  final int transactionCount;
+
+  const TransactionFeeInfo({
+    required this.id,
+    required this.month,
+    required this.year,
+    required this.period,
+    required this.status,
+    required this.totalFee,
+    required this.transactionCount,
+  });
+
+  factory TransactionFeeInfo.fromJson(Map<String, dynamic> json) {
+    return TransactionFeeInfo(
+      id: json['id']?.toString() ?? '',
+      month: (json['month'] as num?)?.toInt() ?? 0,
+      year: (json['year'] as num?)?.toInt() ?? 0,
+      period: json['period']?.toString() ?? '',
+      status: json['status']?.toString() ?? '',
+      totalFee: (json['total_fee'] as num?)?.toInt() ?? 0,
+      transactionCount: (json['transaction_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class TransactionFeeHistoryLineItem {
+  final String transactionReference;
+  final int qtyIn;
+  final int qtyOut;
+  final int price;
+  final int discount;
+
+  final String productId;
+  final String productName;
+
+  const TransactionFeeHistoryLineItem({
+    required this.transactionReference,
+    required this.qtyIn,
+    required this.qtyOut,
+    required this.price,
+    required this.discount,
+    required this.productId,
+    required this.productName,
+  });
+
+  factory TransactionFeeHistoryLineItem.fromJson(Map<String, dynamic> json) {
+    final product = (json['product'] is Map) ? (json['product'] as Map) : null;
+
+    return TransactionFeeHistoryLineItem(
+      transactionReference: json['transaction_reference']?.toString() ?? '',
+      qtyIn: (json['qty_in'] as num?)?.toInt() ?? 0,
+      qtyOut: (json['qty_out'] as num?)?.toInt() ?? 0,
+      price: (json['price'] as num?)?.toInt() ?? 0,
+      discount: (json['discount'] as num?)?.toInt() ?? 0,
+      productId:
+          (product?['idProduct'] ?? json['product_id'])?.toString() ?? '',
+      productName: (product?['name'])?.toString() ?? '-',
+    );
+  }
+}
+
+class TransactionFeeHistoryEntry {
+  final String id;
+  final String number;
+  final int amount;
+  final String status; // paid / etc
+  final DateTime? createdAt;
+
+  final String storeLocationName;
+  final String cityName;
+
+  final List<TransactionFeeHistoryLineItem> items;
+
+  const TransactionFeeHistoryEntry({
+    required this.id,
+    required this.number,
+    required this.amount,
+    required this.status,
+    required this.createdAt,
+    required this.storeLocationName,
+    required this.cityName,
+    required this.items,
+  });
+
+  factory TransactionFeeHistoryEntry.fromJson(Map<String, dynamic> json) {
+    DateTime? _parseDate(String? raw) {
+      if (raw == null || raw.isEmpty) return null;
+      try {
+        return DateTime.parse(raw);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final store = (json['store_location'] is Map)
+        ? (json['store_location'] as Map)
+        : null;
+
+    final city = (store?['city'] is Map) ? (store?['city'] as Map) : null;
+
+    final rawItems = (json['items'] is List)
+        ? (json['items'] as List)
+        : const [];
+    final items = rawItems
+        .whereType<Map>()
+        .map(
+          (e) =>
+              TransactionFeeHistoryLineItem.fromJson(e.cast<String, dynamic>()),
+        )
+        .toList();
+
+    return TransactionFeeHistoryEntry(
+      id: json['id']?.toString() ?? '',
+      number: json['number']?.toString() ?? '',
+      amount: (json['amount'] as num?)?.toInt() ?? 0,
+      status: json['status']?.toString() ?? '',
+      createdAt: _parseDate(json['created_at']?.toString()),
+      storeLocationName: (store?['name'])?.toString() ?? '-',
+      cityName: (city?['name'])?.toString() ?? '',
+      items: items,
+    );
+  }
+}
+
+class _TransactionFeeDetailPagingState {
+  TransactionFeeInfo? info;
+  List<TransactionFeeHistoryEntry> items = [];
+
+  bool isLoading = false;
+  bool isLoadingMore = false;
+
+  String? error;
+  String? moreError;
+
+  int page = 1;
+  int totalPages = 1;
+  int rowPerPage = 10;
+  int totalRows = 0;
+
+  bool hasMore = true;
+
+  int limit = 10;
 }
 
 class VoucherCheckResult {
@@ -263,6 +441,262 @@ class SubscriptionProvider with ChangeNotifier {
 
   // ====== Payment History (INFINITE + MULTI TYPE) ======
   final Map<String, _HistoryPagingState> _historyStates = {};
+
+  // =============================================================
+  // ✅ NEW: Transaction Fee Detail (history fee increase)
+  // =============================================================
+  final Map<String, _TransactionFeeDetailPagingState> _txFeeDetailStates = {};
+
+  _TransactionFeeDetailPagingState _txFeeState(String idTransactionFee) =>
+      _txFeeDetailStates.putIfAbsent(
+        idTransactionFee,
+        () => _TransactionFeeDetailPagingState(),
+      );
+
+  TransactionFeeInfo? transactionFeeInfoOf(String idTransactionFee) =>
+      _txFeeState(idTransactionFee).info;
+
+  List<TransactionFeeHistoryEntry> transactionFeeHistoryOf(
+    String idTransactionFee,
+  ) => List.unmodifiable(_txFeeState(idTransactionFee).items);
+
+  bool isLoadingTransactionFeeHistoryOf(String idTransactionFee) =>
+      _txFeeState(idTransactionFee).isLoading;
+
+  bool isLoadingMoreTransactionFeeHistoryOf(String idTransactionFee) =>
+      _txFeeState(idTransactionFee).isLoadingMore;
+
+  String? transactionFeeHistoryErrorOf(String idTransactionFee) =>
+      _txFeeState(idTransactionFee).error;
+
+  String? transactionFeeHistoryMoreErrorOf(String idTransactionFee) =>
+      _txFeeState(idTransactionFee).moreError;
+
+  bool transactionFeeHistoryHasMoreOf(String idTransactionFee) =>
+      _txFeeState(idTransactionFee).hasMore;
+
+  Future<void> fetchTransactionFeeHistoryDetail(
+    BuildContext context, {
+    required String idTransactionFee,
+    bool refresh = true,
+    int limit = 10,
+  }) async {
+    final st = _txFeeState(idTransactionFee);
+    if (st.isLoading) return;
+
+    if (refresh) {
+      st.page = 1;
+      st.totalPages = 1;
+      st.rowPerPage = limit;
+      st.totalRows = 0;
+      st.hasMore = true;
+
+      st.error = null;
+      st.moreError = null;
+      st.items = [];
+      st.info = null;
+
+      st.limit = limit;
+    }
+
+    st.isLoading = true;
+    st.error = null;
+    notifyListeners();
+
+    try {
+      final bizId = await BizIdCache.get();
+      if (bizId == null || bizId.toString().trim().isEmpty) {
+        throw Exception(
+          'Business ID not found. Please select a business first.',
+        );
+      }
+
+      final path =
+          '/waveup/$bizId/transaction-fee/transaction-history-fee-increase/$idTransactionFee'
+          '?page=1&limit=$limit';
+
+      final res = await ApiService.get(context, path, withAccessToken: true);
+
+      final raw = res.body;
+      debugPrint(
+        '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
+        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+      );
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw Exception('HTTP ${res.statusCode}');
+      }
+
+      Map<String, dynamic>? decoded;
+      try {
+        decoded = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        decoded = null;
+      }
+      if (decoded == null) throw Exception('Invalid JSON response');
+
+      final status = (decoded['status'] as num?)?.toInt() ?? 0;
+      if (status != 200) {
+        final msg = decoded['msg']?.toString() ?? 'Failed to load fee detail';
+        throw Exception('$msg (status=$status)');
+      }
+
+      // info
+      final infoRaw = decoded['transaction_fee_info'];
+      if (infoRaw is Map) {
+        st.info = TransactionFeeInfo.fromJson(infoRaw.cast<String, dynamic>());
+      }
+
+      // data list
+      final data = decoded['data'];
+      final items = (data is List)
+          ? data
+                .whereType<Map>()
+                .map(
+                  (e) => TransactionFeeHistoryEntry.fromJson(
+                    e.cast<String, dynamic>(),
+                  ),
+                )
+                .toList()
+          : <TransactionFeeHistoryEntry>[];
+
+      // page
+      final page = decoded['page'];
+      final currentPage = (page is Map)
+          ? (page['current_page'] as num?)?.toInt() ?? 1
+          : 1;
+      final totalPages = (page is Map)
+          ? (page['total_pages'] as num?)?.toInt() ?? 1
+          : 1;
+      final rowPerPage = (page is Map)
+          ? (page['row_per_page'] as num?)?.toInt() ?? limit
+          : limit;
+      final totalRows = (page is Map)
+          ? (page['total_rows'] as num?)?.toInt() ?? items.length
+          : items.length;
+
+      st.page = currentPage;
+      st.totalPages = totalPages;
+      st.rowPerPage = rowPerPage;
+      st.totalRows = totalRows;
+
+      st.items = items;
+      st.hasMore = st.page < st.totalPages;
+
+      st.error = null;
+      st.moreError = null;
+    } catch (e, stTrace) {
+      debugPrint(
+        '[SubscriptionProvider] fetchTransactionFeeHistoryDetail error: $e\n$stTrace',
+      );
+      st.error = 'Failed to load fee detail: $e';
+      st.items = [];
+      st.hasMore = false;
+    } finally {
+      st.isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> fetchMoreTransactionFeeHistoryDetail(
+    BuildContext context, {
+    required String idTransactionFee,
+    int? limit,
+  }) async {
+    final st = _txFeeState(idTransactionFee);
+
+    if (st.isLoading || st.isLoadingMore) return;
+    if (!st.hasMore) return;
+
+    final effectiveLimit = limit ?? st.limit;
+    st.isLoadingMore = true;
+    st.moreError = null;
+    notifyListeners();
+
+    final nextPage = st.page + 1;
+
+    try {
+      final bizId = await BizIdCache.get();
+      if (bizId == null || bizId.toString().trim().isEmpty) {
+        throw Exception(
+          'Business ID not found. Please select a business first.',
+        );
+      }
+
+      final path =
+          '/waveup/$bizId/transaction-fee/transaction-history-fee-increase/$idTransactionFee'
+          '?page=$nextPage&limit=$effectiveLimit';
+
+      final res = await ApiService.get(context, path, withAccessToken: true);
+
+      final raw = res.body;
+      debugPrint(
+        '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
+        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+      );
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw Exception('HTTP ${res.statusCode}');
+      }
+
+      Map<String, dynamic>? decoded;
+      try {
+        decoded = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        decoded = null;
+      }
+      if (decoded == null) throw Exception('Invalid JSON response');
+
+      final status = (decoded['status'] as num?)?.toInt() ?? 0;
+      if (status != 200) {
+        final msg =
+            decoded['msg']?.toString() ?? 'Failed to load more fee detail';
+        throw Exception('$msg (status=$status)');
+      }
+
+      // info bisa diabaikan (tetap simpan kalau ada)
+      final infoRaw = decoded['transaction_fee_info'];
+      if (st.info == null && infoRaw is Map) {
+        st.info = TransactionFeeInfo.fromJson(infoRaw.cast<String, dynamic>());
+      }
+
+      final data = decoded['data'];
+      final items = (data is List)
+          ? data
+                .whereType<Map>()
+                .map(
+                  (e) => TransactionFeeHistoryEntry.fromJson(
+                    e.cast<String, dynamic>(),
+                  ),
+                )
+                .toList()
+          : <TransactionFeeHistoryEntry>[];
+
+      final page = decoded['page'];
+      final currentPage = (page is Map)
+          ? (page['current_page'] as num?)?.toInt() ?? nextPage
+          : nextPage;
+      final totalPages = (page is Map)
+          ? (page['total_pages'] as num?)?.toInt() ?? st.totalPages
+          : st.totalPages;
+
+      st.page = currentPage;
+      st.totalPages = totalPages;
+
+      st.items = [...st.items, ...items];
+      st.hasMore = st.page < st.totalPages;
+
+      st.moreError = null;
+    } catch (e, stTrace) {
+      debugPrint(
+        '[SubscriptionProvider] fetchMoreTransactionFeeHistoryDetail error: $e\n$stTrace',
+      );
+      st.moreError = 'Failed to load more fee detail: $e';
+    } finally {
+      st.isLoadingMore = false;
+      notifyListeners();
+    }
+  }
 
   _HistoryPagingState _hs(String type) =>
       _historyStates.putIfAbsent(type, () => _HistoryPagingState());
