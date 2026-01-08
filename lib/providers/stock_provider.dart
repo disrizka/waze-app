@@ -40,6 +40,132 @@ class StockStoreLocationLite {
   }
 }
 
+/// =========================
+/// MODELS - STOCK OPNAME
+/// =========================
+
+@immutable
+class StockOpnameItem {
+  final String idStockOpnameItem;
+  final Product product;
+  final StockProductSku productSku;
+
+  final int countedQty;
+  final int systemQty;
+  final int variance;
+  final String reason;
+
+  const StockOpnameItem({
+    required this.idStockOpnameItem,
+    required this.product,
+    required this.productSku,
+    required this.countedQty,
+    required this.systemQty,
+    required this.variance,
+    required this.reason,
+  });
+
+  factory StockOpnameItem.fromJson(Map<String, dynamic> j) {
+    int _toInt(dynamic v, {int fallback = 0}) {
+      if (v is num) return v.toInt();
+      return int.tryParse(v?.toString() ?? '') ?? fallback;
+    }
+
+    return StockOpnameItem(
+      idStockOpnameItem: j['idStockOpnameItem']?.toString() ?? '',
+      product: Product.fromJson(
+        (j['product'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
+      productSku: StockProductSku.fromJson(
+        (j['productSku'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
+      countedQty: _toInt(j['countedQty']),
+      systemQty: _toInt(j['systemQty']),
+      variance: _toInt(j['variance']),
+      reason: j['reason']?.toString() ?? '',
+    );
+  }
+}
+
+@immutable
+class StockOpname {
+  final String idStockOpname;
+  final StockStoreLocationLite storeLocation;
+
+  final String status; // submitted, validated, etc
+  final String note;
+
+  final String? submittedAt;
+  final String? validatedAt;
+  final String validationNote;
+
+  final List<StockOpnameItem> items;
+
+  final String createdAt; // "08-01-2026 11:16"
+  final String updatedAt;
+
+  const StockOpname({
+    required this.idStockOpname,
+    required this.storeLocation,
+    required this.status,
+    required this.note,
+    required this.submittedAt,
+    required this.validatedAt,
+    required this.validationNote,
+    required this.items,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory StockOpname.fromJson(Map<String, dynamic> j) {
+    final itemsJ = (j['items'] as List?) ?? const [];
+    final items = itemsJ
+        .whereType<Map>()
+        .map(
+          (e) => StockOpnameItem.fromJson(
+            Map<String, dynamic>.from(e.cast<String, dynamic>()),
+          ),
+        )
+        .toList();
+
+    return StockOpname(
+      idStockOpname: j['idStockOpname']?.toString() ?? '',
+      storeLocation: StockStoreLocationLite.fromJson(
+        (j['storeLocation'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
+      status: j['status']?.toString() ?? '',
+      note: j['note']?.toString() ?? '',
+      submittedAt: j['submittedAt']?.toString(),
+      validatedAt: j['validatedAt']?.toString(),
+      validationNote: j['validationNote']?.toString() ?? '',
+      items: items,
+      createdAt: j['createdAt']?.toString() ?? '',
+      updatedAt: j['updatedAt']?.toString() ?? '',
+    );
+  }
+}
+
+/// Payload untuk create stock opname
+/// POST /waveup/:bizId/store-location/:storeLocationId/stock-opname
+@immutable
+class CreateStockOpnamePayload {
+  final String productId;
+  final String productSkuId;
+  final int qty;
+
+  const CreateStockOpnamePayload({
+    required this.productId,
+    required this.productSkuId,
+    required this.qty,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'product_id': productId,
+    'product_sku_id': productSkuId,
+    'qty': qty,
+  };
+}
+
 /// Attribute SKU di konteks initial stock.
 @immutable
 class StockSkuAttribute {
@@ -673,6 +799,291 @@ class StockProvider with ChangeNotifier {
   void clearInitialStockDetail() {
     _initialStockDetail = null;
     _initialStockDetailError = null;
+    notifyListeners();
+  }
+
+  // ============================================================
+  // ✅ NEW: STOCK OPNAME (LIST + CREATE)
+  // ============================================================
+
+  /// --- LIST stock opname
+  final List<StockOpname> _stockOpnames = [];
+  bool _loadingStockOpnames = false;
+  PageMeta? _pageStockOpnames;
+  String? _stockOpnamesError;
+
+  /// --- CREATE stock opname
+  bool _creatingStockOpname = false;
+  String? _createStockOpnameError;
+
+  List<StockOpname> get stockOpnames => List.unmodifiable(_stockOpnames);
+  bool get loadingStockOpnames => _loadingStockOpnames;
+  PageMeta? get pageStockOpnames => _pageStockOpnames;
+  String? get stockOpnamesError => _stockOpnamesError;
+
+  bool get creatingStockOpname => _creatingStockOpname;
+  String? get createStockOpnameError => _createStockOpnameError;
+
+  bool get isStockOpnameEmpty => !_loadingStockOpnames && _stockOpnames.isEmpty;
+
+  /// =========================
+  /// FETCH: Stock Opname List
+  /// =========================
+  ///
+  /// GET /waveup/:idBusiness/store-location/:idStoreLocation/stock-opname
+  ///
+  /// Response:
+  /// {
+  ///   "status": 200,
+  ///   "data": [ {StockOpname}, ... ],
+  ///   "page": {...}
+  /// }
+  Future<void> fetchStockOpnames(
+    BuildContext context, {
+    required String idStoreLocation,
+    int? page,
+    int? rowPerPage,
+    bool append = false, // true kalau infinite scroll page>1
+  }) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      if (!append) _stockOpnames.clear();
+      _pageStockOpnames = null;
+      _stockOpnamesError = "Business ID is not available.";
+      _lastError = _stockOpnamesError;
+      notifyListeners();
+      return;
+    }
+
+    _loadingStockOpnames = true;
+    _stockOpnamesError = null;
+    notifyListeners();
+
+    try {
+      final buffer = StringBuffer(
+        '/waveup/$bizId/store-location/$idStoreLocation/stock-opname',
+      );
+
+      final query = <String, String>{};
+      if (page != null && page > 0) query['page'] = page.toString();
+      if (rowPerPage != null && rowPerPage > 0) {
+        query['row_per_page'] = rowPerPage.toString();
+      }
+      if (query.isNotEmpty) {
+        buffer.write(
+          '?' + query.entries.map((e) => '${e.key}=${e.value}').join('&'),
+        );
+      }
+
+      final path = buffer.toString();
+      if (kDebugMode) debugPrint('[StockProvider] GET $path');
+
+      final jsonMap = await ApiJson.getMap(context, path);
+
+      if (jsonMap == null) {
+        if (!append) _stockOpnames.clear();
+        _pageStockOpnames = null;
+        _stockOpnamesError = 'Failed to load stock opname.';
+        _lastError = _stockOpnamesError;
+        notifyListeners();
+        return;
+      }
+
+      final status = (jsonMap['status'] as num?)?.toInt() ?? 0;
+      if (status < 200 || status >= 300) {
+        if (!append) _stockOpnames.clear();
+        _pageStockOpnames = null;
+        _stockOpnamesError =
+            jsonMap['message']?.toString() ?? 'Failed to load stock opname.';
+        _lastError = _stockOpnamesError;
+        notifyListeners();
+        return;
+      }
+
+      final pageJ = (jsonMap['page'] as Map?)?.cast<String, dynamic>();
+      _pageStockOpnames = pageJ != null ? PageMeta.fromJson(pageJ) : null;
+
+      final dataList = (jsonMap['data'] as List?) ?? const [];
+      final parsed = dataList
+          .whereType<Map>()
+          .map(
+            (e) => StockOpname.fromJson(
+              Map<String, dynamic>.from(e.cast<String, dynamic>()),
+            ),
+          )
+          .toList();
+
+      if (!append) {
+        _stockOpnames
+          ..clear()
+          ..addAll(parsed);
+      } else {
+        _stockOpnames.addAll(parsed);
+      }
+
+      _stockOpnamesError = null;
+      _lastError = null;
+      notifyListeners();
+    } catch (e, st) {
+      if (!append) _stockOpnames.clear();
+      _pageStockOpnames = null;
+      _stockOpnamesError = e.toString();
+      _lastError = _stockOpnamesError;
+      debugPrint('[StockProvider] fetchStockOpnames error: $e');
+      debugPrint('$st');
+      notifyListeners();
+    } finally {
+      _loadingStockOpnames = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> refreshStockOpnames(
+    BuildContext context, {
+    required String idStoreLocation,
+  }) async {
+    await fetchStockOpnames(context, idStoreLocation: idStoreLocation);
+  }
+
+  /// =========================
+  /// CREATE: Stock Opname
+  /// =========================
+  ///
+  /// POST /waveup/:idBusiness/store-location/:idStoreLocation/stock-opname
+  ///
+  /// Payload:
+  /// { "product_id": "...", "product_sku_id": "...", "qty": 20 }
+  ///
+  /// Response:
+  /// { "status": 200, "data": { StockOpname } }
+  Future<StockOpname?> createStockOpname({
+    required BuildContext context,
+    required String idStoreLocation,
+    required String productId,
+    required String productSkuId,
+    required int qty,
+    bool refreshListAfter = true,
+  }) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      _createStockOpnameError = _lastError;
+      notifyListeners();
+      return null;
+    }
+
+    _creatingStockOpname = true;
+    _createStockOpnameError = null;
+    notifyListeners();
+
+    final payload = CreateStockOpnamePayload(
+      productId: productId,
+      productSkuId: productSkuId,
+      qty: qty,
+    ).toJson();
+
+    try {
+      if (kDebugMode) {
+        debugPrint(
+          '[StockProvider] CREATE stock opname payload: ${jsonEncode(payload)}',
+        );
+      }
+
+      final path =
+          '/waveup/$bizId/store-location/$idStoreLocation/stock-opname';
+
+      final res = await ApiService.post(
+        context,
+        path,
+        payload,
+        withAccessToken: true,
+      );
+
+      if (kDebugMode && res != null) {
+        debugPrint('[StockProvider] CREATE status: ${res.statusCode}');
+        debugPrint('[StockProvider] CREATE body  : ${res.body}');
+      }
+
+      final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
+      if (!ok) {
+        _createStockOpnameError =
+            'Failed to create stock opname: ${res?.statusCode} ${res?.body}';
+        _lastError = _createStockOpnameError;
+        notifyListeners();
+        return null;
+      }
+
+      final decoded = jsonDecode(res!.body);
+      final map = (decoded is Map) ? decoded.cast<String, dynamic>() : null;
+
+      if (map == null) {
+        _createStockOpnameError = 'Invalid response body';
+        _lastError = _createStockOpnameError;
+        notifyListeners();
+        return null;
+      }
+
+      final status = (map['status'] as num?)?.toInt() ?? 0;
+      if (status < 200 || status >= 300) {
+        _createStockOpnameError =
+            map['message']?.toString() ?? 'Failed to create stock opname.';
+        _lastError = _createStockOpnameError;
+        notifyListeners();
+        return null;
+      }
+
+      final dataJ = (map['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final created = StockOpname.fromJson(dataJ);
+
+      _createStockOpnameError = null;
+      _lastError = null;
+      notifyListeners();
+
+      if (refreshListAfter) {
+        await fetchStockOpnames(
+          context,
+          idStoreLocation: idStoreLocation,
+          append: false,
+        );
+      }
+
+      return created;
+    } catch (e, st) {
+      _createStockOpnameError = e.toString();
+      _lastError = _createStockOpnameError;
+      debugPrint('[StockProvider] createStockOpname error: $e');
+      debugPrint('$st');
+      notifyListeners();
+      return null;
+    } finally {
+      _creatingStockOpname = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> createStockOpnameOk({
+    required BuildContext context,
+    required String idStoreLocation,
+    required String productId,
+    required String productSkuId,
+    required int qty,
+    bool refreshListAfter = true,
+  }) async {
+    final created = await createStockOpname(
+      context: context,
+      idStoreLocation: idStoreLocation,
+      productId: productId,
+      productSkuId: productSkuId,
+      qty: qty,
+      refreshListAfter: refreshListAfter,
+    );
+    return created != null;
+  }
+
+  void clearStockOpnameList() {
+    _stockOpnames.clear();
+    _pageStockOpnames = null;
+    _stockOpnamesError = null;
     notifyListeners();
   }
 }
