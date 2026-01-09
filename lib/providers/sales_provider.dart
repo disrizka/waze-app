@@ -1405,7 +1405,7 @@ class SalesProvider extends SafeChangeNotifier {
     _midtrans = await MidtransSDK.init(
       config: MidtransConfig(
         clientKey: midtransClientKey!,
-        merchantBaseUrl: '',
+        merchantBaseUrl: dotenv.env['MERCHANT_BASE_URL']!,
         colorTheme: ColorTheme(
           colorPrimary: Theme.of(context).colorScheme.primary,
           colorPrimaryDark: Theme.of(context).colorScheme.primary,

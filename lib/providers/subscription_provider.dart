@@ -1818,8 +1818,8 @@ class SubscriptionProvider with ChangeNotifier {
 
     _midtrans = await MidtransSDK.init(
       config: MidtransConfig(
+        merchantBaseUrl: dotenv.env['MERCHANT_BASE_URL']!,
         clientKey: midtransClientKey!,
-        merchantBaseUrl: '',
         colorTheme: ColorTheme(
           colorPrimary: Theme.of(context).colorScheme.primary,
           colorPrimaryDark: Theme.of(context).colorScheme.primary,
