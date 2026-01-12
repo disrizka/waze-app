@@ -14,7 +14,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:wa_blast/providers/hr_provider.dart';
 import 'package:wa_blast/providers/order_provider.dart';
 import 'package:wa_blast/screens/order/order_list_screen.dart';
-import 'package:wa_blast/screens/stock_opname_form_screen.dart';
+import 'package:wa_blast/screens/stock-opname/stock_opname_create_screen.dart';
+import 'package:wa_blast/screens/stock-opname/stock_opname_form_screen.dart';
 import 'package:wa_blast/screens/stock_opname_list_screen.dart';
 import 'package:wa_blast/screens/transaction_fee_detail_screen.dart';
 
@@ -475,7 +476,7 @@ class MyApp extends StatelessWidget {
       case '/stock/opname/create':
         return _platformRouteAnimated(
           settings,
-          const StockOpnameFormScreen(),
+          const StockOpnameCreateScreen(),
           android: AndroidTransition.slideRight,
         );
 

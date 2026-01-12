@@ -3,21 +3,25 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
+import 'package:in_app_purchase_storekit/store_kit_wrappers.dart';
+import 'package:intl/intl.dart';
 import 'package:midtrans_sdk/midtrans_sdk.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart' as p;
+import 'package:pdf/widgets.dart' as pw;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/screens/subscription/subscription_payment_success_screen.dart';
 
 import '../core/provider_helper.dart';
 import '../models/premium_plan_model.dart';
 import '../services/api_service.dart';
 import '../widgets/payment_webview_screen.dart';
-import 'package:intl/intl.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:pdf/pdf.dart' as p;
-import 'package:pdf/widgets.dart' as pw;
-import 'package:shared_preferences/shared_preferences.dart';
 
 // -------------------------------------------------------------
 // ENUM: BillingCycle
@@ -51,8 +55,6 @@ class SubscriptionHistoryItem {
   final String paymentLink;
   final String paymentToken;
 
-  // ✅ NEW: idTransactionFee untuk detail platform fee
-  // backend bisa kirim dengan key berbeda, kita parse beberapa kemungkinan
   final String transactionFeeId;
 
   SubscriptionHistoryItem({
@@ -87,20 +89,18 @@ class SubscriptionHistoryItem {
     }
 
     String _pickTxFeeId(Map<String, dynamic> j) {
-      // beberapa kemungkinan key dari backend
       final candidates = [
         'idTransactionFee',
         'id_transaction_fee',
         'transaction_fee_id',
         'transactionFeeId',
-        'transaction_fee', // kalau backend ngirim object/string
+        'transaction_fee',
       ];
 
       for (final k in candidates) {
         final v = j[k];
         if (v == null) continue;
 
-        // kalau bentuknya object: { id: "..." }
         if (v is Map && v['id'] != null) {
           final s = v['id'].toString().trim();
           if (s.isNotEmpty) return s;
@@ -293,7 +293,7 @@ class VoucherCheckResult {
   final int discount;
   final String? voucherName;
   final String? voucherDesc;
-  final String? message; // isi msg dari backend kalau gagal
+  final String? message;
 
   const VoucherCheckResult({
     required this.isValid,
@@ -322,9 +322,6 @@ class PaymentResult {
   });
 }
 
-// -------------------------------------------------------------
-// ✅ NEW: Transaction Fee Model
-// -------------------------------------------------------------
 class TransactionFeeItem {
   final String idTransactionFee;
   final String idBusiness;
@@ -360,8 +357,8 @@ class TransactionFeeItem {
 class _HistoryPagingState {
   List<SubscriptionHistoryItem> items = [];
 
-  bool isLoading = false; // load page 1 / refresh
-  bool isLoadingMore = false; // load next page
+  bool isLoading = false;
+  bool isLoadingMore = false;
 
   String? error;
   String? moreError;
@@ -373,9 +370,24 @@ class _HistoryPagingState {
 
   bool hasMore = true;
 
-  // optional: remember last query
   int limit = 10;
   String search = '';
+}
+
+/// StoreKit delegate (required by in_app_purchase_storekit for some flows)
+class _WaveUpPaymentQueueDelegate implements SKPaymentQueueDelegateWrapper {
+  @override
+  bool shouldContinueTransaction(
+    SKPaymentTransactionWrapper transaction,
+    SKStorefrontWrapper storefront,
+  ) {
+    return true;
+  }
+
+  @override
+  bool shouldShowPriceConsent() {
+    return false;
+  }
 }
 
 // -------------------------------------------------------------
@@ -392,8 +404,8 @@ class SubscriptionProvider with ChangeNotifier {
   BillingCycle _selectedCycle = BillingCycle.monthly;
 
   // ====== State UI umum ======
-  bool _isProcessing = false; // loading saat proses upgrade/payment
-  bool _isLoadingPlans = false; // loading saat fetch plan list
+  bool _isProcessing = false;
+  bool _isLoadingPlans = false;
   String? _errorMessage;
 
   // ====== Premium plan list ======
@@ -406,10 +418,305 @@ class SubscriptionProvider with ChangeNotifier {
   String? _currentTransactionNumber;
 
   // ---------------------------------------------------------------------------
+  // ✅ iOS App Store Subscription / StoreKit (moved from screen)
+  // ---------------------------------------------------------------------------
+  bool get isIOS => !kIsWeb && Platform.isIOS;
+
+  final InAppPurchase _iap = InAppPurchase.instance;
+  StreamSubscription<List<PurchaseDetails>>? _iapPurchaseSub;
+
+  bool _iosIapInitDone = false;
+  bool _iosIapInitLoading = false;
+  bool _iosIapAvailable = false;
+
+  bool _iosPurchasing = false;
+  String? _iosIapError;
+
+  /// Dipakai UI untuk show snackbar sekali (screen akan clear).
+  String? _iosLastMessage;
+
+  /// Cache product details
+  final Map<String, ProductDetails> _iosProductsById = {};
+
+  InAppPurchaseStoreKitPlatformAddition? _iosAddition;
+  final _WaveUpPaymentQueueDelegate _queueDelegate =
+      _WaveUpPaymentQueueDelegate();
+
+  /// Mapping productId App Store Connect (sesuaikan dengan product kamu)
+  static const Map<int, String> _iosProductIdByMonths = {
+    1: 'premium_monthly',
+    6: 'premium_6_months',
+    12: 'premium_12_months',
+  };
+
+  /// Opsi mapping by pricingId (id pricing dari backend)
+  static const Map<String, String> _iosProductIdByPricingId = {
+    // 'pricing_id_123': 'com.company.app.premium.monthly',
+  };
+
+  bool get iosIapInitDone => _iosIapInitDone;
+  bool get iosIapInitLoading => _iosIapInitLoading;
+  bool get iosIapAvailable => _iosIapAvailable;
+
+  bool get iosPurchasing => _iosPurchasing;
+  String? get iosIapError => _iosIapError;
+
+  String? get iosLastMessage => _iosLastMessage;
+
+  void clearIosLastMessage() {
+    if ((_iosLastMessage ?? '').isEmpty) return;
+    _iosLastMessage = null;
+    notifyListeners();
+  }
+
+  void _iapLog(String msg) {
+    if (kDebugMode) debugPrint('[IAP][Provider] $msg');
+  }
+
+  Set<String> _allKnownIosProductIds() {
+    final ids = <String>{};
+    ids.addAll(_iosProductIdByMonths.values.where((e) => e.trim().isNotEmpty));
+    ids.addAll(
+      _iosProductIdByPricingId.values.where((e) => e.trim().isNotEmpty),
+    );
+    return ids;
+  }
+
+  String? iosProductIdForPricing(PlanPricing pricing) {
+    final pricingKey = pricing.id.toString();
+    final byPricing = _iosProductIdByPricingId[pricingKey];
+    if (byPricing != null && byPricing.trim().isNotEmpty) return byPricing;
+
+    final byMonths = _iosProductIdByMonths[pricing.period];
+    if (byMonths != null && byMonths.trim().isNotEmpty) return byMonths;
+
+    return null;
+  }
+
+  ProductDetails? iosCachedProductForPricing(PlanPricing pricing) {
+    final id = iosProductIdForPricing(pricing);
+    if (id == null) return null;
+    return _iosProductsById[id];
+  }
+
+  Future<void> initIosIap() async {
+    if (!isIOS) {
+      _iosIapInitDone = true;
+      _iosIapInitLoading = false;
+      _iosIapAvailable = false;
+      return;
+    }
+    if (_iosIapInitLoading) return;
+
+    _iapLog('init start');
+    _iosIapInitLoading = true;
+    _iosIapInitDone = false;
+    _iosIapAvailable = false;
+    _iosIapError = null;
+    notifyListeners();
+
+    try {
+      _iapPurchaseSub?.cancel();
+      _iapPurchaseSub = _iap.purchaseStream.listen(
+        (purchases) {
+          _iapLog('purchaseStream -> ${purchases.length} item(s)');
+          unawaited(_handlePurchaseUpdates(purchases));
+        },
+        onError: (e) {
+          _iapLog('purchaseStream onError: $e');
+          _iosIapError = e.toString();
+          _iosLastMessage = _iosIapError;
+          notifyListeners();
+        },
+      );
+
+      _iosAddition = _iap
+          .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
+      await _iosAddition!.setDelegate(_queueDelegate);
+
+      await Future.delayed(const Duration(milliseconds: 350));
+
+      final available = await _iap.isAvailable();
+      _iapLog('isAvailable=$available');
+
+      _iosIapAvailable = available;
+
+      if (available) {
+        await _preloadIosProductsWithRetry();
+      }
+
+      _iosIapInitDone = true;
+      _iosIapInitLoading = false;
+      notifyListeners();
+
+      _iapLog(
+        'init done (available=$_iosIapAvailable, cached=${_iosProductsById.length})',
+      );
+    } catch (e) {
+      _iapLog('init error: $e');
+      _iosIapAvailable = false;
+      _iosIapInitDone = true;
+      _iosIapInitLoading = false;
+      _iosIapError = e.toString();
+      _iosLastMessage = _iosIapError;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _preloadIosProductsWithRetry() async {
+    final ids = _allKnownIosProductIds();
+    _iapLog('preload products: $ids');
+    if (ids.isEmpty) return;
+
+    final ok1 = await _preloadIosProductsOnce(ids);
+    if (ok1) return;
+
+    await Future.delayed(const Duration(milliseconds: 900));
+    await _preloadIosProductsOnce(ids);
+  }
+
+  Future<bool> _preloadIosProductsOnce(Set<String> ids) async {
+    final resp = await _iap.queryProductDetails(ids);
+
+    _iapLog(
+      'query error code=${resp.error?.code} message=${resp.error?.message}',
+    );
+    _iapLog('notFound=${resp.notFoundIDs}');
+    _iapLog('found=${resp.productDetails.map((e) => e.id).toList()}');
+
+    if (resp.error != null) {
+      _iosIapError = resp.error.toString();
+      notifyListeners();
+      return false;
+    }
+
+    for (final p in resp.productDetails) {
+      _iosProductsById[p.id] = p;
+    }
+
+    notifyListeners();
+    return resp.productDetails.isNotEmpty;
+  }
+
+  Future<ProductDetails?> _getIosProduct(String productId) async {
+    final cached = _iosProductsById[productId];
+    if (cached != null) return cached;
+
+    final resp1 = await _iap.queryProductDetails({productId});
+    if (resp1.error == null && resp1.productDetails.isNotEmpty) {
+      _iosProductsById[productId] = resp1.productDetails.first;
+      notifyListeners();
+      return resp1.productDetails.first;
+    }
+
+    await Future.delayed(const Duration(milliseconds: 800));
+
+    final resp2 = await _iap.queryProductDetails({productId});
+    if (resp2.error == null && resp2.productDetails.isNotEmpty) {
+      _iosProductsById[productId] = resp2.productDetails.first;
+      notifyListeners();
+      return resp2.productDetails.first;
+    }
+
+    if (resp2.error != null) {
+      throw Exception(resp2.error!.message);
+    }
+
+    return null;
+  }
+
+  Future<void> startIosSubscriptionPurchase({
+    required PlanPricing pricing,
+  }) async {
+    if (!isIOS) return;
+
+    if (!_iosIapInitDone || _iosIapInitLoading) {
+      await initIosIap();
+    }
+
+    if (!_iosIapAvailable) {
+      _iosLastMessage =
+          'App Store payment is unavailable on this device. Check StoreKit config / restrictions.';
+      notifyListeners();
+      return;
+    }
+
+    final productId = iosProductIdForPricing(pricing);
+    if (productId == null || productId.isEmpty) {
+      _iosLastMessage = 'iOS Product ID mapping is not set.';
+      notifyListeners();
+      return;
+    }
+
+    _iosPurchasing = true;
+    _iosIapError = null;
+    notifyListeners();
+
+    try {
+      final product = await _getIosProduct(productId);
+      if (product == null) {
+        throw Exception('Product not found on App Store / StoreKit config.');
+      }
+
+      final purchaseParam = PurchaseParam(productDetails: product);
+
+      final ok = await _iap.buyNonConsumable(purchaseParam: purchaseParam);
+      if (!ok) {
+        _iosPurchasing = false;
+        _iosLastMessage = 'Failed to start purchase.';
+        notifyListeners();
+      }
+    } catch (e) {
+      _iosPurchasing = false;
+      _iosIapError = e.toString();
+      _iosLastMessage = 'Purchase error: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<void> _handlePurchaseUpdates(List<PurchaseDetails> purchases) async {
+    for (final p in purchases) {
+      if (p.status == PurchaseStatus.pending) {
+        _iosPurchasing = true;
+        notifyListeners();
+      }
+
+      if (p.status == PurchaseStatus.error) {
+        _iosPurchasing = false;
+        _iosIapError = p.error?.message ?? 'Unknown purchase error';
+        _iosLastMessage = _iosIapError;
+        notifyListeners();
+      }
+
+      // if (p.status == PurchaseStatus.purchased ||
+      //     p.status == PurchaseStatus.restored) {
+      //   _iosPurchasing = false;
+
+      //   final serverData = p.verificationData.serverVerificationData;
+      //   if (kDebugMode) {
+      //     debugPrint('[IAP][Provider] productID=${p.productID}');
+      //     debugPrint(
+      //       '[IAP][Provider] serverVerificationData length=${serverData.length}',
+      //     );
+      //   }
+
+      //   _iosLastMessage = 'Subscription purchased successfully.';
+      //   notifyListeners();
+      // }
+
+      if (p.pendingCompletePurchase) {
+        try {
+          await _iap.completePurchase(p);
+        } catch (e) {
+          _iapLog('completePurchase error: $e');
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // HELPER FORMAT RUPIAH
   // ---------------------------------------------------------------------------
-  /// Format angka jadi Rupiah dengan pemisah tiap 3 digit.
-  /// Contoh: 1500000 -> "Rp 1.500.000"
   String _formatRupiah(num value) {
     final intVal = value.floor();
     final s = intVal.toString();
@@ -432,19 +739,12 @@ class SubscriptionProvider with ChangeNotifier {
   double get monthlyPrice => _monthlyPrice;
   double get yearlyPrice => _yearlyPrice;
 
-  /// Plan pertama dari /premium-plan (jika ada).
   PremiumPlan? get firstPlan => _plans.isNotEmpty ? _plans.first : null;
 
-  // ====== Subscription history ======
-  // ====== Subscription history (INFINITE) ======
   static const String _historyType = 'premium_business';
 
-  // ====== Payment History (INFINITE + MULTI TYPE) ======
   final Map<String, _HistoryPagingState> _historyStates = {};
 
-  // =============================================================
-  // ✅ NEW: Transaction Fee Detail (history fee increase)
-  // =============================================================
   final Map<String, _TransactionFeeDetailPagingState> _txFeeDetailStates = {};
 
   _TransactionFeeDetailPagingState _txFeeState(String idTransactionFee) =>
@@ -541,13 +841,11 @@ class SubscriptionProvider with ChangeNotifier {
         throw Exception('$msg (status=$status)');
       }
 
-      // info
       final infoRaw = decoded['transaction_fee_info'];
       if (infoRaw is Map) {
         st.info = TransactionFeeInfo.fromJson(infoRaw.cast<String, dynamic>());
       }
 
-      // data list
       final data = decoded['data'];
       final items = (data is List)
           ? data
@@ -560,7 +858,6 @@ class SubscriptionProvider with ChangeNotifier {
                 .toList()
           : <TransactionFeeHistoryEntry>[];
 
-      // page
       final page = decoded['page'];
       final currentPage = (page is Map)
           ? (page['current_page'] as num?)?.toInt() ?? 1
@@ -654,7 +951,6 @@ class SubscriptionProvider with ChangeNotifier {
         throw Exception('$msg (status=$status)');
       }
 
-      // info bisa diabaikan (tetap simpan kalau ada)
       final infoRaw = decoded['transaction_fee_info'];
       if (st.info == null && infoRaw is Map) {
         st.info = TransactionFeeInfo.fromJson(infoRaw.cast<String, dynamic>());
@@ -714,7 +1010,6 @@ class SubscriptionProvider with ChangeNotifier {
   int historyCurrentPageOf(String type) => _hs(type).page;
   int historyTotalPagesOf(String type) => _hs(type).totalPages;
 
-  // Backward-compat (kalau ada UI lama yang masih pakai getter ini)
   static const String kHistoryTypePremiumBusiness = 'premium_business';
   static const String kHistoryTypeTransactionFee = 'transaction_fee';
 
@@ -729,7 +1024,7 @@ class SubscriptionProvider with ChangeNotifier {
   bool get historyHasMore => historyHasMoreOf(kHistoryTypePremiumBusiness);
 
   // -------------------------------------------------------------
-  // ✅ NEW: Transaction fee state
+  // Transaction fee state
   // -------------------------------------------------------------
   List<TransactionFeeItem> _transactionFees = [];
   bool _isLoadingTransactionFees = false;
@@ -745,33 +1040,24 @@ class SubscriptionProvider with ChangeNotifier {
   String get totalUnpaidTransactionFeeLabel =>
       _formatRupiah(_totalUnpaidTransactionFee);
 
-  // -------------------------------------------------------------
-  // ✅ NEW: Transaction Fee Payment (Midtrans) state
-  // -------------------------------------------------------------
   bool _isProcessingTransactionFee = false;
   String? _transactionFeePaymentError;
 
   Timer? _transactionFeeCheckTimer;
   String? _currentTransactionFeeNumber;
 
-  // simpan info untuk success dialog (opsional)
   int? _lastTransactionFeeAmount;
   String? _lastTransactionFeePeriod;
 
   bool get isProcessingTransactionFee => _isProcessingTransactionFee;
   String? get transactionFeePaymentError => _transactionFeePaymentError;
 
-  /// Label harga plan pertama, hanya "Rp 150.000"
   String get firstPlanPriceLabel {
     final plan = firstPlan;
     if (plan == null) return '-';
     return _formatRupiah(plan.price);
   }
 
-  /// Label harga plan pertama lengkap dengan periodenya
-  /// - 1 bulan  -> "Rp 150.000 / month"
-  /// - 12 bulan -> "Rp 1.500.000 / year"
-  /// - lainnya  -> "Rp 300.000 / 3 months"
   String get firstPlanPricePerPeriodLabel {
     final plan = firstPlan;
     if (plan == null) return '-';
@@ -793,7 +1079,6 @@ class SubscriptionProvider with ChangeNotifier {
     return discount;
   }
 
-  // Cari plan + pricing berdasarkan planId (di sini diasumsikan planId = PlanPricing.id)
   void _rememberPaidPlanForPayment(String planId, String pricingId) {
     PremiumPlan? foundPlan;
     PlanPricing? foundPricing;
@@ -815,17 +1100,11 @@ class SubscriptionProvider with ChangeNotifier {
     _lastPaidPricing = foundPricing;
   }
 
-  /// Label harga yang bisa langsung dipakai di UI.
-  /// Sekarang:
-  /// - kalau sudah ada data plan -> pakai plan pertama (Rupiah, 3 digit)
-  /// - kalau belum ada plan -> fallback pakai _monthlyPrice/_yearlyPrice (juga Rupiah)
   String get selectedPriceLabel {
-    // ✅ Pakai plan pertama kalau sudah ada data
     if (firstPlan != null) {
       return firstPlanPricePerPeriodLabel;
     }
 
-    // Fallback: pakai harga default
     switch (_selectedCycle) {
       case BillingCycle.monthly:
         return '${_formatRupiah(_monthlyPrice)} / month';
@@ -844,7 +1123,7 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // CEK VOUCHER (POST /premium/voucher/check)
+  // CEK VOUCHER
   // ---------------------------------------------------------------------------
   Future<VoucherCheckResult> checkVoucher({
     required BuildContext context,
@@ -888,7 +1167,6 @@ class SubscriptionProvider with ChangeNotifier {
 
       final status = (json['status'] as num?)?.toInt() ?? 0;
 
-      // ✅ Berhasil
       if (status == 200) {
         final op = (json['original_price'] as num?)?.toInt() ?? originalPrice;
         final fp = (json['final_price'] as num?)?.toInt() ?? op;
@@ -904,8 +1182,6 @@ class SubscriptionProvider with ChangeNotifier {
         );
       }
 
-      // ❌ Gagal (contoh: status 400)
-      // kembalikan saja apapun message-nya
       final msg = json['msg']?.toString() ?? 'Voucher is not valid';
 
       return VoucherCheckResult(
@@ -918,7 +1194,6 @@ class SubscriptionProvider with ChangeNotifier {
     } catch (e, st) {
       debugPrint('[SubscriptionProvider] checkVoucher error: $e\n$st');
 
-      // Error network / lainnya, tetap bungkus di result supaya UI bisa handle
       return VoucherCheckResult(
         isValid: false,
         originalPrice: originalPrice,
@@ -930,7 +1205,7 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // 1) GET PREMIUM PLAN LIST (GET /premium-plan)
+  // GET PREMIUM PLAN LIST
   // ---------------------------------------------------------------------------
   Future<void> fetchPremiumPlans(BuildContext context) async {
     _isLoadingPlans = true;
@@ -982,7 +1257,6 @@ class SubscriptionProvider with ChangeNotifier {
 
       _errorMessage = null;
 
-      // Contoh: kalau ada plan 12 bulan aktif, jadikan patokan harga yearly
       PremiumPlan? yearlyPlan;
       for (final p in _plans) {
         if (p.months == 12 && p.isActive) {
@@ -991,7 +1265,6 @@ class SubscriptionProvider with ChangeNotifier {
         }
       }
 
-      // Update _monthlyPrice & _yearlyPrice supaya fallback juga pakai Rupiah dari API
       final first = firstPlan;
 
       if (yearlyPlan != null) {
@@ -999,10 +1272,14 @@ class SubscriptionProvider with ChangeNotifier {
         final months = yearlyPlan.months == 0 ? 1 : yearlyPlan.months;
         _monthlyPrice = yearlyPlan.price / months;
       } else if (first != null) {
-        // Kalau tidak ada plan 12 bulan, pakai plan pertama sebagai referensi
         _yearlyPrice = first.price.toDouble();
         final months = first.months == 0 ? 1 : first.months;
         _monthlyPrice = first.price / months;
+      }
+
+      // ✅ kalau iOS, preload lagi setelah plans ada (biar mapping period kebaca)
+      if (isIOS && _iosIapAvailable) {
+        unawaited(_preloadIosProductsWithRetry());
       }
     } catch (e, st) {
       debugPrint('[SubscriptionProvider] fetchPremiumPlans error: $e\n$st');
@@ -1014,7 +1291,7 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ NEW: GET TRANSACTION FEE LIST (GET /waveup/{idBusiness}/transaction-fee)
+  // GET TRANSACTION FEE LIST
   // ---------------------------------------------------------------------------
   Future<void> fetchTransactionFees(BuildContext context) async {
     _isLoadingTransactionFees = true;
@@ -1022,7 +1299,6 @@ class SubscriptionProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // 🔹 Ambil business id dari BizIdCache
       final bizId = await BizIdCache.get();
       if (bizId == null || bizId.toString().trim().isEmpty) {
         throw Exception(
@@ -1091,10 +1367,7 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ NEW: PAY TRANSACTION FEE (POST /waveup/{idBusiness}/transaction-fee/pay)
-  // - Tidak ada payload
-  // - Langsung buka Snap (Midtrans) pakai payment_token
-  // - Polling berkala ke /payment/check sampai lunas
+  // PAY TRANSACTION FEE
   // ---------------------------------------------------------------------------
   Future<void> goToTransactionFeePayment({
     required BuildContext context,
@@ -1115,7 +1388,6 @@ class SubscriptionProvider with ChangeNotifier {
 
       final path = '/waveup/$bizId/transaction-fee/pay';
 
-      // payload kosong sesuai instruksi
       final res = await ApiService.post(
         context,
         path,
@@ -1139,8 +1411,9 @@ class SubscriptionProvider with ChangeNotifier {
       } catch (_) {
         json = null;
       }
-      if (json == null)
+      if (json == null) {
         throw Exception('Invalid JSON from transaction-fee/pay');
+      }
 
       final status = (json['status'] as num?)?.toInt() ?? 0;
       if (status != 200) {
@@ -1150,7 +1423,6 @@ class SubscriptionProvider with ChangeNotifier {
 
       final transactionNumber = json['transaction_number']?.toString() ?? '';
       final paymentToken = json['payment_token']?.toString() ?? '';
-      final paymentLink = json['payment_link']?.toString() ?? '';
       final totalAmount = (json['total_amount'] as num?)?.toInt() ?? 0;
       final feePeriod = json['fee_period']?.toString() ?? '';
       final message = json['message']?.toString() ?? '';
@@ -1162,27 +1434,19 @@ class SubscriptionProvider with ChangeNotifier {
         throw Exception('Invalid response: missing payment_token');
       }
 
-      // simpan untuk polling + success dialog
       _currentTransactionFeeNumber = transactionNumber;
       _lastTransactionFeeAmount = totalAmount;
       _lastTransactionFeePeriod = feePeriod;
 
-      // mulai polling backend
       _startTransactionFeePaymentStatusPolling(context);
 
-      // (opsional) kasih info singkat
       if (message.trim().isNotEmpty && context.mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(message)));
       }
 
-      // ✅ Instruksi kamu: "langsung snap ke midtrans"
       await _startSnap(paymentToken, context);
-
-      // Final decision tetap dari polling backend /payment/check
-      // Jadi di sini tidak usah navigate success.
-      // Polling akan handle saat status 200.
     } catch (e, st) {
       debugPrint(
         '[SubscriptionProvider] goToTransactionFeePayment error: $e\n$st',
@@ -1201,11 +1465,6 @@ class SubscriptionProvider with ChangeNotifier {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // ✅ NEW: Transaction Fee Payment Check Polling
-  // POST /waveup/{idBusiness}/transaction-fee/payment/check
-  // payload: { "number": transaction_number }
-  // ---------------------------------------------------------------------------
   void _startTransactionFeePaymentStatusPolling(BuildContext context) {
     _transactionFeeCheckTimer?.cancel();
 
@@ -1276,7 +1535,6 @@ class SubscriptionProvider with ChangeNotifier {
       final status = (json['status'] as num?)?.toInt() ?? 0;
 
       if (status == 400) {
-        // belum bayar, biarkan polling lanjut
         debugPrint(
           '[TransactionFee] Not paid yet: ${json['message']?.toString() ?? ''}',
         );
@@ -1293,7 +1551,6 @@ class SubscriptionProvider with ChangeNotifier {
         _isProcessingTransactionFee = false;
         notifyListeners();
 
-        // refresh list fee supaya UI kebuka (Sales unlocked)
         if (context.mounted) {
           await fetchTransactionFees(context);
           await _showTransactionFeePaidDialog(context);
@@ -1304,7 +1561,6 @@ class SubscriptionProvider with ChangeNotifier {
       debugPrint('[TransactionFee] Unknown status=$status (json=$json)');
     } catch (e, st) {
       debugPrint('[TransactionFee] polling error: $e\n$st');
-      // ignore; timer akan coba lagi
     }
   }
 
@@ -1333,7 +1589,6 @@ class SubscriptionProvider with ChangeNotifier {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Success icon
                 Container(
                   width: 64,
                   height: 64,
@@ -1348,14 +1603,12 @@ class SubscriptionProvider with ChangeNotifier {
                   ),
                 ),
                 const SizedBox(height: 18),
-
                 const Text(
                   'Payment Successful',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
-
                 const Text(
                   'Thank you for paying the WaveUp platform fee.\n'
                   'Every contribution matters to us.\n'
@@ -1368,10 +1621,7 @@ class SubscriptionProvider with ChangeNotifier {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-
                 const SizedBox(height: 18),
-
-                // Payment details
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
@@ -1433,10 +1683,7 @@ class SubscriptionProvider with ChangeNotifier {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 20),
-
-                // Continue button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -1450,18 +1697,13 @@ class SubscriptionProvider with ChangeNotifier {
                     ),
                     onPressed: () {
                       final nav = Navigator.of(context, rootNavigator: true);
-
-                      // close dialog
                       nav.pop();
-
-                      // go to home & request refresh
                       nav.pushNamedAndRemoveUntil(
                         '/home',
                         (r) => false,
                         arguments: const {'refresh': true},
                       );
                     },
-
                     child: const Text(
                       'Continue',
                       style: TextStyle(
@@ -1480,8 +1722,7 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // 2) UPGRADE PREMIUM (POST /premium/business/upgrade + Midtrans)
-  //     business_id diambil dari BizIdCache.get()
+  // UPGRADE PREMIUM (Midtrans)
   // ---------------------------------------------------------------------------
   Future<void> goToPayment({
     required BuildContext context,
@@ -1501,7 +1742,6 @@ class SubscriptionProvider with ChangeNotifier {
     const path = '/premium/business/upgrade';
 
     try {
-      // 🔹 Ambil business id dari BizIdCache
       final bizId = await BizIdCache.get();
       if (bizId == null || bizId.toString().trim().isEmpty) {
         throw Exception(
@@ -1510,9 +1750,9 @@ class SubscriptionProvider with ChangeNotifier {
       }
 
       final payload = {
-        'plan_id': planId, // idPlan (encrypted di backend)
+        'plan_id': planId,
         'business_id': bizId,
-        'pricing_id': pricingId, // PlanPricing.id (encrypted di backend)
+        'pricing_id': pricingId,
         'payment_method': paymentMethod,
         'voucher_code': voucherCode,
       };
@@ -1563,12 +1803,8 @@ class SubscriptionProvider with ChangeNotifier {
 
       _currentTransactionNumber = transactionNumber;
 
-      // 🔁 Mulai polling status pembayaran (konfirmasi dari backend)
       _startPaymentStatusPolling(context);
 
-      // ===========================
-      // 🔸 KHUSUS PAYMENT METHOD 6
-      // ===========================
       if (paymentMethodFromResponse == 6) {
         if (paymentLink.isEmpty) {
           throw Exception(
@@ -1576,36 +1812,20 @@ class SubscriptionProvider with ChangeNotifier {
           );
         }
 
-        debugPrint(
-          '[Subscription] Open WebView for payment_method=6: $paymentLink',
-        );
-
-        // Buka halaman WebView, ada tombol "Finish payment" untuk menutup
         await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => PaymentWebViewScreen(initialUrl: paymentLink),
             fullscreenDialog: true,
           ),
         );
-
-        // ⚠️ Jangan panggil Snap kalau metode 6
-        // Polling tetap jalan, dan kalau sukses akan muncul dialog + redirect ke /splash
         return;
       }
 
-      // ===========================
-      // Metode lain tetap pakai Snap
-      // ===========================
       if (paymentToken.isEmpty) {
         throw Exception('Invalid upgrade response (no token for Snap)');
       }
 
-      final snapResult = await _startSnap(paymentToken, context);
-      debugPrint(
-        '🏁 [Subscription] Snap selesai dengan status: ${snapResult?.status}',
-      );
-
-      // Keputusan final tetap dari _checkPaymentStatus (polling backend).
+      await _startSnap(paymentToken, context);
     } catch (e, st) {
       debugPrint('[SubscriptionProvider] goToPayment error: $e\n$st');
       _isProcessing = false;
@@ -1622,7 +1842,6 @@ class SubscriptionProvider with ChangeNotifier {
     required BuildContext context,
     required SubscriptionHistoryItem item,
   }) async {
-    // hanya untuk unpaid
     final isPaid = item.paid == 1 || item.paidStatus.toLowerCase() == 'paid';
     if (isPaid) return;
 
@@ -1637,9 +1856,8 @@ class SubscriptionProvider with ChangeNotifier {
     }
 
     _currentTransactionNumber = number;
-    _startPaymentStatusPolling(context); // ✅ polling backend tetap jalan
+    _startPaymentStatusPolling(context);
 
-    // QRIS -> web
     if (item.paymentMethod == 6) {
       final link = item.paymentLink.trim();
       if (link.isEmpty) {
@@ -1660,7 +1878,6 @@ class SubscriptionProvider with ChangeNotifier {
       return;
     }
 
-    // selain QRIS -> Snap ulang
     final token = item.paymentToken.trim();
     if (token.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1674,9 +1891,6 @@ class SubscriptionProvider with ChangeNotifier {
     await _startSnap(token, context);
   }
 
-  // ---------------------------------------------------------------------------
-  // 3) PAYMENT CHECK (POST /premium/business/payment/check)
-  // ---------------------------------------------------------------------------
   void _startPaymentStatusPolling(BuildContext context) {
     _paymentCheckTimer?.cancel();
 
@@ -1699,7 +1913,6 @@ class SubscriptionProvider with ChangeNotifier {
     if (number == null || number.isEmpty) return;
 
     const path = '/premium/business/payment/check';
-    //
     debugPrint('[Subscription] Cek payment status untuk number=$number');
 
     try {
@@ -1738,11 +1951,10 @@ class SubscriptionProvider with ChangeNotifier {
       final status = (json['status'] as num?)?.toInt() ?? 0;
 
       if (status == 400) {
-        // contoh: { "status": 400, "msg": "transaction not yet paid" }
         debugPrint(
           '[Subscription] Transaction belum dibayar: ${json['msg'] ?? ''}',
         );
-        return; // biarkan timer jalan terus
+        return;
       }
 
       if (status == 200) {
@@ -1759,13 +1971,11 @@ class SubscriptionProvider with ChangeNotifier {
         return;
       }
 
-      // Status lain (kalau backend nanti tambahkan expired/failed, dsb.)
       debugPrint(
         '[Subscription] Payment check status tidak dikenal: $status (json=$json)',
       );
     } catch (e, st) {
       debugPrint('[Subscription] Error cek payment: $e\n$st');
-      // Bisa diabaikan, nanti timer akan coba lagi 6 detik kemudian.
     }
   }
 
@@ -1809,7 +2019,7 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // MIDTRANS (diadaptasi dari SalesProvider)
+  // MIDTRANS
   // ---------------------------------------------------------------------------
   Future<void> _initMidtransIfNeeded(BuildContext context) async {
     final midtransClientKey = dotenv.env['MIDTRANS_CLIENT_KEY'];
@@ -1827,195 +2037,6 @@ class SubscriptionProvider with ChangeNotifier {
         ),
         enableLog: true,
       ),
-    );
-  }
-
-  Future<void> _showPaymentSuccessDialog(BuildContext context) async {
-    // Default fallback kalau info plan/pricing tidak ketemu
-    final planName = _lastPaidPlan?.name ?? 'Premium Plan';
-    final period = _lastPaidPricing?.period;
-    final price = _lastPaidPricing?.price;
-
-    String periodLabel;
-    if (period == null || period <= 0) {
-      periodLabel = 'Selected period';
-    } else if (period == 1) {
-      periodLabel = '1 month';
-    } else if (period == 12) {
-      periodLabel = '12 months';
-    } else {
-      periodLabel = '$period months';
-    }
-
-    final amountLabel = price != null ? _formatRupiah(price) : '—';
-
-    await showDialog(
-      context: context,
-      barrierDismissible: false, // wajib tekan Continue
-      builder: (ctx) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Icon sukses
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.verified_rounded,
-                    size: 36,
-                    color: Color(0xFF2E7D32),
-                  ),
-                ),
-                const SizedBox(height: 18),
-
-                const Text(
-                  'Payment Successful',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-
-                const Text(
-                  'Your premium subscription has been activated.\nThank you for your payment. Enjoy all premium features for your business.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.black54,
-                    height: 1.4,
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Card detail plan
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    color: const Color(0xFFF5F7FB),
-                    border: Border.all(color: const Color(0xFFE1E5F2)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Subscription details',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Plan',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                          ),
-                          Flexible(
-                            child: Text(
-                              planName,
-                              textAlign: TextAlign.right,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Billing period',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                          ),
-                          Text(
-                            periodLabel,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Amount paid',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                          ),
-                          Text(
-                            amountLabel,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 22),
-
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                      backgroundColor: Colors.black,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                    onPressed: () {
-                      final nav = Navigator.of(context, rootNavigator: true);
-                      // Langsung arahkan ke /splash, hapus semua route sebelumnya
-                      nav.pushNamedAndRemoveUntil('/home', (r) => false);
-                    },
-                    child: const Text(
-                      'Continue',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -2115,7 +2136,7 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // 5) DOWNLOAD PDF INVOICE per historyId
+  // DOWNLOAD PDF INVOICE (tetap)
   // ---------------------------------------------------------------------------
   Future<File?> downloadInvoicePdfFromHistory({
     required BuildContext context,
@@ -2123,13 +2144,9 @@ class SubscriptionProvider with ChangeNotifier {
     bool openAfterSave = true,
   }) async {
     try {
-      // =========================
-      // Helper: sanitize text (ASCII only) supaya tidak kena warning Helvetica Unicode
-      // =========================
       String safePdfText(String input) {
         var s = input;
 
-        // replace karakter umum yang sering bikin warning
         s = s.replaceAll('•', '-');
         s = s.replaceAll('—', '-');
         s = s.replaceAll('–', '-');
@@ -2137,10 +2154,7 @@ class SubscriptionProvider with ChangeNotifier {
         s = s.replaceAll('“', '"').replaceAll('”', '"');
         s = s.replaceAll('‘', "'").replaceAll('’', "'");
 
-        // buang semua non-ASCII lainnya (paling aman)
         s = s.replaceAll(RegExp(r'[^\x00-\x7F]'), '');
-
-        // rapihin spasi
         s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
 
         return s.isEmpty ? '-' : s;
@@ -2152,7 +2166,6 @@ class SubscriptionProvider with ChangeNotifier {
         if (t == 'transaction_fee') return 'Platform Transaction Fee';
         if (t.isEmpty) return '-';
 
-        // fallback: snake_case -> Title Case
         final parts = t.split('_').where((e) => e.isNotEmpty).toList();
         if (parts.isEmpty) return raw.trim();
         return parts
@@ -2165,9 +2178,6 @@ class SubscriptionProvider with ChangeNotifier {
             .trim();
       }
 
-      // =========================
-      // Ambil data bisnis dari prefs
-      // =========================
       final prefs = await SharedPreferences.getInstance();
       final activeBizNameRaw = (prefs.getString('activeBizName') ?? '').trim();
       final activeBizUsernameRaw = (prefs.getString('activeBizUsername') ?? '')
@@ -2180,9 +2190,6 @@ class SubscriptionProvider with ChangeNotifier {
         activeBizUsernameRaw.isNotEmpty ? '@$activeBizUsernameRaw' : '-',
       );
 
-      // =========================
-      // Formatter
-      // =========================
       final rupiah = NumberFormat.currency(
         locale: 'id_ID',
         symbol: 'Rp ',
@@ -2231,9 +2238,6 @@ class SubscriptionProvider with ChangeNotifier {
       );
       final typeLabel = safePdfText(prettyTypeLabel(item.type));
 
-      // =========================
-      // PDF Theme Colors (simple & safe)
-      // =========================
       const pdfBlue = p.PdfColor.fromInt(0xFF1D4ED8);
       const pdfBlueSoft = p.PdfColor.fromInt(0xFFEFF6FF);
 
@@ -2259,7 +2263,6 @@ class SubscriptionProvider with ChangeNotifier {
         ),
       );
 
-      // ✅ Badge status aman: radius normal (hindari radius 999 yang bisa bikin garis aneh)
       pw.Widget statusBadge() {
         final bg = isPaid ? pdfGreenBg : pdfRedBg;
         final fg = isPaid ? pdfGreen : pdfRed;
@@ -2291,9 +2294,6 @@ class SubscriptionProvider with ChangeNotifier {
         ),
       );
 
-      // =========================
-      // Build PDF page (layout aman seperti sebelumnya)
-      // =========================
       doc.addPage(
         pw.Page(
           pageFormat: p.PdfPageFormat.a4,
@@ -2302,7 +2302,6 @@ class SubscriptionProvider with ChangeNotifier {
             return pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                // ===== Header =====
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -2357,11 +2356,8 @@ class SubscriptionProvider with ChangeNotifier {
                     ),
                   ],
                 ),
-
                 pw.SizedBox(height: 14),
                 pw.Divider(color: p.PdfColors.grey300),
-
-                // ===== Created / Paid bar =====
                 pw.Container(
                   width: double.infinity,
                   padding: const pw.EdgeInsets.all(12),
@@ -2381,10 +2377,7 @@ class SubscriptionProvider with ChangeNotifier {
                     ],
                   ),
                 ),
-
                 pw.SizedBox(height: 16),
-
-                // ===== Paid by =====
                 sectionTitle('Paid by'),
                 pw.SizedBox(height: 8),
                 pw.Row(
@@ -2393,11 +2386,8 @@ class SubscriptionProvider with ChangeNotifier {
                     kv('Username', paidByUser),
                   ],
                 ),
-
                 pw.SizedBox(height: 14),
                 pw.Divider(color: p.PdfColors.grey300),
-
-                // ===== Transaction details =====
                 pw.SizedBox(height: 10),
                 sectionTitle('Transaction details'),
                 pw.SizedBox(height: 8),
@@ -2406,15 +2396,11 @@ class SubscriptionProvider with ChangeNotifier {
                 pw.Row(
                   children: [kv('Type', typeLabel), kv('Period', periodLabel)],
                 ),
-
                 pw.SizedBox(height: 14),
                 pw.Divider(color: p.PdfColors.grey300),
-
-                // ===== Items =====
                 pw.SizedBox(height: 10),
                 sectionTitle('Items'),
                 pw.SizedBox(height: 8),
-
                 pw.Table(
                   border: pw.TableBorder.all(
                     color: p.PdfColors.grey300,
@@ -2495,10 +2481,7 @@ class SubscriptionProvider with ChangeNotifier {
                     ),
                   ],
                 ),
-
                 pw.SizedBox(height: 14),
-
-                // ===== Total =====
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.end,
                   children: [
@@ -2550,12 +2533,11 @@ class SubscriptionProvider with ChangeNotifier {
                     ),
                   ],
                 ),
-
                 pw.Spacer(),
                 pw.Divider(color: p.PdfColors.grey300),
                 pw.SizedBox(height: 6),
                 pw.Text(
-                  'WaveUp - Jakarta, Indonesia', // ✅ ASCII only
+                  'WaveUp - Jakarta, Indonesia',
                   style: pw.TextStyle(fontSize: 9, color: p.PdfColors.grey700),
                 ),
               ],
@@ -2564,9 +2546,6 @@ class SubscriptionProvider with ChangeNotifier {
         ),
       );
 
-      // =========================
-      // Save file (overwrite)
-      // =========================
       final dir = await getApplicationDocumentsDirectory();
       String safe(String s) => s.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
 
@@ -2582,22 +2561,19 @@ class SubscriptionProvider with ChangeNotifier {
         'id_ID',
       ).format((item.createdAt ?? DateTime.now()).toLocal());
 
-      final safeNo = safe(invoiceNo);
+      final invoiceNoSafe = safe(invoiceNo);
 
       final fileName = 'waveup_invoice_${safe(typeSlug)}_${safe(dateSlug)}.pdf';
       final file = File('${dir.path}/$fileName');
       debugPrint(fileName);
 
       if (await file.exists()) {
-        await file.delete(); // ✅ force overwrite
+        await file.delete();
       }
 
       final bytes = await doc.save();
       await file.writeAsBytes(bytes, flush: true);
 
-      // =========================
-      // SnackBar custom (seperti sebelumnya)
-      // =========================
       if (context.mounted) {
         final messenger = ScaffoldMessenger.of(context);
 
@@ -2716,6 +2692,10 @@ class SubscriptionProvider with ChangeNotifier {
           );
       }
 
+      // ignore unused variable (keperluan log/debug)
+      // ignore: unused_local_variable
+      final _ = invoiceNoSafe;
+
       return file;
     } catch (e, st) {
       debugPrint(
@@ -2731,11 +2711,11 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // 4) GET SUBSCRIPTION HISTORY (GET /premium/business/history/:idBusiness)
+  // GET PAYMENT HISTORY
   // ---------------------------------------------------------------------------
   Future<void> fetchPaymentHistory(
     BuildContext context, {
-    required String type, // 'premium_business' / 'transaction_fee'
+    required String type,
     bool refresh = true,
     int limit = 10,
     String search = '',
@@ -2948,50 +2928,22 @@ class SubscriptionProvider with ChangeNotifier {
   void resetTransactionFeeState() {
     debugPrint('🧹 [SubscriptionProvider] resetTransactionFeeState() CALLED');
 
-    debugPrint(
-      '🧾 [SubscriptionProvider] BEFORE reset => '
-      '_isLoadingTransactionFees=$_isLoadingTransactionFees, '
-      '_isProcessingTransactionFee=$_isProcessingTransactionFee, '
-      '_transactionFees.length=${_transactionFees.length}, '
-      '_totalUnpaidTransactionFee=$_totalUnpaidTransactionFee, '
-      '_transactionFeeError=${_transactionFeeError ?? "-"}, '
-      '_transactionFeePaymentError=${_transactionFeePaymentError ?? "-"}, '
-      '_currentTransactionFeeNumber=${_currentTransactionFeeNumber ?? "-"}, '
-      '_timerActive=${_transactionFeeCheckTimer?.isActive ?? false}',
-    );
-
-    // stop polling timer
     _transactionFeeCheckTimer?.cancel();
     _transactionFeeCheckTimer = null;
 
-    // ✅ matikan semua state yang bikin shimmer nyala
     _isLoadingTransactionFees = false;
     _isProcessingTransactionFee = false;
 
-    // ✅ reset data & error
     _transactionFees = [];
     _totalUnpaidTransactionFee = 0;
     _transactionFeeError = null;
     _transactionFeePaymentError = null;
 
-    // ✅ reset "current" transaction tracking
     _currentTransactionFeeNumber = null;
     _lastTransactionFeeAmount = null;
     _lastTransactionFeePeriod = null;
 
     notifyListeners();
-
-    debugPrint(
-      '✅ [SubscriptionProvider] AFTER reset => '
-      '_isLoadingTransactionFees=$_isLoadingTransactionFees, '
-      '_isProcessingTransactionFee=$_isProcessingTransactionFee, '
-      '_transactionFees.length=${_transactionFees.length}, '
-      '_totalUnpaidTransactionFee=$_totalUnpaidTransactionFee, '
-      '_transactionFeeError=${_transactionFeeError ?? "-"}, '
-      '_transactionFeePaymentError=${_transactionFeePaymentError ?? "-"}, '
-      '_currentTransactionFeeNumber=${_currentTransactionFeeNumber ?? "-"}, '
-      '_timerActive=${_transactionFeeCheckTimer?.isActive ?? false}',
-    );
   }
 
   // ---------------------------------------------------------------------------
@@ -3001,8 +2953,17 @@ class SubscriptionProvider with ChangeNotifier {
   void dispose() {
     _paymentCheckTimer?.cancel();
     _paymentCheckTimer = null;
+
     _transactionFeeCheckTimer?.cancel();
     _transactionFeeCheckTimer = null;
+
+    _iapPurchaseSub?.cancel();
+    _iapPurchaseSub = null;
+
+    if (isIOS) {
+      unawaited(_iosAddition?.setDelegate(null));
+    }
+
     super.dispose();
   }
 }
