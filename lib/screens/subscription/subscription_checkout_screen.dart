@@ -1,14 +1,19 @@
+// lib/screens/subscription/subscription_checkout_screen.dart
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 
 import '../../models/premium_plan_model.dart';
 import '../../providers/subscription_provider.dart';
-import '../../services/api_service.dart';
 
 class SubscriptionCheckoutScreen extends StatefulWidget {
   const SubscriptionCheckoutScreen({super.key});
@@ -56,10 +61,17 @@ class _SubscriptionCheckoutScreenState
   void initState() {
     super.initState();
     _loadBusinessFromPrefs();
+    logBundleId();
+    logIosEnv();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final subscription = context.read<SubscriptionProvider>();
       subscription.fetchPremiumPlans(context);
+
+      // ✅ iOS IAP init pindah ke provider
+      if (!kIsWeb && Platform.isIOS) {
+        unawaited(subscription.initIosIap());
+      }
     });
   }
 
@@ -71,11 +83,115 @@ class _SubscriptionCheckoutScreenState
 
   String _money(int v) => 'Rp. ${_idrFormatter.format(v)}';
 
+  Future<void> logBundleId() async {
+    final info = await PackageInfo.fromPlatform();
+    debugPrint('✅ bundleId/packageName = ${info.packageName}');
+    debugPrint('✅ appName = ${info.appName}');
+    debugPrint('✅ version = ${info.version}+${info.buildNumber}');
+  }
+
+  Future<void> logIosEnv() async {
+    if (!kIsWeb && Platform.isIOS) {
+      final info = await DeviceInfoPlugin().iosInfo;
+
+      debugPrint('[IAP][Env] iOS ${Platform.operatingSystemVersion}');
+      debugPrint('[IAP][Env] isPhysicalDevice=${info.isPhysicalDevice}');
+      debugPrint('[IAP][Env] simulator=${!info.isPhysicalDevice}');
+      debugPrint('[IAP][Env] model=${info.model} name=${info.name}');
+      debugPrint('[IAP][Env] utsname.machine=${info.utsname.machine}');
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // PAYMENT METHODS SECTION
   // ---------------------------------------------------------------------------
-  Widget _buildPaymentMethodsSection() {
+  Widget _buildPaymentMethodsSection(SubscriptionProvider subscription) {
     if (_selectedPricing == null) return const SizedBox.shrink();
+
+    final isIOS = subscription.isIOS;
+
+    if (isIOS) {
+      final cached = subscription.iosCachedProductForPricing(_selectedPricing!);
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Payment method',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subscription.iosIapInitLoading
+                ? 'Preparing App Store payment...'
+                : (subscription.iosIapAvailable
+                      ? 'You will subscribe via App Store. Auto-renews unless canceled.'
+                      : 'App Store payment is currently unavailable on this device.'),
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.black54,
+              height: 1.3,
+            ),
+          ),
+          if (subscription.iosIapAvailable) ...[
+            const SizedBox(height: 6),
+            Text(
+              cached != null
+                  ? 'Product loaded: ${cached.title} (${cached.price})'
+                  : 'Product is not loaded yet (check StoreKit config / App Store Connect).',
+              style: const TextStyle(
+                fontSize: 11,
+                color: Colors.black45,
+                height: 1.3,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          _PaymentRadioTileMinimal(
+            title: 'App Store Subscription',
+            subtitle:
+                'Automatically billed every ${_periodLabelForMonths(_selectedPricing!.period)}. Manage or cancel in your Apple ID subscriptions.',
+            value: 2,
+            groupValue: 2,
+            leadingIcon: Icons.apple,
+            onChanged: (_) {},
+          ),
+          if ((subscription.iosIapError ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF1F2),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    size: 18,
+                    color: Color(0xFFEF4444),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      subscription.iosIapError!.trim(),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: Color(0xFF991B1B),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      );
+    }
 
     final List<_PaymentMethodData> methods = [
       _PaymentMethodData(
@@ -134,8 +250,6 @@ class _SubscriptionCheckoutScreenState
           style: TextStyle(fontSize: 12, color: Colors.black54, height: 1.3),
         ),
         const SizedBox(height: 12),
-
-        // Primary
         _PaymentRadioTileMinimal(
           title: creditCardMethod.title,
           subtitle: creditCardMethod.subtitle,
@@ -144,10 +258,7 @@ class _SubscriptionCheckoutScreenState
           leadingIcon: Icons.credit_card_rounded,
           onChanged: (v) => setState(() => _selectedPaymentMethod = v),
         ),
-
         const SizedBox(height: 10),
-
-        // Other payments (collapsible)
         InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: () => setState(() => _showOtherPayments = !_showOtherPayments),
@@ -198,7 +309,6 @@ class _SubscriptionCheckoutScreenState
             ),
           ),
         ),
-
         AnimatedSize(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeInOut,
@@ -362,7 +472,6 @@ class _SubscriptionCheckoutScreenState
           _voucherName = result.voucherName;
           _voucherDesc = result.voucherDesc;
 
-          // ✅ input langsung dibersihkan & hilang dari UI karena applied
           _voucherC.text = '';
           FocusManager.instance.primaryFocus?.unfocus();
 
@@ -378,10 +487,8 @@ class _SubscriptionCheckoutScreenState
           final msg =
               result.message ?? 'Voucher is not valid for this plan / price.';
 
-          // ✅ jangan tampil card merah, langsung modal
           _voucherMessage = null;
 
-          // tampilkan modal setelah setState selesai
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _showVoucherErrorModal(title: 'Voucher Invalid', message: msg);
           });
@@ -414,13 +521,12 @@ class _SubscriptionCheckoutScreenState
       _voucherName = null;
       _voucherDesc = null;
 
-      // ✅ input muncul lagi (kosong) setelah remove
       _voucherC.text = '';
     });
   }
 
   // ---------------------------------------------------------------------------
-  // UI: VOUCHER SECTION (INPUT HILANG KETIKA APPLIED + REMOVE DI CARD HIJAU)
+  // UI: VOUCHER SECTION
   // ---------------------------------------------------------------------------
   Widget _buildVoucherSection(SubscriptionProvider subscription) {
     if (_selectedPlan == null || _selectedPricing == null) {
@@ -429,13 +535,11 @@ class _SubscriptionCheckoutScreenState
 
     final bool applied = _voucherApplied;
 
-    // Harga
     final int originalPrice = _selectedPricing!.price;
     final int beforePrice = _voucherOriginalPrice ?? originalPrice;
     final int discount = _voucherDiscountValue ?? 0;
     final int afterPrice = _voucherFinalPrice ?? originalPrice;
 
-    // Optional label diskon “30%” kalau kamu mau tampilkan
     String? discountLabel;
     if (beforePrice > 0 && discount > 0) {
       final pct = ((discount / beforePrice) * 100).round();
@@ -464,10 +568,8 @@ class _SubscriptionCheckoutScreenState
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ✅ Minimal voucher input row
           Row(
             children: [
-              // Leading icon (small)
               Container(
                 width: 36,
                 height: 36,
@@ -484,8 +586,6 @@ class _SubscriptionCheckoutScreenState
                 ),
               ),
               const SizedBox(width: 10),
-
-              // Input
               Expanded(
                 child: TextField(
                   controller: _voucherC,
@@ -536,8 +636,6 @@ class _SubscriptionCheckoutScreenState
                 ),
               ),
               const SizedBox(width: 10),
-
-              // Apply button (compact)
               SizedBox(
                 height: 44,
                 child: ElevatedButton(
@@ -573,8 +671,6 @@ class _SubscriptionCheckoutScreenState
               ),
             ],
           ),
-
-          // ✅ Minimal error message
           if ((_voucherMessage ?? '').trim().isNotEmpty) ...[
             const SizedBox(height: 8),
             Container(
@@ -617,7 +713,6 @@ class _SubscriptionCheckoutScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ✅ Header rapi: kiri (icon+title) kanan (remove)
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -667,10 +762,7 @@ class _SubscriptionCheckoutScreenState
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
-            // ✅ Chip + Savings (Wrap biar responsif, gak maksa 1 baris)
             Wrap(
               spacing: 10,
               runSpacing: 8,
@@ -706,8 +798,6 @@ class _SubscriptionCheckoutScreenState
                 ),
               ],
             ),
-
-            // ✅ Nama/desc rapi, ringkas
             if ((_voucherName ?? '').trim().isNotEmpty ||
                 (_voucherDesc ?? '').trim().isNotEmpty ||
                 (discountLabel != null)) ...[
@@ -734,10 +824,7 @@ class _SubscriptionCheckoutScreenState
                   ),
                 ),
             ],
-
             const SizedBox(height: 12),
-
-            // ✅ Before/After rapi & sejajar
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -810,7 +897,6 @@ class _SubscriptionCheckoutScreenState
       );
     }
 
-    // ✅ Section title + desc jangan hilang
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -852,7 +938,6 @@ class _SubscriptionCheckoutScreenState
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Header: spacer + close button
                 Row(
                   children: [
                     const Spacer(),
@@ -864,8 +949,6 @@ class _SubscriptionCheckoutScreenState
                     ),
                   ],
                 ),
-
-                // Icon badge
                 Container(
                   width: 64,
                   height: 64,
@@ -884,9 +967,7 @@ class _SubscriptionCheckoutScreenState
                     size: 30,
                   ),
                 ),
-
                 const SizedBox(height: 14),
-
                 Text(
                   title,
                   textAlign: TextAlign.center,
@@ -896,9 +977,7 @@ class _SubscriptionCheckoutScreenState
                     color: Color(0xFF111827),
                   ),
                 ),
-
                 const SizedBox(height: 8),
-
                 Text(
                   message,
                   textAlign: TextAlign.center,
@@ -909,9 +988,7 @@ class _SubscriptionCheckoutScreenState
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-
                 const SizedBox(height: 18),
-
                 Row(
                   children: [
                     Expanded(
@@ -936,7 +1013,6 @@ class _SubscriptionCheckoutScreenState
                       child: ElevatedButton(
                         onPressed: () {
                           Navigator.of(ctx).pop();
-                          // opsional: fokus balik ke input
                           Future.delayed(const Duration(milliseconds: 120), () {
                             if (!mounted) return;
                             FocusManager.instance.primaryFocus?.unfocus();
@@ -1052,11 +1128,25 @@ class _SubscriptionCheckoutScreenState
       body: SafeArea(
         child: Consumer<SubscriptionProvider>(
           builder: (context, subscription, _) {
+            // ✅ show ios message sekali (snackbar) kalau provider set message
+            final iosMsg = (subscription.iosLastMessage ?? '').trim();
+            if (iosMsg.isNotEmpty) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(SnackBar(content: Text(iosMsg)));
+                subscription.clearIosLastMessage();
+              });
+            }
+
             final List<PremiumPlan> plans = subscription.plans
                 .where((p) => p.isActive)
                 .toList();
 
             final bool isLoadingPlans = subscription.isLoadingPlans;
+
+            final isIOS = subscription.isIOS;
 
             String bottomInfoText;
             if (_currentStep == 0) {
@@ -1072,6 +1162,9 @@ class _SubscriptionCheckoutScreenState
               if (_selectedPlan == null || _selectedPricing == null) {
                 bottomInfoText =
                     'Please go back and choose a plan and billing period first.';
+              } else if (isIOS) {
+                bottomInfoText =
+                    'You will be charged via App Store every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
               } else if (_selectedPaymentMethod == 2) {
                 bottomInfoText =
                     'You will be charged every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
@@ -1083,8 +1176,13 @@ class _SubscriptionCheckoutScreenState
 
             final bool canProceed =
                 !subscription.isProcessing &&
+                !subscription.iosPurchasing &&
                 _selectedPlan != null &&
-                _selectedPricing != null;
+                _selectedPricing != null &&
+                (_currentStep == 0 || !isIOS || subscription.iosIapInitDone) &&
+                (_currentStep == 0 ||
+                    !isIOS ||
+                    !subscription.iosIapInitLoading);
 
             String _buildPlanPriceLabel(PremiumPlan plan) {
               if (plan.pricing.isEmpty) return 'No pricing available yet';
@@ -1100,7 +1198,6 @@ class _SubscriptionCheckoutScreenState
 
             return Column(
               children: [
-                // ---------- HEADER ----------
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -1182,14 +1279,10 @@ class _SubscriptionCheckoutScreenState
                     ],
                   ),
                 ),
-
-                // ---------- STEPPER ----------
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
                   child: _HorizontalLineStepper(currentStep: _currentStep),
                 ),
-
-                // ---------- CONTENT ----------
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.symmetric(
@@ -1216,7 +1309,6 @@ class _SubscriptionCheckoutScreenState
                             ),
                           ),
                           const SizedBox(height: 20),
-
                           if (isLoadingPlans && plans.isEmpty) ...[
                             const Text(
                               'Loading plans...',
@@ -1253,7 +1345,6 @@ class _SubscriptionCheckoutScreenState
                               ),
                             ],
                             const SizedBox(height: 20),
-
                             AnimatedSize(
                               duration: const Duration(milliseconds: 220),
                               curve: Curves.easeInOut,
@@ -1309,6 +1400,17 @@ class _SubscriptionCheckoutScreenState
                                                   _selectedPricing = pricing;
                                                   _clearVoucherState();
                                                 });
+
+                                                // ✅ jika iOS dan belum init, init dari provider
+                                                if (isIOS &&
+                                                    !subscription
+                                                        .iosIapInitDone &&
+                                                    !subscription
+                                                        .iosIapInitLoading) {
+                                                  unawaited(
+                                                    subscription.initIosIap(),
+                                                  );
+                                                }
                                               },
                                               highlightColor:
                                                   SubscriptionCheckoutScreen
@@ -1347,7 +1449,6 @@ class _SubscriptionCheckoutScreenState
                             ),
                           ),
                           const SizedBox(height: 20),
-
                           _PlanSummaryTile(
                             selectedPlan: _selectedPlan,
                             selectedPricing: _selectedPricing,
@@ -1356,21 +1457,15 @@ class _SubscriptionCheckoutScreenState
                             voucherFinalPrice: _voucherFinalPrice,
                             voucherCode: _appliedVoucherCode,
                           ),
-
                           const SizedBox(height: 16),
-
-                          // ✅ Voucher UI (input hilang saat applied + remove di card hijau)
                           _buildVoucherSection(subscription),
-
-                          _buildPaymentMethodsSection(),
+                          _buildPaymentMethodsSection(subscription),
                           const SizedBox(height: 24),
                         ],
                       ],
                     ),
                   ),
                 ),
-
-                // ---------- BOTTOM ----------
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,
@@ -1419,26 +1514,54 @@ class _SubscriptionCheckoutScreenState
                             ),
                             onPressed: !canProceed
                                 ? null
-                                : () {
+                                : () async {
                                     if (_currentStep == 0) {
                                       setState(() => _currentStep = 1);
-                                    } else {
-                                      final planId = _selectedPlan!.idPlan;
-                                      final pricingId = _selectedPricing!.id;
-                                      final voucherCode = _voucherApplied
-                                          ? _appliedVoucherCode!
-                                          : '';
-
-                                      subscription.goToPayment(
-                                        context: context,
-                                        planId: planId,
-                                        pricingId: pricingId,
-                                        paymentMethod: _selectedPaymentMethod,
-                                        voucherCode: voucherCode,
-                                      );
+                                      return;
                                     }
+
+                                    if (_selectedPlan == null ||
+                                        _selectedPricing == null) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Please choose a plan and billing period.',
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+
+                                    if (isIOS) {
+                                      await subscription
+                                          .startIosSubscriptionPurchase(
+                                            pricing: _selectedPricing!,
+                                          );
+                                      return;
+                                    }
+
+                                    final planId = _selectedPlan!.idPlan;
+                                    final pricingId = _selectedPricing!.id;
+                                    final voucherCode = _voucherApplied
+                                        ? _appliedVoucherCode!
+                                        : '';
+
+                                    subscription.goToPayment(
+                                      context: context,
+                                      planId: planId,
+                                      pricingId: pricingId,
+                                      paymentMethod: _selectedPaymentMethod,
+                                      voucherCode: voucherCode,
+                                    );
                                   },
-                            child: subscription.isProcessing
+                            child:
+                                (subscription.isProcessing ||
+                                    subscription.iosPurchasing ||
+                                    (isIOS &&
+                                        _currentStep == 1 &&
+                                        subscription.iosIapInitLoading))
                                 ? const SizedBox(
                                     height: 22,
                                     width: 22,
@@ -1540,21 +1663,16 @@ class _HorizontalLineStepper extends StatelessWidget {
   }
 }
 
-/// Supaya build utama lebih ringkas (text-nya tetap ambil dari state)
+/// Supaya build utama lebih ringkas
 class _VoucherErrorText extends StatelessWidget {
   const _VoucherErrorText();
 
   @override
   Widget build(BuildContext context) {
-    // ambil _voucherMessage dari parent lewat Inherited? tidak bisa.
-    // jadi kalau kamu tidak mau class terpisah, hapus widget ini dan inline Text saja.
     return const SizedBox.shrink();
   }
 }
 
-// -------------------------------------------------------------
-// WIDGET: Payment Method Option
-// -------------------------------------------------------------
 class _PaymentMethodData {
   final int value;
   final String title;
@@ -1565,109 +1683,6 @@ class _PaymentMethodData {
     required this.title,
     required this.subtitle,
   });
-}
-
-class _PaymentRadioTile extends StatelessWidget {
-  const _PaymentRadioTile({
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.groupValue,
-    required this.onChanged,
-    required this.leading,
-  });
-
-  final String title;
-  final String subtitle;
-  final int value;
-  final int? groupValue;
-  final ValueChanged<int> onChanged;
-  final Widget leading;
-
-  @override
-  Widget build(BuildContext context) {
-    const primary = Color(0xFF4C6EF5);
-    final selected = groupValue == value;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => onChanged(value),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: selected ? primary.withOpacity(0.07) : Colors.transparent,
-          border: Border.all(
-            color: selected
-                ? primary.withOpacity(0.45)
-                : Colors.black.withOpacity(0.10),
-            width: 1.2,
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: selected
-                    ? primary.withOpacity(0.12)
-                    : Colors.black.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: IconTheme(
-                data: IconThemeData(color: selected ? primary : Colors.black87),
-                child: Center(child: leading),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: selected ? Colors.black : Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.black54,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Transform.translate(
-              offset: const Offset(0, -2),
-              child: Radio<int>(
-                value: value,
-                groupValue: groupValue,
-                activeColor: primary,
-                onChanged: (v) => onChanged(v!),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: const VisualDensity(
-                  horizontal: -2,
-                  vertical: -2,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _PaymentRadioTileMinimal extends StatelessWidget {
@@ -1761,85 +1776,6 @@ class _PaymentRadioTileMinimal extends StatelessWidget {
   }
 }
 
-class _PaymentMethodOption extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final int value;
-  final int groupValue;
-  final ValueChanged<int?> onChanged;
-
-  const _PaymentMethodOption({
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.groupValue,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final bool selected = value == groupValue;
-
-    return InkWell(
-      onTap: () => onChanged(value),
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected
-                ? SubscriptionCheckoutScreen._primaryBlue
-                : Colors.grey.withOpacity(0.35),
-            width: 1.5,
-          ),
-          color: selected
-              ? SubscriptionCheckoutScreen._primaryBlue.withOpacity(0.03)
-              : Colors.white,
-        ),
-        child: Row(
-          children: [
-            Radio<int>(
-              value: value,
-              groupValue: groupValue,
-              activeColor: SubscriptionCheckoutScreen._primaryBlue,
-              onChanged: onChanged,
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: selected ? Colors.black : Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Colors.black54,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// -------------------------------------------------------------
-// WIDGET: Plan Card
-// -------------------------------------------------------------
 class _PlanCard extends StatelessWidget {
   final String title;
   final String priceLabel;
@@ -1972,7 +1908,7 @@ class _PlanCard extends StatelessWidget {
 }
 
 // -------------------------------------------------------------
-// WIDGET: Plan Summary
+// WIDGET: Plan Summary (tetap seperti sebelumnya)
 // -------------------------------------------------------------
 class _PlanSummaryTile extends StatelessWidget {
   final PremiumPlan? selectedPlan;
@@ -1998,12 +1934,6 @@ class _PlanSummaryTile extends StatelessWidget {
     if (months == 1) return 'Monthly';
     if (months == 12) return 'Yearly';
     return '$months months';
-  }
-
-  String _cycleText(int months) {
-    if (months == 1) return 'every month';
-    if (months == 12) return 'every year';
-    return 'every $months months';
   }
 
   Widget _dashedDivider() {
@@ -2106,17 +2036,7 @@ class _PlanSummaryTile extends StatelessWidget {
 
     final String planName = selectedPlan!.name;
     final String periodLabel = _periodLabel(months);
-    final String cycleText = _cycleText(months);
-
-    // Effective monthly cost
     final int effectiveMonthly = (total / months).round();
-
-    // Optional % badge
-    String? pctText;
-    if (hasVoucher && originalPrice > 0 && discount > 0) {
-      final pct = ((discount / originalPrice) * 100).round();
-      if (pct > 0 && pct < 100) pctText = '$pct%';
-    }
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -2128,7 +2048,6 @@ class _PlanSummaryTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header (bill style)
           Row(
             children: [
               Container(
@@ -2174,12 +2093,9 @@ class _PlanSummaryTile extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 12),
           _dashedDivider(),
           const SizedBox(height: 10),
-
-          // Itemized "bill"
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -2192,9 +2108,7 @@ class _PlanSummaryTile extends StatelessWidget {
               children: [
                 _billRow(label: 'Plan Name', value: planName, isMuted: true),
                 _billRow(label: 'Duration', value: periodLabel, isMuted: true),
-
                 const SizedBox(height: 10),
-
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(
@@ -2228,10 +2142,19 @@ class _PlanSummaryTile extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (discount > 0) ...[
+                  const SizedBox(height: 10),
+                  _billRow(
+                    label: 'Discount',
+                    value: '- ${_money(discount)}',
+                    isNegative: true,
+                    isBold: true,
+                  ),
+                  _billRow(label: 'Total', value: _money(total), isBold: true),
+                ],
               ],
             ),
           ),
-
           const SizedBox(height: 10),
         ],
       ),
@@ -2239,9 +2162,6 @@ class _PlanSummaryTile extends StatelessWidget {
   }
 }
 
-// -------------------------------------------------------------
-// WIDGET: Feature List
-// -------------------------------------------------------------
 class _FeatureList extends StatelessWidget {
   const _FeatureList();
 

@@ -180,7 +180,7 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
             _ListCard(
               children: [
                 _MenuTile(
-                  icon: Icons.storefront_rounded,
+                  icon: Icons.history,
                   title: "Payment History",
                   subtitle: "Platform fee payment history",
                   onTap: () =>

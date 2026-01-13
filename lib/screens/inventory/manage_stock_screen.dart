@@ -61,7 +61,7 @@ class ManageStockScreen extends StatelessWidget {
               title: 'Stock Opname',
               onTap: () => Navigator.pushNamed(
                 context,
-                '/stock/opname', // TODO: sesuaikan dengan route-mu
+                '/stock/opname/create', // TODO: sesuaikan dengan route-mu
               ),
             ),
           ],
