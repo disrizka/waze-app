@@ -1326,12 +1326,23 @@ class AddProductSheetState extends State<AddProductSheet> {
     super.dispose();
   }
 
+  String _composeSearch(String raw) {
+    final q = raw.trim();
+    if (q.isEmpty) return '';
+    return 'q:$q'; // samakan dengan ProductScreen
+  }
+
   void _debouncedSearch(String raw) {
     final q = raw.trim();
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 250), () async {
       await _pp?.setInfiniteSearch(context, q);
       await _pp?.refreshInfinite(context);
+
+      // ✅ penting: kalau list kosong, scroll gak bakal memicu loadMore
+      _pp?.pagingController?.fetchNextPage();
+
+      if (_gridScrollC.hasClients) _gridScrollC.jumpTo(0);
     });
   }
 
@@ -1407,9 +1418,17 @@ class AddProductSheetState extends State<AddProductSheet> {
                 controller: _searchC,
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) async {
-                  await _pp?.setInfiniteSearch(context, _searchC.text.trim());
+                  final q = _searchC.text.trim();
+                  await _pp?.setInfiniteSearch(context, q);
                   await _pp?.refreshInfinite(context);
+
+                  // ✅ trigger fetch page pertama setelah reset
+                  context
+                      .read<ProductProvider>()
+                      .pagingController
+                      ?.fetchNextPage();
                 },
+
                 onChanged: (t) {
                   setState(() {});
                   _debouncedSearch(t);
@@ -1424,8 +1443,10 @@ class AddProductSheetState extends State<AddProductSheet> {
                             _searchC.clear();
                             await _pp?.setInfiniteSearch(context, '');
                             await _pp?.refreshInfinite(context);
+                            _pp?.pagingController?.fetchNextPage(); // ✅
                             if (mounted) setState(() {});
                           },
+
                           icon: const Icon(Icons.close_rounded),
                         ),
                   border: OutlineInputBorder(

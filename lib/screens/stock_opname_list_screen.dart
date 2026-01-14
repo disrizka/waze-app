@@ -59,7 +59,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
 
   String _monthNameLower(int month) {
     if (month < 1 || month > 12) return '';
-    return _monthEn[month - 1].toLowerCase();
+    return _monthEn[month - 1];
   }
 
   String _formatCardDate(DateTime dt) {
@@ -171,7 +171,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
 
   bool _isUnadjusted(StockOpname o) {
     final s = o.status.trim().toLowerCase();
-    return s == 'unadjusted' || s.contains('unadjusted');
+    return s == 'not_adjusted' || s.contains('unadjusted');
   }
 
   List<String> _selectableIds(StockProvider prov) {
@@ -383,7 +383,6 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
               ),
               const SizedBox(height: 10),
 
-              // ✅ Selection toolbar (lebih jelas & UX-friendly)
               if (_adjustMode)
                 _SelectionToolbar(
                   selectedCount: _selectedOpnameIds.length,
@@ -475,7 +474,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(0, 2, 0, 8),
                         itemCount: rows.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (_, i) {
                           final r = rows[i];
                           if (r.isHeader) {
@@ -495,7 +494,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
                             opname.idStockOpname,
                           );
 
-                          final toggle = () {
+                          Null toggle() {
                             if (!_adjustMode) return;
                             if (!canSelect) return;
                             setState(() {
@@ -506,7 +505,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
                                 _selectedOpnameIds.add(id);
                               }
                             });
-                          };
+                          }
 
                           if (!_adjustMode) {
                             return _OpnameCard(
@@ -524,10 +523,10 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Padding(
-                                padding: const EdgeInsets.only(top: 14),
+                                padding: const EdgeInsets.only(top: 8),
                                 child: SizedBox(
-                                  width: 26,
-                                  height: 26,
+                                  width: 22,
+                                  height: 22,
                                   child: Checkbox(
                                     value: selected,
                                     onChanged: canSelect
@@ -570,7 +569,6 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
 
 // =======================
 // Bottom sheet
-// - Warning dipindah ke modal dialog (popup), bukan di dalam sheet.
 // =======================
 class _AdjustmentSheet extends StatefulWidget {
   final int selectedCount;
@@ -599,12 +597,11 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
       builder: (_) {
         return Dialog(
           insetPadding: const EdgeInsets.symmetric(horizontal: 18),
-          backgroundColor:
-              Colors.transparent, // ✅ supaya putihnya bener-bener dari card
+          backgroundColor: Colors.transparent,
           elevation: 0,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.white, // ✅ card putih beneran
+              color: Colors.white,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: const Color(0xFFE5E7EB)),
               boxShadow: const [
@@ -626,13 +623,13 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
                       width: 42,
                       height: 42,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFF7ED), // ✅ orange soft
+                        color: const Color(0xFFFFF7ED),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: const Color(0xFFFED7AA)),
                       ),
                       child: const Icon(
                         Icons.warning_rounded,
-                        color: Color(0xFF9A3412), // orange-brown
+                        color: Color(0xFF9A3412),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -666,7 +663,6 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
                   ],
                 ),
                 const SizedBox(height: 10),
-
                 Text(
                   'You are about to adjust ${widget.selectedCount} stock opname record(s) to the system stock.',
                   style: const TextStyle(
@@ -676,8 +672,6 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
                   ),
                 ),
                 const SizedBox(height: 10),
-
-                // ✅ Warning note: orange soft + text orange
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(
@@ -685,11 +679,9 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF7ED), // orange soft background
+                    color: const Color(0xFFFFF7ED),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFFFED7AA),
-                    ), // orange soft border
+                    border: Border.all(color: const Color(0xFFFED7AA)),
                   ),
                   child: const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -704,7 +696,7 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
                         child: Text(
                           'This action may create stock adjustment transactions and cannot be undone.',
                           style: TextStyle(
-                            color: Color(0xFF9A3412), // ✅ orange soft text
+                            color: Color(0xFF9A3412),
                             fontWeight: FontWeight.w800,
                             height: 1.35,
                           ),
@@ -713,9 +705,7 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 14),
-
                 Row(
                   children: [
                     Expanded(
@@ -1078,9 +1068,9 @@ class _SelectionToolbar extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Selection mode',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w900,
                     color: Color(0xFF111827),
                   ),
@@ -1142,54 +1132,6 @@ class _MiniTextButton extends StatelessWidget {
             fontWeight: FontWeight.w900,
             color: enabled ? const Color(0xFF1D4ED8) : const Color(0xFF9CA3AF),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PillActionButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback onPressed;
-
-  const _PillActionButton({
-    required this.label,
-    required this.icon,
-    required this.enabled,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 30),
-      child: OutlinedButton.icon(
-        onPressed: enabled ? onPressed : null,
-        icon: Icon(icon, size: 16),
-        label: Text(
-          label,
-          style: const TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 12,
-            height: 1,
-          ),
-        ),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: enabled
-              ? const Color(0xFF111827)
-              : const Color(0xFF9CA3AF),
-          side: const BorderSide(color: Color(0xFFE5E7EB)),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-          backgroundColor: enabled
-              ? const Color(0xFFF9FAFB)
-              : const Color(0xFFF3F4F6),
         ),
       ),
     );
@@ -1279,6 +1221,12 @@ class _BlueActionButton extends StatelessWidget {
   }
 }
 
+// =======================
+// ✅ Compact Card (more items per screen)
+// - Remove branch/store name from card
+// - Product + SKU grouped in one block
+// - Reduced spacing/padding to fit 4–5 cards per screen
+// =======================
 class _OpnameCard extends StatelessWidget {
   final StockOpname opname;
   final String dateLabel;
@@ -1321,10 +1269,6 @@ class _OpnameCard extends StatelessWidget {
         ? '-'
         : opname.productSku.code.toString().trim();
 
-    final storeName = opname.storeLocation.name.toString().trim().isEmpty
-        ? '-'
-        : opname.storeLocation.name.toString().trim();
-
     final statusText = _prettyEnum(opname.status);
 
     final variance = opname.variance;
@@ -1335,10 +1279,10 @@ class _OpnameCard extends StatelessWidget {
 
     Color badgeBg = const Color(0xFFF3F4F6);
     Color badgeFg = const Color(0xFF111827);
-    if (stLower.contains('unadjusted')) {
+    if (stLower.contains('not_adjusted')) {
       badgeBg = const Color(0xFFFFFBEB);
       badgeFg = const Color(0xFF92400E);
-    } else if (stLower.contains('submitted')) {
+    } else if (stLower.contains('adjusted')) {
       badgeBg = const Color(0xFFEFF6FF);
       badgeFg = const Color(0xFF1D4ED8);
     } else if (stLower.contains('validated') || stLower.contains('approved')) {
@@ -1360,6 +1304,7 @@ class _OpnameCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // top row (date + badge) - compact
           Row(
             children: [
               Expanded(
@@ -1370,16 +1315,13 @@ class _OpnameCard extends StatelessWidget {
                   style: const TextStyle(
                     color: Color(0xFF6B7280),
                     fontWeight: FontWeight.w800,
-                    fontSize: 12,
+                    fontSize: 11,
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
                   color: badgeBg,
                   borderRadius: BorderRadius.circular(999),
@@ -1389,64 +1331,87 @@ class _OpnameCard extends StatelessWidget {
                   statusText,
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
-                    fontSize: 12,
+                    fontSize: 11,
                     color: badgeFg,
+                    height: 1,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
+
+          // Product + SKU grouped
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
-                width: 34,
-                height: 34,
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(
                   color: const Color(0xFFF9FAFB),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: const Color(0xFFE5E7EB)),
                 ),
                 child: const Icon(
                   Icons.inventory_2_rounded,
                   color: Color(0xFF111827),
-                  size: 18,
+                  size: 16,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  productName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF111827),
-                    fontSize: 14,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      productName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF111827),
+                        fontSize: 13,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.qr_code_2_rounded,
+                          size: 14,
+                          color: Color(0xFF6B7280),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            skuCode,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF6B7280),
+                              fontWeight: FontWeight.w800,
+                              height: 1,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              if (!adjustMode)
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFF9CA3AF),
-                ),
             ],
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _InfoChip(icon: Icons.qr_code_2_rounded, text: 'SKU: $skuCode'),
-              _InfoChip(icon: Icons.storefront_rounded, text: storeName),
-            ],
-          ),
-          const SizedBox(height: 12),
+
+          const SizedBox(height: 8),
+
+          // compact metrics row
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: const Color(0xFFF9FAFB),
               borderRadius: BorderRadius.circular(12),
@@ -1455,15 +1420,15 @@ class _OpnameCard extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: _KV(label: 'Counted', value: '$counted'),
+                  child: _KVCompact(label: 'Counted', value: '$counted'),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _KV(label: 'System', value: '$system'),
+                  child: _KVCompact(label: 'System', value: '$system'),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _KV(
+                  child: _KVCompact(
                     label: 'Variance',
                     value: variance >= 0 ? '+$variance' : '$variance',
                     valueColor: variance == 0
@@ -1476,38 +1441,32 @@ class _OpnameCard extends StatelessWidget {
               ],
             ),
           ),
+
+          // note: keep but super compact (no big card)
           if (opname.note.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEFF6FF),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFDBEAFE)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.sticky_note_2_rounded,
-                    size: 18,
-                    color: Color(0xFF1D4ED8),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      opname.note.trim(),
-                      style: const TextStyle(
-                        color: Color(0xFF1F3D99),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                        height: 1.25,
-                      ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Icon(
+                  Icons.sticky_note_2_rounded,
+                  size: 14,
+                  color: Color(0xFF6B7280),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    opname.note.trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                      height: 1,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ],
@@ -1516,18 +1475,18 @@ class _OpnameCard extends StatelessWidget {
 
     return InkWell(
       onTap: adjustMode ? (selectable ? onToggleSelected : null) : () {},
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: borderColor),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x12000000),
-              blurRadius: 18,
-              offset: Offset(0, 10),
+              color: Color(0x0F000000),
+              blurRadius: 14,
+              offset: Offset(0, 8),
             ),
           ],
         ),
@@ -1537,50 +1496,13 @@ class _OpnameCard extends StatelessWidget {
   }
 }
 
-class _InfoChip extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _InfoChip({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F6),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: const Color(0xFF4B5563)),
-          const SizedBox(width: 6),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220),
-            child: Text(
-              text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w900,
-                fontSize: 12,
-                color: Color(0xFF111827),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _KV extends StatelessWidget {
+// compact KV used by compact card
+class _KVCompact extends StatelessWidget {
   final String label;
   final String value;
   final Color? valueColor;
 
-  const _KV({required this.label, required this.value, this.valueColor});
+  const _KVCompact({required this.label, required this.value, this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -1590,18 +1512,20 @@ class _KV extends StatelessWidget {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             color: Color(0xFF6B7280),
             fontWeight: FontWeight.w800,
+            height: 1,
           ),
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 4),
         Text(
           value,
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 13,
             color: valueColor ?? const Color(0xFF111827),
             fontWeight: FontWeight.w900,
+            height: 1,
           ),
         ),
       ],
@@ -1694,16 +1618,16 @@ Widget _shimmerList() {
   return ListView.separated(
     padding: const EdgeInsets.fromLTRB(0, 2, 0, 8),
     itemCount: 8,
-    separatorBuilder: (_, __) => const SizedBox(height: 10),
+    separatorBuilder: (_, __) => const SizedBox(height: 8),
     itemBuilder: (_, __) {
       return Shimmer.fromColors(
         baseColor: const Color(0xFFE5E7EB),
         highlightColor: const Color(0xFFF3F4F6),
         child: Container(
-          height: 168,
+          height: 118, // ✅ lebih pendek biar muat 4–5 card
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(color: const Color(0xFFE5E7EB)),
           ),
         ),
