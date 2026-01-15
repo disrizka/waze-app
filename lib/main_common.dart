@@ -11,8 +11,10 @@ import 'package:provider/provider.dart';
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:wa_blast/providers/adjustment_provider.dart';
 import 'package:wa_blast/providers/hr_provider.dart';
 import 'package:wa_blast/providers/order_provider.dart';
+import 'package:wa_blast/screens/adjustment/adjustment_list_screen.dart';
 import 'package:wa_blast/screens/order/order_list_screen.dart';
 import 'package:wa_blast/screens/stock-opname/stock_opname_create_screen.dart';
 import 'package:wa_blast/screens/stock-opname/stock_opname_form_screen.dart';
@@ -178,6 +180,7 @@ class _AppShell extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => StockProvider(), lazy: true),
         ChangeNotifierProvider(create: (_) => OrderProvider(), lazy: true),
+        ChangeNotifierProvider(create: (_) => AdjustmentProvider(), lazy: true),
       ],
       child: const _Bootstrapper(child: MyApp()),
     );
@@ -829,6 +832,13 @@ class MyApp extends StatelessWidget {
             android: AndroidTransition.slideUp,
           );
         }
+
+      case '/adjustment':
+        return _platformRouteAnimated(
+          settings,
+          const AdjustmentListScreen(),
+          android: AndroidTransition.slideUp,
+        );
 
       default:
         return _platformRouteAnimated(

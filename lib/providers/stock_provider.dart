@@ -985,11 +985,30 @@ class StockProvider with ChangeNotifier {
   ///   "data": [ {StockOpname}, ... ],
   ///   "page": {...}
   /// }
-  Future<void> fetchStockOpnames(
+  /// =========================
+  /// FETCH: Stock Opname List
+  /// =========================
+  ///
+  /// GET /waveup/:idBusiness/store-location/:idStoreLocation/stock-opname
+  ///
+  /// Example:
+  /// /waveup/{idBusiness}/store-location/:idStoreLocation/stock-opname
+  ///   ?page=1&limit=10&adjustmentStatus=ADJUSTED&variance=zero
+  ///
+  /// Response:
+  /// {
+  ///   "status": 200,
+  ///   "data": [ {StockOpname}, ... ],
+  ///   "page": {...}
+  /// }
+  Future<int> fetchStockOpnames(
     BuildContext context, {
     required String idStoreLocation,
     int? page,
-    int? rowPerPage,
+    int? rowPerPage, // legacy (mapped to limit)
+    int? limit, // ✅ preferred
+    String? adjustmentStatus, // ✅ NOT_ADJUSTED / ADJUSTED
+    String? variance, // ✅ minus / plus / zero
     bool append = false, // true kalau infinite scroll page>1
   }) async {
     final bizId = await BizIdCache.get();
@@ -999,7 +1018,7 @@ class StockProvider with ChangeNotifier {
       _stockOpnamesError = "Business ID is not available.";
       _lastError = _stockOpnamesError;
       notifyListeners();
-      return;
+      return 0;
     }
 
     _loadingStockOpnames = true;
@@ -1012,10 +1031,24 @@ class StockProvider with ChangeNotifier {
       );
 
       final query = <String, String>{};
-      if (page != null && page > 0) query['page'] = page.toString();
-      if (rowPerPage != null && rowPerPage > 0) {
-        query['row_per_page'] = rowPerPage.toString();
-      }
+
+      final p = (page ?? 1);
+      if (p > 0) query['page'] = p.toString();
+
+      // ✅ use limit (fallback from rowPerPage)
+      final resolvedLimit = (limit != null && limit > 0)
+          ? limit
+          : ((rowPerPage != null && rowPerPage > 0) ? rowPerPage : null);
+
+      if (resolvedLimit != null) query['limit'] = resolvedLimit.toString();
+
+      // ✅ filters
+      final adj = (adjustmentStatus ?? '').trim();
+      if (adj.isNotEmpty) query['adjustmentStatus'] = adj;
+
+      final varc = (variance ?? '').trim();
+      if (varc.isNotEmpty) query['variance'] = varc;
+
       if (query.isNotEmpty) {
         buffer.write(
           '?' + query.entries.map((e) => '${e.key}=${e.value}').join('&'),
@@ -1033,7 +1066,7 @@ class StockProvider with ChangeNotifier {
         _stockOpnamesError = 'Failed to load stock opname.';
         _lastError = _stockOpnamesError;
         notifyListeners();
-        return;
+        return 0;
       }
 
       final status = (jsonMap['status'] as num?)?.toInt() ?? 0;
@@ -1044,7 +1077,7 @@ class StockProvider with ChangeNotifier {
             jsonMap['message']?.toString() ?? 'Failed to load stock opname.';
         _lastError = _stockOpnamesError;
         notifyListeners();
-        return;
+        return 0;
       }
 
       final pageJ = (jsonMap['page'] as Map?)?.cast<String, dynamic>();
@@ -1071,6 +1104,8 @@ class StockProvider with ChangeNotifier {
       _stockOpnamesError = null;
       _lastError = null;
       notifyListeners();
+
+      return parsed.length;
     } catch (e, st) {
       if (!append) _stockOpnames.clear();
       _pageStockOpnames = null;
@@ -1079,6 +1114,7 @@ class StockProvider with ChangeNotifier {
       debugPrint('[StockProvider] fetchStockOpnames error: $e');
       debugPrint('$st');
       notifyListeners();
+      return 0;
     } finally {
       _loadingStockOpnames = false;
       notifyListeners();

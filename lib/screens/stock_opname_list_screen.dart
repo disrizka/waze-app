@@ -7,6 +7,7 @@ import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/providers/stock_provider.dart';
+import 'package:wa_blast/widgets/app_snackbar.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 
 class StockOpnameListScreen extends StatefulWidget {
@@ -17,9 +18,22 @@ class StockOpnameListScreen extends StatefulWidget {
 }
 
 class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
+  static const int _pageSize = 10;
+
   String? _storeId;
   String? _storeName;
 
+  // filters (query) — moved into Advanced Filter sheet
+  String? _adjustmentStatus; // null / NOT_ADJUSTED / ADJUSTED
+  String? _variance; // null / minus / plus / zero
+
+  // infinite scroll
+  final ScrollController _scrollC = ScrollController();
+  int _page = 1;
+  bool _hasMore = true;
+  bool _booted = false;
+
+  // adjust selection mode
   bool _adjustMode = false;
   final Set<String> _selectedOpnameIds = <String>{};
 
@@ -49,6 +63,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
     try {
       return DateFormat('yyyy-MM-dd HH:mm:ss').parseLoose(s);
     } catch (_) {}
+
     try {
       return DateFormat('yyyy-MM-dd HH:mm').parseLoose(s);
     } catch (_) {}
@@ -59,7 +74,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
 
   String _monthNameLower(int month) {
     if (month < 1 || month > 12) return '';
-    return _monthEn[month - 1];
+    return _monthEn[month - 1].toLowerCase();
   }
 
   String _formatCardDate(DateTime dt) {
@@ -74,6 +89,53 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
     return '$m ${dt.year}';
   }
 
+  void _showSnack(
+    String message, {
+    AppSnackType type = AppSnackType.info,
+    String? title,
+    String? actionLabel,
+    VoidCallback? onAction,
+    Duration duration = const Duration(seconds: 3),
+  }) {
+    if (!mounted) return;
+    AppSnackbar.show(
+      context,
+      message: message,
+      type: type,
+      title: title,
+      actionLabel: actionLabel,
+      onAction: onAction,
+      duration: duration,
+    );
+  }
+
+  bool _isUnadjusted(StockOpname o) {
+    final adj = o.adjustmentStatus.trim().toUpperCase();
+    if (adj == 'NOT_ADJUSTED') return true;
+
+    final s = o.status.trim().toLowerCase();
+    return s == 'not_adjusted' || s.contains('unadjusted');
+  }
+
+  /// Default scope: current month + last month (if any exists, otherwise it's fine).
+  bool _isInDefaultScope(DateTime? dt) {
+    if (dt == null) return false;
+    final now = DateTime.now();
+
+    final nextMonthStart = DateTime(now.year, now.month + 1, 1);
+    final lastMonthStart = DateTime(now.year, now.month - 1, 1);
+
+    return !dt.isBefore(lastMonthStart) && dt.isBefore(nextMonthStart);
+  }
+
+  String _defaultScopeLabel() {
+    final now = DateTime.now();
+    final thisLabel = DateFormat('MMMM yyyy').format(now);
+    final last = DateTime(now.year, now.month - 1, 1);
+    final lastLabel = DateFormat('MMMM yyyy').format(last);
+    return '$thisLabel & $lastLabel';
+  }
+
   void _exitAdjustMode() {
     setState(() {
       _adjustMode = false;
@@ -82,45 +144,30 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
   }
 
-  void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            message,
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-        ),
-      );
-  }
-
   @override
   void initState() {
     super.initState();
+    _scrollC.addListener(_onScroll);
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       await _ensureDefaultStoreSelected();
-      await _fetchAllOrSelected(page: 1, append: false);
+      await _reloadFirstPage();
+      setState(() => _booted = true);
     });
   }
 
-  Future<void> _fetchAllOrSelected({int? page, bool append = false}) async {
-    final id = (_storeId ?? '').trim();
-    await context.read<StockProvider>().fetchStockOpnames(
-      context,
-      idStoreLocation: id,
-      page: page ?? 1,
-      rowPerPage: 50,
-      append: append,
-    );
+  @override
+  void dispose() {
+    _scrollC.removeListener(_onScroll);
+    _scrollC.dispose();
+    super.dispose();
   }
 
   Future<void> _ensureDefaultStoreSelected() async {
     if ((_storeId ?? '').trim().isNotEmpty) return;
 
     var stores = context.read<StoreProvider>().stores;
-
     var tries = 0;
     while (stores.isEmpty && tries < 20) {
       await Future.delayed(const Duration(milliseconds: 120));
@@ -132,7 +179,6 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
     if (stores.isEmpty) return;
 
     final first = stores.first;
-
     final id = (first.idStoreLocation ?? '').toString().trim();
     final name = (first.name ?? '').toString().trim();
     if (id.isEmpty) return;
@@ -141,6 +187,68 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
       _storeId = id;
       _storeName = name.isNotEmpty ? name : 'Store';
     });
+  }
+
+  Future<int> _fetchPage({required int page, required bool append}) async {
+    final sid = (_storeId ?? '').trim();
+    if (sid.isEmpty) return 0;
+
+    final fetched = await context.read<StockProvider>().fetchStockOpnames(
+      context,
+      idStoreLocation: sid,
+      page: page,
+      limit: _pageSize,
+      append: append,
+      adjustmentStatus: _adjustmentStatus,
+      variance: _variance,
+    );
+
+    return fetched;
+  }
+
+  Future<void> _reloadFirstPage() async {
+    if (_adjustMode) _exitAdjustMode();
+
+    setState(() {
+      _page = 1;
+      _hasMore = true;
+    });
+
+    final fetched = await _fetchPage(page: 1, append: false);
+    if (!mounted) return;
+
+    setState(() {
+      _hasMore = fetched >= _pageSize;
+      _page = 1;
+    });
+  }
+
+  Future<void> _loadMore() async {
+    final prov = context.read<StockProvider>();
+    if (prov.loadingStockOpnames) return;
+    if (!_hasMore) return;
+
+    final next = _page + 1;
+    final fetched = await _fetchPage(page: next, append: true);
+    if (!mounted) return;
+
+    setState(() {
+      _page = next;
+      _hasMore = fetched >= _pageSize;
+    });
+  }
+
+  void _onScroll() {
+    if (!_booted) return;
+    if (!_scrollC.hasClients) return;
+
+    final max = _scrollC.position.maxScrollExtent;
+    final pos = _scrollC.position.pixels;
+
+    if (max <= 0) return;
+    if (pos >= max * 0.72) {
+      _loadMore();
+    }
   }
 
   Future<void> _pickStore() async {
@@ -161,59 +269,85 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
       _storeName = name.isNotEmpty ? name : 'Store';
     });
 
-    await _fetchAllOrSelected(page: 1, append: false);
+    await _reloadFirstPage();
   }
 
   Future<void> _onRefresh() async {
-    if (_adjustMode) _exitAdjustMode();
-    await _fetchAllOrSelected(page: 1, append: false);
+    await _reloadFirstPage();
   }
 
-  bool _isUnadjusted(StockOpname o) {
-    final s = o.status.trim().toLowerCase();
-    return s == 'not_adjusted' || s.contains('unadjusted');
-  }
-
-  List<String> _selectableIds(StockProvider prov) {
+  List<String> _selectableIdsInDefaultScope(StockProvider prov) {
     final ids = <String>[];
     for (final o in prov.stockOpnames) {
       if (!_isUnadjusted(o)) continue;
+      final dt = _parseCreatedAt(o.createdAt);
+      if (!_isInDefaultScope(dt)) continue;
+
       final id = o.idStockOpname.toString().trim();
       if (id.isNotEmpty) ids.add(id);
     }
     return ids;
   }
 
+  bool _isAllSelected(StockProvider prov) {
+    final ids = _selectableIdsInDefaultScope(prov);
+    if (ids.isEmpty) return false;
+    for (final id in ids) {
+      if (!_selectedOpnameIds.contains(id)) return false;
+    }
+    return true;
+  }
+
   void _toggleSelectAll(StockProvider prov) {
     if (prov.loadingStockOpnames) return;
-    final ids = _selectableIds(prov);
+
+    final ids = _selectableIdsInDefaultScope(prov);
+    final months = _defaultScopeLabel();
+
     if (ids.isEmpty) {
-      _showSnack('No "Unadjusted" records available to select.');
+      _showSnack(
+        'No selectable "Unadjusted" records found for $months.',
+        type: AppSnackType.warning,
+        title: 'Nothing to select',
+      );
       return;
     }
 
-    final allSelected = ids.every(_selectedOpnameIds.contains);
+    final allSelected = _isAllSelected(prov);
+    if (allSelected) {
+      setState(() => _selectedOpnameIds.clear());
+      _showSnack(
+        'Unselected all for $months.',
+        type: AppSnackType.info,
+        title: 'Selection cleared',
+      );
+      return;
+    }
 
     setState(() {
-      if (allSelected) {
-        _selectedOpnameIds.clear();
-      } else {
-        _selectedOpnameIds
-          ..clear()
-          ..addAll(ids);
-      }
+      _selectedOpnameIds
+        ..clear()
+        ..addAll(ids);
     });
+    _showSnack(
+      'Selected all unadjusted records for $months.',
+      type: AppSnackType.success,
+      title: 'Selection updated',
+    );
   }
 
   Future<void> _onAppBarAction() async {
     final prov = context.read<StockProvider>();
-
     if (prov.adjustingStockOpnames) return;
 
     if (!_adjustMode) {
       final sid = (_storeId ?? '').trim();
       if (sid.isEmpty) {
-        _showSnack('Please select a store location first.');
+        _showSnack(
+          'Please select a store location first.',
+          type: AppSnackType.warning,
+          title: 'Store required',
+        );
         return;
       }
 
@@ -221,11 +355,18 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
         _adjustMode = true;
         _selectedOpnameIds.clear();
       });
+
+      _showSnack(
+        'Select unadjusted records to adjust to the system.',
+        type: AppSnackType.info,
+        title: 'Selection mode',
+      );
       return;
     }
 
     if (_selectedOpnameIds.isEmpty) {
       _exitAdjustMode();
+      _showSnack('Selection mode closed.', type: AppSnackType.info);
       return;
     }
 
@@ -234,14 +375,18 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
 
   String _appBarActionLabel() {
     if (!_adjustMode) return 'Adjust Stock';
-    if (_selectedOpnameIds.isNotEmpty) return 'Adjust Stock';
-    return 'Cancel';
+    if (_selectedOpnameIds.isEmpty) return 'Cancel';
+    return 'Adjust Stock';
   }
 
   Future<void> _showAdjustmentBottomSheet() async {
     final sid = (_storeId ?? '').trim();
     if (sid.isEmpty) {
-      _showSnack('Please select a store location first.');
+      _showSnack(
+        'Please select a store location first.',
+        type: AppSnackType.warning,
+        title: 'Store required',
+      );
       return;
     }
 
@@ -275,7 +420,11 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
             final err =
                 (prov.stockOpnameAdjustmentError ?? prov.lastError ?? '')
                     .trim();
-            _showSnack(err.isEmpty ? 'Failed to submit adjustment.' : err);
+            _showSnack(
+              err.isEmpty ? 'Failed to submit adjustment.' : err,
+              type: AppSnackType.error,
+              title: 'Submission failed',
+            );
             return false;
           }
 
@@ -284,14 +433,57 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
               : res.message.trim();
 
           _exitAdjustMode();
+          await _reloadFirstPage();
 
           _showSnack(
             '$msg (Success: ${res.successCount}, Skipped: ${res.skipCount})',
+            type: AppSnackType.success,
+            title: 'Done',
           );
           return true;
         },
       ),
     );
+  }
+
+  Future<void> _openAdvancedFilterSheet() async {
+    if (_adjustMode) return;
+
+    final applied = await showModalBottomSheet<_AdvancedFilterResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => _AdvancedFilterSheet(
+        initialAdjustmentStatus: _adjustmentStatus,
+        initialVariance: _variance,
+      ),
+    );
+
+    if (!mounted) return;
+    if (applied == null) return;
+
+    final changed =
+        applied.adjustmentStatus != _adjustmentStatus ||
+        applied.variance != _variance;
+    if (!changed) return;
+
+    setState(() {
+      _adjustmentStatus = applied.adjustmentStatus;
+      _variance = applied.variance;
+    });
+
+    _showSnack('Filters applied.', type: AppSnackType.info, title: 'Updated');
+    await _reloadFirstPage();
+  }
+
+  /// ✅ Active only when OPTIONAL filters are set (not store)
+  bool _filtersActive() {
+    return (_adjustmentStatus ?? '').trim().isNotEmpty ||
+        (_variance ?? '').trim().isNotEmpty;
   }
 
   @override
@@ -306,13 +498,10 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
     final actionLabel = _appBarActionLabel();
     final isCancel = _adjustMode && _selectedOpnameIds.isEmpty;
 
-    final selectableIds = _adjustMode
-        ? _selectableIds(stockProv)
-        : const <String>[];
-    final allSelected =
-        _adjustMode &&
-        selectableIds.isNotEmpty &&
-        selectableIds.every(_selectedOpnameIds.contains);
+    final allSelected = _adjustMode ? _isAllSelected(stockProv) : false;
+    final selectAllLabel = allSelected ? 'Unselect' : 'Select all';
+
+    final hasOptionalActive = _filtersActive(); // ✅ dot based on this
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -326,6 +515,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
           onPressed: () {
             if (_adjustMode) {
               _exitAdjustMode();
+              _showSnack('Selection mode closed.', type: AppSnackType.info);
               return;
             }
             Navigator.pop(context);
@@ -375,37 +565,39 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
           child: Column(
             children: [
-              _TopBar(
-                title: storeLabel,
-                subtitle: 'Tap to change store location',
-                enabled: stores.isNotEmpty && !_adjustMode,
+              // ✅ Store + Advanced filter button (seragam dengan create screen)
+              _StoreAndAdvancedRow(
+                storeTitle: storeLabel,
+                storeEnabled: stores.isNotEmpty && !_adjustMode,
                 onPickStore: _pickStore,
+                filterEnabled: !_adjustMode,
+                onOpenFilter: _openAdvancedFilterSheet,
+                filtersActive: hasOptionalActive,
               ),
               const SizedBox(height: 10),
 
               if (_adjustMode)
-                _SelectionToolbar(
+                _SelectionToolbarCompact(
                   selectedCount: _selectedOpnameIds.length,
-                  selectableCount: selectableIds.length,
-                  allSelected: allSelected,
-                  onToggleSelectAll: selectableIds.isEmpty
-                      ? null
-                      : () => _toggleSelectAll(stockProv),
+                  hintText: 'Auto-scope: ${_defaultScopeLabel()}',
+                  selectAllLabel: selectAllLabel,
+                  onToggleSelectAll: () => _toggleSelectAll(stockProv),
                   onClear: _selectedOpnameIds.isEmpty
                       ? null
-                      : () => setState(() => _selectedOpnameIds.clear()),
+                      : () => setState(_selectedOpnameIds.clear),
                 ),
-
               if (_adjustMode) const SizedBox(height: 10),
 
               Expanded(
                 child: Consumer<StockProvider>(
                   builder: (context, prov, _) {
-                    if (prov.loadingStockOpnames) {
+                    final isLoading = prov.loadingStockOpnames;
+                    final err = (prov.stockOpnamesError ?? '').trim();
+
+                    if (isLoading && prov.stockOpnames.isEmpty) {
                       return _shimmerList();
                     }
 
-                    final err = (prov.stockOpnamesError ?? '').trim();
                     if (err.isNotEmpty) {
                       return _EmptyBox(
                         title: 'Failed to load',
@@ -421,6 +613,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
                         color: AppColors.blueButton,
                         onRefresh: _onRefresh,
                         child: ListView(
+                          controller: _scrollC,
                           physics: const AlwaysScrollableScrollPhysics(),
                           children: const [
                             SizedBox(height: 90),
@@ -438,7 +631,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
                       );
                     }
 
-                    // Sort newest first
+                    // newest first
                     final sorted = [...list];
                     sorted.sort((a, b) {
                       final da = _parseCreatedAt(a.createdAt);
@@ -449,33 +642,55 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
                       return db.compareTo(da);
                     });
 
-                    // Group by month
+                    // group by month
                     final rows = <_Row>[];
                     String? lastHeader;
-
                     for (final item in sorted) {
                       final dt = _parseCreatedAt(item.createdAt);
                       final header = dt == null
                           ? 'others'
                           : _formatGroupHeader(dt);
-
                       if (header != lastHeader) {
                         rows.add(_Row.header(header));
                         lastHeader = header;
                       }
-
                       rows.add(_Row.item(item, dt));
                     }
+
+                    final showBottomLoader =
+                        prov.loadingStockOpnames &&
+                        prov.stockOpnames.isNotEmpty;
 
                     return RefreshIndicator(
                       color: AppColors.blueButton,
                       onRefresh: _onRefresh,
                       child: ListView.separated(
+                        controller: _scrollC,
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(0, 2, 0, 8),
-                        itemCount: rows.length,
+                        itemCount: rows.length + 1,
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (_, i) {
+                          if (i == rows.length) {
+                            if (!_hasMore) return const SizedBox(height: 6);
+
+                            if (showBottomLoader) {
+                              return const Padding(
+                                padding: EdgeInsets.only(top: 8, bottom: 10),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+                            return const SizedBox(height: 10);
+                          }
+
                           final r = rows[i];
                           if (r.isHeader) {
                             return _MonthHeader(title: r.headerText!);
@@ -483,6 +698,7 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
 
                           final opname = r.opname!;
                           final dt = r.createdDt;
+
                           final dateLabel = dt == null
                               ? (opname.createdAt.trim().isEmpty
                                     ? '-'
@@ -490,15 +706,13 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
                               : _formatCardDate(dt);
 
                           final canSelect = _isUnadjusted(opname);
-                          final selected = _selectedOpnameIds.contains(
-                            opname.idStockOpname,
-                          );
+                          final id = opname.idStockOpname.toString();
+                          final selected = _selectedOpnameIds.contains(id);
 
-                          Null toggle() {
+                          void toggle() {
                             if (!_adjustMode) return;
                             if (!canSelect) return;
                             setState(() {
-                              final id = opname.idStockOpname;
                               if (_selectedOpnameIds.contains(id)) {
                                 _selectedOpnameIds.remove(id);
                               } else {
@@ -518,7 +732,6 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
                             );
                           }
 
-                          // Adjust mode
                           return Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -568,7 +781,85 @@ class _StockOpnameListScreenState extends State<StockOpnameListScreen> {
 }
 
 // =======================
-// Bottom sheet
+// Filter button (SERAGAM dgn create screen)
+// =======================
+class _AdvancedFilterIconButton extends StatelessWidget {
+  const _AdvancedFilterIconButton({
+    required this.isActive,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final bool isActive;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    const Color bgEnabled = Color(0xFFF3F4F6);
+    const Color bgDisabled = Color(0xFFF9FAFB);
+    const Color bd = Color(0xFFE5E7EB);
+    const Color iconEnabled = Color(0xFF111827);
+    const Color iconDisabled = Color(0xFF9CA3AF);
+
+    final Color activeBorder = AppColors.blueButton.withOpacity(0.35);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onPressed : null,
+        borderRadius: BorderRadius.circular(10),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: enabled ? bgEnabled : bgDisabled,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: isActive ? activeBorder : bd),
+            boxShadow: (enabled && isActive)
+                ? const [
+                    BoxShadow(
+                      color: Color(0x144C6EF5),
+                      blurRadius: 12,
+                      offset: Offset(0, 6),
+                    ),
+                  ]
+                : const [],
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Center(
+                child: Icon(
+                  Icons.tune_rounded,
+                  size: 20,
+                  color: enabled ? iconEnabled : iconDisabled,
+                ),
+              ),
+
+              // ✅ Dot ONLY appears when active
+              if (enabled && isActive)
+                Positioned(
+                  right: 9,
+                  top: 9,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: AppColors.blueButton,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =======================
+// Bottom sheet (Adjust)
 // =======================
 class _AdjustmentSheet extends StatefulWidget {
   final int selectedCount;
@@ -896,6 +1187,406 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
 }
 
 // =======================
+// Advanced Filter Sheet
+// =======================
+class _AdvancedFilterResult {
+  final String? adjustmentStatus;
+  final String? variance;
+
+  const _AdvancedFilterResult({
+    required this.adjustmentStatus,
+    required this.variance,
+  });
+}
+
+class _AdvancedFilterSheet extends StatefulWidget {
+  final String? initialAdjustmentStatus;
+  final String? initialVariance;
+
+  const _AdvancedFilterSheet({
+    required this.initialAdjustmentStatus,
+    required this.initialVariance,
+  });
+
+  @override
+  State<_AdvancedFilterSheet> createState() => _AdvancedFilterSheetState();
+}
+
+class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
+  String? _adj;
+  String? _var;
+
+  @override
+  void initState() {
+    super.initState();
+    _adj = widget.initialAdjustmentStatus;
+    _var = widget.initialVariance;
+  }
+
+  String _adjLabel(String? v) {
+    final t = (v ?? '').trim().toUpperCase();
+    if (t.isEmpty) return 'All';
+    if (t == 'NOT_ADJUSTED') return 'Not adjusted';
+    if (t == 'ADJUSTED') return 'Adjusted';
+    return v ?? 'All';
+  }
+
+  String _varLabel(String? v) {
+    final t = (v ?? '').trim().toLowerCase();
+    if (t.isEmpty) return 'All';
+    if (t == 'minus') return 'Minus';
+    if (t == 'zero') return 'Zero';
+    if (t == 'plus') return 'Plus';
+    return v ?? 'All';
+  }
+
+  Future<String?> _pickAdj() async {
+    return showModalBottomSheet<String?>(
+      context: context,
+      backgroundColor: Colors.white,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => _OptionPickerSheet<String?>(
+        title: 'Adjustment status',
+        current: _adj,
+        options: const [
+          _OptionItem(value: null, label: 'All'),
+          _OptionItem(value: 'NOT_ADJUSTED', label: 'Not adjusted'),
+          _OptionItem(value: 'ADJUSTED', label: 'Adjusted'),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _pickVar() async {
+    return showModalBottomSheet<String?>(
+      context: context,
+      backgroundColor: Colors.white,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => _OptionPickerSheet<String?>(
+        title: 'Variance',
+        current: _var,
+        options: const [
+          _OptionItem(value: null, label: 'All'),
+          _OptionItem(value: 'minus', label: 'Minus'),
+          _OptionItem(value: 'zero', label: 'Zero'),
+          _OptionItem(value: 'plus', label: 'Plus'),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final canReset =
+        (_adj ?? '').trim().isNotEmpty || (_var ?? '').trim().isNotEmpty;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 8,
+        bottom: bottomInset > 0 ? bottomInset : 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5E7EB),
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Advanced filters',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Close',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Filter by adjustment status and variance.',
+            style: TextStyle(
+              color: Color(0xFF6B7280),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          _FilterSelectTile(
+            icon: Icons.swap_horiz_rounded,
+            title: 'Adjustment status',
+            valueText: _adjLabel(_adj),
+            onTap: () async {
+              final v = await _pickAdj();
+              if (!mounted) return;
+              setState(() => _adj = v);
+            },
+          ),
+          const SizedBox(height: 10),
+          _FilterSelectTile(
+            icon: Icons.exposure_rounded,
+            title: 'Variance',
+            valueText: _varLabel(_var),
+            onTap: () async {
+              final v = await _pickVar();
+              if (!mounted) return;
+              setState(() => _var = v);
+            },
+          ),
+
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 44,
+                  child: OutlinedButton(
+                    onPressed: canReset
+                        ? () => setState(() {
+                            _adj = null;
+                            _var = null;
+                          })
+                        : null,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF111827),
+                      side: const BorderSide(color: Color(0xFFE5E7EB)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Reset',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SizedBox(
+                  height: 44,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(
+                      _AdvancedFilterResult(
+                        adjustmentStatus: _adj,
+                        variance: _var,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.blueButton,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Apply',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OptionItem<T> {
+  final T value;
+  final String label;
+  const _OptionItem({required this.value, required this.label});
+}
+
+class _OptionPickerSheet<T> extends StatelessWidget {
+  final String title;
+  final T current;
+  final List<_OptionItem<T>> options;
+
+  const _OptionPickerSheet({
+    required this.title,
+    required this.current,
+    required this.options,
+  });
+
+  bool _eq(dynamic a, dynamic b) => a == b;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5E7EB),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: options.length,
+                separatorBuilder: (_, __) =>
+                    const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                itemBuilder: (_, i) {
+                  final o = options[i];
+                  final selected = _eq(o.value, current);
+
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      o.label,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                    trailing: Radio<bool>(
+                      value: true,
+                      groupValue: selected,
+                      onChanged: (_) => Navigator.of(context).pop(o.value),
+                      activeColor: AppColors.blueButton,
+                    ),
+                    onTap: () => Navigator.of(context).pop(o.value),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterSelectTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String valueText;
+  final VoidCallback onTap;
+
+  const _FilterSelectTile({
+    required this.icon,
+    required this.title,
+    required this.valueText,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9FAFB),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Icon(icon, size: 18, color: const Color(0xFF4B5563)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    valueText,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.expand_more_rounded, color: Color(0xFF6B7280)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =======================
 // Rows & UI
 // =======================
 class _Row {
@@ -946,98 +1637,107 @@ class _MonthHeader extends StatelessWidget {
   }
 }
 
-class _TopBar extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final bool enabled;
+class _StoreAndAdvancedRow extends StatelessWidget {
+  final String storeTitle;
+  final bool storeEnabled;
   final VoidCallback onPickStore;
 
-  const _TopBar({
-    required this.title,
-    required this.subtitle,
-    required this.enabled,
+  final bool filterEnabled;
+  final VoidCallback onOpenFilter;
+  final bool filtersActive;
+
+  const _StoreAndAdvancedRow({
+    required this.storeTitle,
+    required this.storeEnabled,
     required this.onPickStore,
+    required this.filterEnabled,
+    required this.onOpenFilter,
+    required this.filtersActive,
   });
 
   @override
   Widget build(BuildContext context) {
-    final disabled = !enabled;
-
-    return InkWell(
-      onTap: enabled ? onPickStore : null,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF3F4F6),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.storefront_rounded,
-              size: 18,
-              color: Color(0xFF4B5563),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
+      children: [
+        Expanded(
+          child: InkWell(
+            onTap: storeEnabled ? onPickStore : null,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              height: 46,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
                 children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF111827),
+                  const Icon(
+                    Icons.storefront_rounded,
+                    size: 18,
+                    color: Color(0xFF4B5563),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      storeTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF111827),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    disabled ? 'Store selection is locked' : subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF6B7280),
-                      fontWeight: FontWeight.w700,
-                    ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    storeEnabled
+                        ? Icons.expand_more_rounded
+                        : Icons.lock_rounded,
+                    color: const Color(0xFF6B7280),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            Icon(
-              enabled ? Icons.expand_more_rounded : Icons.lock_rounded,
-              color: const Color(0xFF6B7280),
-            ),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(width: 10),
+
+        // ✅ Seragam: 42x42 seperti create screen
+        SizedBox(
+          height: 42,
+          width: 42,
+          child: _AdvancedFilterIconButton(
+            enabled: filterEnabled,
+            isActive:
+                filtersActive, // ✅ dot only based on active optional filters
+            onPressed: onOpenFilter,
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _SelectionToolbar extends StatelessWidget {
+class _SelectionToolbarCompact extends StatelessWidget {
   final int selectedCount;
-  final int selectableCount;
-  final bool allSelected;
-  final VoidCallback? onToggleSelectAll;
+  final String hintText;
+  final String selectAllLabel;
+  final VoidCallback onToggleSelectAll;
   final VoidCallback? onClear;
 
-  const _SelectionToolbar({
+  const _SelectionToolbarCompact({
     required this.selectedCount,
-    required this.selectableCount,
-    required this.allSelected,
+    required this.hintText,
+    required this.selectAllLabel,
     required this.onToggleSelectAll,
     required this.onClear,
   });
 
   @override
   Widget build(BuildContext context) {
-    final disabled = selectableCount <= 0;
+    final hasSelection = selectedCount > 0;
 
     return Container(
       width: double.infinity,
@@ -1068,18 +1768,20 @@ class _SelectionToolbar extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Selection mode',
-                  style: TextStyle(
+                Text(
+                  hasSelection ? 'Selected $selectedCount' : 'Selection mode',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
                     fontWeight: FontWeight.w900,
                     color: Color(0xFF111827),
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  disabled
-                      ? 'No selectable records (only "Unadjusted" can be selected)'
-                      : 'Selected $selectedCount of $selectableCount',
+                  hintText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFF6B7280),
@@ -1089,13 +1791,17 @@ class _SelectionToolbar extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(width: 10),
+          _PillButton(
+            label: selectAllLabel,
+            onTap: onToggleSelectAll,
+            primary: selectAllLabel.toLowerCase().contains('unselect'),
+          ),
           const SizedBox(width: 8),
-          if (onClear != null)
-            _MiniTextButton(label: 'Clear', onPressed: onClear!),
-          const SizedBox(width: 8),
-          _MiniTextButton(
-            label: allSelected ? 'Selected all' : 'Select all',
-            onPressed: onToggleSelectAll,
+          _IconPill(
+            icon: Icons.clear_all_rounded,
+            tooltip: 'Clear',
+            onTap: onClear,
           ),
         ],
       ),
@@ -1103,34 +1809,78 @@ class _SelectionToolbar extends StatelessWidget {
   }
 }
 
-class _MiniTextButton extends StatelessWidget {
+class _PillButton extends StatelessWidget {
   final String label;
-  final VoidCallback? onPressed;
+  final VoidCallback onTap;
+  final bool primary;
 
-  const _MiniTextButton({required this.label, required this.onPressed});
+  const _PillButton({
+    required this.label,
+    required this.onTap,
+    required this.primary,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final enabled = onPressed != null;
+    final bg = primary ? const Color(0xFF111827) : const Color(0xFFEFF6FF);
+    final fg = primary ? Colors.white : const Color(0xFF1D4ED8);
+    final border = primary ? const Color(0xFF111827) : const Color(0xFFDBEAFE);
 
     return InkWell(
-      onTap: onPressed,
+      onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
-          color: enabled ? const Color(0xFFEFF6FF) : const Color(0xFFF3F4F6),
+          color: bg,
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: enabled ? const Color(0xFFDBEAFE) : const Color(0xFFE5E7EB),
-          ),
+          border: Border.all(color: border),
         ),
         child: Text(
           label,
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w900,
-            color: enabled ? const Color(0xFF1D4ED8) : const Color(0xFF9CA3AF),
+            color: fg,
+            height: 1,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IconPill extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  const _IconPill({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: enabled ? const Color(0xFFF3F4F6) : const Color(0xFFF9FAFB),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Icon(
+            icon,
+            size: 18,
+            color: enabled ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
           ),
         ),
       ),
@@ -1191,13 +1941,7 @@ class _BlueActionButton extends StatelessWidget {
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
           ),
-          child: loading
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : child,
+          child: child,
         ),
       );
     }
@@ -1222,10 +1966,7 @@ class _BlueActionButton extends StatelessWidget {
 }
 
 // =======================
-// ✅ Compact Card (more items per screen)
-// - Remove branch/store name from card
-// - Product + SKU grouped in one block
-// - Reduced spacing/padding to fit 4–5 cards per screen
+// Compact Card
 // =======================
 class _OpnameCard extends StatelessWidget {
   final StockOpname opname;
@@ -1264,7 +2005,6 @@ class _OpnameCard extends StatelessWidget {
     final productName = opname.product.name.toString().trim().isEmpty
         ? '-'
         : opname.product.name.toString().trim();
-
     final skuCode = opname.productSku.code.toString().trim().isEmpty
         ? '-'
         : opname.productSku.code.toString().trim();
@@ -1276,13 +2016,19 @@ class _OpnameCard extends StatelessWidget {
     final system = opname.systemQty;
 
     final stLower = opname.status.trim().toLowerCase();
+    final adjUpper = opname.adjustmentStatus.trim().toUpperCase();
 
     Color badgeBg = const Color(0xFFF3F4F6);
     Color badgeFg = const Color(0xFF111827);
-    if (stLower.contains('not_adjusted')) {
+
+    final isNotAdjusted =
+        adjUpper == 'NOT_ADJUSTED' || stLower.contains('not_adjusted');
+    final isAdjusted = adjUpper == 'ADJUSTED' || stLower.contains('adjusted');
+
+    if (isNotAdjusted) {
       badgeBg = const Color(0xFFFFFBEB);
       badgeFg = const Color(0xFF92400E);
-    } else if (stLower.contains('adjusted')) {
+    } else if (isAdjusted) {
       badgeBg = const Color(0xFFEFF6FF);
       badgeFg = const Color(0xFF1D4ED8);
     } else if (stLower.contains('validated') || stLower.contains('approved')) {
@@ -1304,7 +2050,6 @@ class _OpnameCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // top row (date + badge) - compact
           Row(
             children: [
               Expanded(
@@ -1340,8 +2085,6 @@ class _OpnameCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 6),
-
-          // Product + SKU grouped
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -1405,10 +2148,7 @@ class _OpnameCard extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 8),
-
-          // compact metrics row
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1441,8 +2181,6 @@ class _OpnameCard extends StatelessWidget {
               ],
             ),
           ),
-
-          // note: keep but super compact (no big card)
           if (opname.note.trim().isNotEmpty) ...[
             const SizedBox(height: 6),
             Row(
@@ -1496,7 +2234,6 @@ class _OpnameCard extends StatelessWidget {
   }
 }
 
-// compact KV used by compact card
 class _KVCompact extends StatelessWidget {
   final String label;
   final String value;
@@ -1624,7 +2361,7 @@ Widget _shimmerList() {
         baseColor: const Color(0xFFE5E7EB),
         highlightColor: const Color(0xFFF3F4F6),
         child: Container(
-          height: 118, // ✅ lebih pendek biar muat 4–5 card
+          height: 118,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(14),
