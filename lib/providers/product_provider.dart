@@ -1559,16 +1559,23 @@ class ProductProvider with ChangeNotifier {
     return false;
   }
 
-  Future<bool> updateProduct({
+  /// =========================
+  /// UPDATE PAYLOAD EXACT (biar sama kaya addProductExactPayload)
+  /// =========================
+  Future<bool> updateProductExactPayload({
     required BuildContext context,
     required String idProduct,
     required String name,
-    required String description,
-    required String productBrandId,
-    required String productCategoryId,
-    required List<NewImage> images,
-    required List<NewSku> skus,
-    required List<NewPrice> prices,
+    // boleh null
+    required String? description,
+    // boleh null
+    required String? productBrandId,
+    // boleh null
+    required String? productCategoryId,
+    required List<Map<String, dynamic>>?
+    images, // [{"image":"...","position":1}]
+    required List<Map<String, dynamic>> skus, // same shape as add
+    required List<Map<String, dynamic>>? prices, // null jika multi price off
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
@@ -1576,19 +1583,21 @@ class ProductProvider with ChangeNotifier {
       return false;
     }
 
-    try {
-      final payload = {
-        'name': name,
-        'description': description,
-        'product_brand_id': productBrandId,
-        'product_category_id': productCategoryId,
-        'images': images.map((e) => e.toJson()).toList(),
-        'skus': skus.map((e) => e.toJson()).toList(),
-        'prices': prices.map((e) => e.toJson()).toList(),
-      };
+    final payload = <String, dynamic>{
+      'name': name,
+      'description': description, // boleh null
+      'product_brand_id': productBrandId, // boleh null
+      'product_category_id': productCategoryId, // boleh null
+      'images': images,
+      'skus': skus,
+      'prices': prices, // boleh null
+    };
 
+    try {
       if (kDebugMode) {
-        debugPrint('[ProductProvider] UPDATE payload: ${jsonEncode(payload)}');
+        debugPrint(
+          "[updateProductExactPayload] Payload: ${jsonEncode(payload)}",
+        );
       }
 
       final res = await ApiService.post(
@@ -1601,12 +1610,13 @@ class ProductProvider with ChangeNotifier {
       final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
 
       if (kDebugMode) {
-        debugPrint('[ProductProvider] UPDATE status: ${res?.statusCode}');
-        debugPrint('[ProductProvider] UPDATE body  : ${res?.body}');
+        debugPrint("[updateProductExactPayload] Code: ${res?.statusCode}");
+        debugPrint("[updateProductExactPayload] Body: ${res?.body}");
       }
 
       if (ok) {
         await fetchProducts(context);
+        // refresh detail cache
         if (_productDetail?.idProduct == idProduct) {
           await fetchProductDetail(context, idProduct, preferCache: false);
         } else {
@@ -1619,9 +1629,7 @@ class ProductProvider with ChangeNotifier {
       }
     } catch (e) {
       _lastError = e.toString();
-      if (kDebugMode) {
-        debugPrint('[ProductProvider] UPDATE error: $e');
-      }
+      if (kDebugMode) debugPrint("[updateProductExactPayload] Error: $e");
       return false;
     }
   }

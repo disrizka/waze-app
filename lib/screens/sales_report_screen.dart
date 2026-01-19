@@ -22,7 +22,6 @@ class SalesReportScreen extends StatefulWidget {
 class _SalesReportScreenState extends State<SalesReportScreen> {
   final _searchC = TextEditingController();
   DateTimeRange? _range;
-  bool _showFilters = true;
 
   // infinite scroll
   final ScrollController _scrollController = ScrollController();
@@ -182,15 +181,9 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                               ),
                             ),
                             const SizedBox(width: 6),
-                            InkWell(
-                              onTap: null, // set below via Builder
-                              child: SizedBox.shrink(),
-                            ),
                           ],
                         ),
-
                         const SizedBox(height: 16),
-
                         SizedBox(
                           width: double.infinity,
                           height: 48,
@@ -204,10 +197,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                             ),
                             onPressed: () {
                               Navigator.of(ctx).pop();
-                              Navigator.pushNamed(
-                                context,
-                                '/subscription',
-                              ); // sesuaikan route kalau beda
+                              Navigator.pushNamed(context, '/subscription');
                             },
                             child: const Text(
                               'Pay now',
@@ -299,7 +289,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _pickRange() async {
+  Future<DateTimeRange?> _pickRangeDialog({DateTimeRange? initial}) async {
     final l10n = AppLocalizations.of(context)!;
     final now = DateTime.now();
     final firstDate = DateTime(now.year - 3);
@@ -308,7 +298,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     final res = await showDateRangePicker(
       context: context,
       initialDateRange:
-          _range ??
+          initial ??
           DateTimeRange(
             start: DateTime(now.year, now.month, now.day),
             end: DateTime(now.year, now.month, now.day),
@@ -331,46 +321,47 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
       },
     );
 
-    if (res != null) {
-      setState(
-        () => _range = DateTimeRange(
-          start: DateTime(res.start.year, res.start.month, res.start.day),
-          end: DateTime(res.end.year, res.end.month, res.end.day, 23, 59, 59),
-        ),
-      );
-    }
+    if (res == null) return null;
+
+    return DateTimeRange(
+      start: DateTime(res.start.year, res.start.month, res.start.day),
+      end: DateTime(res.end.year, res.end.month, res.end.day, 23, 59, 59),
+    );
   }
 
-  void _clearTextAndRange() {
-    setState(() {
-      _searchC.clear();
-      _range = null;
-    });
-  }
-
-  Future<void> _pickStore() async {
-    final result = await showStorePickerSheet(
-      context,
-      selectedId: _selectedStoreId,
-      autoSelectWhenSingle: false,
+  Future<void> _openAdvancedFilter() async {
+    final result = await showModalBottomSheet<_SalesAdvancedFilterResult>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _SalesAdvancedFilterSheet(
+        initialRange: _range,
+        initialStoreId: _selectedStoreId,
+        initialStoreName: _selectedStoreName,
+        onPickRange: (initial) => _pickRangeDialog(initial: initial),
+      ),
     );
 
-    if (result != null) {
-      setState(() {
-        _selectedStoreId = result.id;
-        _selectedStoreName = result.label;
-      });
-      await _loadFirstPage();
-    }
-  }
+    if (!mounted || result == null) return;
 
-  Future<void> _clearStore() async {
-    if (_selectedStoreId == null && _selectedStoreName == null) return;
+    final prevStore = _selectedStoreId;
     setState(() {
-      _selectedStoreId = null;
-      _selectedStoreName = null;
+      _range = result.range;
+      _selectedStoreId = result.storeId;
+      _selectedStoreName = result.storeName;
     });
-    await _loadFirstPage();
+
+    // store filter affects backend fetch
+    if (prevStore != _selectedStoreId) {
+      await _loadFirstPage();
+    } else {
+      // only date change => client-side filter, cukup rebuild
+      if (mounted) setState(() {});
+    }
   }
 
   @override
@@ -379,12 +370,6 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
 
     final fTime = DateFormat('dd MMM yyyy, HH:mm');
     final fMoney = NumberFormat.decimalPattern('id_ID');
-
-    final storeLabel =
-        (_selectedStoreName == null || _selectedStoreName!.isEmpty)
-        ? l10n.salesStoreAll
-        : _selectedStoreName!;
-    final hasStoreFilter = _selectedStoreId != null;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -445,6 +430,59 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
             return matchesQuery && matchesRange;
           }).toList();
 
+          // ===== top controls: SAME FEEL as ProductScreen =====
+          final topControls = Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchC,
+                    onChanged: (_) => setState(() {}),
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      hintText: l10n.salesSearchHint,
+                      isDense: true,
+                      filled: true,
+                      fillColor: const Color(0xFFF3F4F6),
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  height: 42,
+                  width: 42,
+                  child: ElevatedButton(
+                    onPressed: _openAdvancedFilter,
+                    style: ElevatedButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      backgroundColor: const Color(0xFF426FD4),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Icon(Icons.tune_rounded, size: 20),
+                  ),
+                ),
+              ],
+            ),
+          );
+
           return RefreshIndicator(
             onRefresh: () async {
               // ✅ refresh banned status too (in case it changed)
@@ -456,36 +494,17 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
               controller: _scrollController,
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
-                // FILTER CARD (search + date + store)
+                // TOP BAR
+                SliverToBoxAdapter(child: topControls),
+
+                // OPTIONAL: tiny minimal info line (subtle)
                 SliverToBoxAdapter(
-                  child: AnimatedCrossFade(
-                    duration: const Duration(milliseconds: 300),
-                    firstCurve: Curves.easeOutCubic,
-                    secondCurve: Curves.easeInCubic,
-                    crossFadeState: _showFilters
-                        ? CrossFadeState.showFirst
-                        : CrossFadeState.showSecond,
-                    firstChild: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      child: _FiltersCard(
-                        searchC: _searchC,
-                        onSearchChanged: () => setState(() {}),
-                        onPickRange: _pickRange,
-                        range: _range,
-                        onClearTextAndRange:
-                            (_searchC.text.isNotEmpty || _range != null)
-                            ? _clearTextAndRange
-                            : null,
-                        storeLabel: storeLabel,
-                        hasStoreFilter: hasStoreFilter,
-                        onTapStore: _pickStore,
-                        onClearStore: hasStoreFilter ? _clearStore : null,
-                      ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+                    child: _FiltersHintLine(
+                      storeName: _selectedStoreName,
+                      range: _range,
                     ),
-                    secondChild: const SizedBox.shrink(),
                   ),
                 ),
 
@@ -512,27 +531,24 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                     ),
                   )
                 else ...[
-                  // HEADER
+                  // HEADER (keep existing behavior)
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
                       child: Row(
                         children: [
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(height: 4),
-                                Text(
-                                  hasStoreFilter
-                                      ? l10n.salesStoreLabelWithName(storeLabel)
-                                      : l10n.salesStoreLabelAll,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF9CA3AF),
-                                  ),
-                                ),
-                              ],
+                            child: Text(
+                              (_selectedStoreName == null ||
+                                      _selectedStoreName!.isEmpty)
+                                  ? l10n.salesStoreLabelAll
+                                  : l10n.salesStoreLabelWithName(
+                                      _selectedStoreName!,
+                                    ),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF9CA3AF),
+                              ),
                             ),
                           ),
                           if (isLoading)
@@ -770,220 +786,320 @@ String formatRangeCompact(DateTimeRange r) {
   }
 }
 
-/// CARD FILTER BARU: 2 baris (atas: search, bawah: date + store)
-class _FiltersCard extends StatelessWidget {
-  final TextEditingController searchC;
-  final VoidCallback onSearchChanged;
-  final VoidCallback onPickRange;
+class _FiltersHintLine extends StatelessWidget {
+  const _FiltersHintLine({required this.storeName, required this.range});
+  final String? storeName;
   final DateTimeRange? range;
-  final VoidCallback? onClearTextAndRange;
-
-  final String storeLabel;
-  final bool hasStoreFilter;
-  final VoidCallback onTapStore;
-  final VoidCallback? onClearStore;
-
-  const _FiltersCard({
-    required this.searchC,
-    required this.onSearchChanged,
-    required this.onPickRange,
-    required this.range,
-    this.onClearTextAndRange,
-    required this.storeLabel,
-    required this.hasStoreFilter,
-    required this.onTapStore,
-    this.onClearStore,
-  });
 
   @override
   Widget build(BuildContext context) {
-    const borderColor = Color(0xFFE5E7EB);
-    const textMain = Color(0xFF111827);
-    const textSub = Color(0xFF6B7280);
+    final parts = <String>[];
+    if (storeName != null && storeName!.trim().isNotEmpty) {
+      parts.add(storeName!.trim());
+    }
+    if (range != null) {
+      parts.add(formatRangeCompact(range!));
+    }
 
-    final l10n = AppLocalizations.of(context)!;
-    final rangeLabel = range == null
-        ? l10n.salesFilterAnyTime
-        : formatRangeCompact(range!);
+    if (parts.isEmpty) return const SizedBox.shrink();
 
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: borderColor),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF0B1220).withOpacity(0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
+    return Row(
+      children: [
+        const Icon(
+          Icons.filter_alt_rounded,
+          size: 14,
+          color: Color(0xFF9CA3AF),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // ================= TOP: SEARCH =================
-            Row(
-              children: [
-                const Icon(Icons.search_rounded, size: 20, color: textSub),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: searchC,
-                    onChanged: (_) => onSearchChanged(),
-                    textInputAction: TextInputAction.search,
-                    textAlignVertical: TextAlignVertical.center,
-                    style: const TextStyle(fontSize: 14, color: textMain),
-                    maxLines: 1,
-                    decoration: InputDecoration(
-                      hintText: l10n.salesSearchHint,
-                      hintStyle: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF9CA3AF),
-                      ),
-                      isCollapsed: true,
-                      filled: false,
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                ),
-                if (searchC.text.isNotEmpty && onClearTextAndRange != null)
-                  InkWell(
-                    borderRadius: BorderRadius.circular(20),
-                    onTap: onClearTextAndRange,
-                    child: const Padding(
-                      padding: EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.close_rounded,
-                        size: 16,
-                        color: Color(0xFF9CA3AF),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-
-            const SizedBox(height: 8),
-            const _VDivider(color: borderColor),
-            const SizedBox(height: 8),
-
-            // ================= BOTTOM: DATE + STORE =================
-            Row(
-              children: [
-                // DATE
-                Expanded(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: onPickRange,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 8,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.date_range_rounded,
-                            size: 18,
-                            color: textMain,
-                          ),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              rangeLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: textMain,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 8),
-
-                // STORE
-                Expanded(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: onTapStore,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 8,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.store_mall_directory_rounded,
-                            size: 18,
-                            color: hasStoreFilter
-                                ? const Color(0xFF2563EB)
-                                : textMain,
-                          ),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              storeLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: hasStoreFilter
-                                    ? const Color(0xFF2563EB)
-                                    : textMain,
-                              ),
-                            ),
-                          ),
-                          if (hasStoreFilter && onClearStore != null)
-                            InkWell(
-                              onTap: onClearStore,
-                              borderRadius: BorderRadius.circular(20),
-                              child: const Padding(
-                                padding: EdgeInsets.only(left: 4),
-                                child: Icon(
-                                  Icons.close_rounded,
-                                  size: 14,
-                                  color: Color(0xFF9CA3AF),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            parts.join(' • '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+          ),
         ),
-      ),
+      ],
     );
   }
 }
 
-class _VDivider extends StatelessWidget {
-  final Color color;
-  const _VDivider({required this.color});
+class _SalesAdvancedFilterResult {
+  final DateTimeRange? range;
+  final String? storeId;
+  final String? storeName;
+
+  const _SalesAdvancedFilterResult({
+    required this.range,
+    required this.storeId,
+    required this.storeName,
+  });
+}
+
+class _SalesAdvancedFilterSheet extends StatefulWidget {
+  const _SalesAdvancedFilterSheet({
+    required this.initialRange,
+    required this.initialStoreId,
+    required this.initialStoreName,
+    required this.onPickRange,
+  });
+
+  final DateTimeRange? initialRange;
+  final String? initialStoreId;
+  final String? initialStoreName;
+
+  final Future<DateTimeRange?> Function(DateTimeRange? initial) onPickRange;
+
+  @override
+  State<_SalesAdvancedFilterSheet> createState() =>
+      _SalesAdvancedFilterSheetState();
+}
+
+class _SalesAdvancedFilterSheetState extends State<_SalesAdvancedFilterSheet> {
+  DateTimeRange? _range;
+  String? _storeId;
+  String? _storeName;
+
+  @override
+  void initState() {
+    super.initState();
+    _range = widget.initialRange;
+    _storeId = widget.initialStoreId;
+    _storeName = widget.initialStoreName;
+  }
+
+  Future<void> _pickStore() async {
+    final result = await showStorePickerSheet(
+      context,
+      selectedId: _storeId,
+      autoSelectWhenSingle: false,
+    );
+    if (result == null) return;
+
+    setState(() {
+      _storeId = result.id;
+      _storeName = result.label;
+    });
+  }
+
+  Future<void> _pickRange() async {
+    final picked = await widget.onPickRange(_range);
+    if (picked == null) return;
+    setState(() => _range = picked);
+  }
+
+  void _resetAll() {
+    setState(() {
+      _range = null;
+      _storeId = null;
+      _storeName = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(width: double.infinity, height: 1, color: color);
+    final l10n = AppLocalizations.of(context)!;
+
+    final rangeLabel = _range == null
+        ? l10n.salesFilterAnyTime
+        : formatRangeCompact(_range!);
+
+    final storeLabel = (_storeName == null || _storeName!.trim().isEmpty)
+        ? l10n.salesStoreAll
+        : _storeName!.trim();
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.78,
+      minChildSize: 0.55,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (context, controller) {
+        return Column(
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5E7EB),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Advanced Filter',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _resetAll,
+                    child: const Text(
+                      'Reset all',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(
+                        context,
+                        _SalesAdvancedFilterResult(
+                          range: _range,
+                          storeId: _storeId,
+                          storeName: _storeName,
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF426FD4),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Apply',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Divider(height: 1, color: Color(0xFFE5E7EB)),
+            Expanded(
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                children: [
+                  const Text(
+                    'Filter by',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF6B7280),
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  _FilterPickTile(
+                    icon: Icons.store_mall_directory_rounded,
+                    title: 'Store Location',
+                    value: storeLabel,
+                    onTap: _pickStore,
+                    isActive: _storeId != null,
+                  ),
+                  const SizedBox(height: 10),
+                  _FilterPickTile(
+                    icon: Icons.date_range_rounded,
+                    title: 'Date Range',
+                    value: rangeLabel,
+                    onTap: _pickRange,
+                    isActive: _range != null,
+                  ),
+
+                  const SizedBox(height: 18),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FilterPickTile extends StatelessWidget {
+  const _FilterPickTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.onTap,
+    required this.isActive,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final VoidCallback onTap;
+  final bool isActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final activeColor = isActive
+        ? const Color(0xFF2563EB)
+        : const Color(0xFF111827);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F4F6),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Icon(icon, size: 18, color: activeColor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isActive
+                          ? const Color(0xFF2563EB)
+                          : const Color(0xFF6B7280),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF9CA3AF)),
+          ],
+        ),
+      ),
+    );
   }
 }
 

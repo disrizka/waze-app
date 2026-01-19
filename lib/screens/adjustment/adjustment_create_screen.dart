@@ -334,10 +334,31 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Create Adjustment',
-          style: TextStyle(fontWeight: FontWeight.w900),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment:
+              CrossAxisAlignment.baseline, // ⬅️ ini pakai CrossAxisAlignment
+          textBaseline:
+              TextBaseline.alphabetic, // ⬅️ ini baru pakai TextBaseline
+          children: const [
+            Text(
+              'Adjustment Stock',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            SizedBox(width: 8),
+            Text(
+              '/create',
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF9CA3AF),
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
+
+        centerTitle: false,
       ),
       body: Column(
         children: [

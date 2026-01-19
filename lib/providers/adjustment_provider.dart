@@ -833,4 +833,81 @@ class AdjustmentProvider with ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// =========================
+  /// 4) DELETE: Adjustment
+  /// =========================
+  ///
+  /// GET /waveup/:idBusiness/transaction/adjustment/remove/:idtransaction
+  ///
+  /// Response:
+  /// { "status": 200 } atau { "status": 400, "message": "..." }
+  Future<bool> deleteAdjustmentByEndpoint({
+    required BuildContext context,
+    required String idTransaction,
+    bool removeFromListOnSuccess = true,
+  }) async {
+    final bizId = await BizIdCache.get();
+    if (bizId == null || bizId.isEmpty) {
+      _lastError = "Business ID is not available.";
+      _deleteAdjustmentError = _lastError;
+      notifyListeners();
+      return false;
+    }
+
+    _deletingAdjustment = true;
+    _deleteAdjustmentError = null;
+    notifyListeners();
+
+    try {
+      final path =
+          '/waveup/$bizId/transaction/adjustment/remove/$idTransaction';
+
+      if (kDebugMode) debugPrint('[AdjustmentProvider] GET $path');
+
+      final jsonMap = await ApiJson.getMap(context, path);
+
+      if (jsonMap == null) {
+        _deleteAdjustmentError = 'Empty response';
+        _lastError = _deleteAdjustmentError;
+        notifyListeners();
+        return false;
+      }
+
+      final status = (jsonMap['status'] as num?)?.toInt() ?? 0;
+      if (status < 200 || status >= 300) {
+        _deleteAdjustmentError =
+            jsonMap['message']?.toString() ??
+            'Adjustment yang sudah diproses tidak dapat dihapus';
+        _lastError = _deleteAdjustmentError;
+        notifyListeners();
+        return false;
+      }
+
+      if (removeFromListOnSuccess) {
+        _adjustments.removeWhere((x) => x.idTransaction == idTransaction);
+      }
+
+      // kalau detail yg kebuka adalah transaksi ini, clear biar UI aman
+      if (_adjustmentDetail?.transaction.idTransaction == idTransaction) {
+        _adjustmentDetail = null;
+        _adjustmentDetailError = null;
+      }
+
+      _deleteAdjustmentError = null;
+      _lastError = null;
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      _deleteAdjustmentError = e.toString();
+      _lastError = _deleteAdjustmentError;
+      debugPrint('[AdjustmentProvider] deleteAdjustmentByEndpoint error: $e');
+      debugPrint('$st');
+      notifyListeners();
+      return false;
+    } finally {
+      _deletingAdjustment = false;
+      notifyListeners();
+    }
+  }
 }
