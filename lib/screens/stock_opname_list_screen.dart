@@ -838,7 +838,7 @@ class _AdvancedFilterIconButton extends StatelessWidget {
               // ✅ Dot ONLY appears when active
               if (enabled && isActive)
                 Positioned(
-                  right: 9,
+                  right: 9.5,
                   top: 9,
                   child: Container(
                     width: 8,

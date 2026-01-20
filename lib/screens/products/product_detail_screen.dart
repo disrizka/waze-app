@@ -6,9 +6,7 @@ import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
 import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
-import 'package:wa_blast/screens/products/create_edit_sheet/edit_product_sheet.dart';
-import 'package:wa_blast/screens/products/product_screen.dart'
-    show openEditProductById;
+import 'package:wa_blast/screens/products/create_edit_screen/product_form_screen.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
 
 String _formatRp(int value) {
@@ -239,10 +237,35 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   child: ElevatedButton.icon(
                     onPressed: (loading || prov.productDetail == null)
                         ? null
-                        : () => showEditProductSheet(
-                            context,
-                            prov.productDetail!.idProduct,
-                          ),
+                        : () async {
+                            final id = prov.productDetail!.idProduct;
+
+                            final ok = await Navigator.push<bool>(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    ProductFormScreen(idProduct: id), // EDIT
+                              ),
+                            );
+
+                            if (!mounted) return;
+
+                            if (ok == true) {
+                              // refresh detail biar tampilannya update
+                              await prov.fetchProductDetail(
+                                context,
+                                id,
+                                preferCache: false,
+                              );
+
+                              AppSnackbar.show(
+                                context,
+                                type: AppSnackType.success,
+                                message: 'Product updated successfully.',
+                              );
+                            }
+                          },
+
                     icon: const Icon(Icons.edit_rounded),
                     label: Text(loc.productDetailEditButton),
                     style: ElevatedButton.styleFrom(

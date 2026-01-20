@@ -1400,12 +1400,12 @@ class SalesProvider extends SafeChangeNotifier {
   }
 
   Future<void> _initMidtransIfNeeded(BuildContext context) async {
-    final midtransClientKey = dotenv.env['MIDTRANS_CLIENT_KEY'];
+    final midtransClientKey = "SB-Mid-client-OlAvtRicKKPMklc4";
     if (_midtrans != null) return;
     _midtrans = await MidtransSDK.init(
       config: MidtransConfig(
         clientKey: midtransClientKey!,
-        merchantBaseUrl: dotenv.env['MERCHANT_BASE_URL']!,
+        merchantBaseUrl: "https://wave-api.eon.id",
         colorTheme: ColorTheme(
           colorPrimary: Theme.of(context).colorScheme.primary,
           colorPrimaryDark: Theme.of(context).colorScheme.primary,

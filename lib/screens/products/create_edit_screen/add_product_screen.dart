@@ -17,10 +17,9 @@ import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
-import 'package:wa_blast/widgets/variant_section_dynamic.dart';
 
-final GlobalKey<VariantsSectionDynamicState> variantsKey =
-    GlobalKey<VariantsSectionDynamicState>();
+// ✅ NEW: Variants dipindah ke screen terpisah
+import 'package:wa_blast/screens/variants_editor_screen.dart';
 
 class AddProductScreen extends StatefulWidget {
   const AddProductScreen({super.key});
@@ -58,6 +57,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
   );
 
   final List<_PriceRow> _prices = [_PriceRow()];
+
+  // ✅ NEW: cache variants dari screen editor
+  VariantsEditorResult? _variantsDraft;
 
   // =========================
   // ✅ PREMIUM STATUS (NEW)
@@ -376,18 +378,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
   int? get _skuBasePrice {
     if (_useVariants) {
-      final st = variantsKey.currentState;
-      if (st == null) return null;
-      final skus = st
-          .buildSkus()
-          .where((s) => s.code.trim().isNotEmpty && s.price > 0)
-          .toList();
-      if (skus.isEmpty) return null;
-      final p0 = skus.first.price;
-      for (final s in skus) {
-        if (s.price != p0) return null;
-      }
-      return p0;
+      return _variantsDraft?.uniformBasePrice;
     } else {
       final p = _toInt(_singleSkuPriceC.text);
       return p > 0 ? p : null;
@@ -395,18 +386,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   bool get _variantPricesUniform {
-    final st = variantsKey.currentState;
-    if (st == null) return false;
-    final skus = st
-        .buildSkus()
-        .where((s) => s.code.trim().isNotEmpty && s.price > 0)
-        .toList();
-    if (skus.isEmpty) return false;
-    final first = skus.first.price;
-    for (final s in skus) {
-      if (s.price != first) return false;
-    }
-    return true;
+    if (!_useVariants) return true;
+    return _variantsDraft?.pricesUniform == true;
   }
 
   bool get _allTierPricesValid {
@@ -436,6 +417,27 @@ class _AddProductScreenState extends State<AddProductScreen> {
     if (s.isEmpty) return null;
     if (RegExp(r'\s').hasMatch(s)) return 'No spaces allowed';
     return null;
+  }
+
+  Future<void> _openVariantsEditor() async {
+    final res = await Navigator.push<VariantsEditorResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            VariantsEditorScreen(initialSkusJson: _variantsDraft?.skusJson),
+      ),
+    );
+
+    if (res != null && mounted) {
+      setState(() {
+        _variantsDraft = res;
+
+        // kalau multi price aktif tapi jadi tidak uniform, matiin
+        if (_useMultiPrice && !_variantPricesUniform) {
+          _useMultiPrice = false;
+        }
+      });
+    }
   }
 
   @override
@@ -483,8 +485,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
     if (_useMultiPrice && !_allTierPricesValid) return false;
 
     if (_useVariants) {
-      final st = variantsKey.currentState;
-      if (st == null || !st.hasAtLeastOneRow) return false;
+      if (_variantsDraft == null || _variantsDraft!.skusJson.isEmpty) {
+        return false;
+      }
       if (_useMultiPrice && !_variantPricesUniform) return false;
       return true;
     } else {
@@ -497,15 +500,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
   bool get _canSubmitSilently {
     // jangan panggil _formKey.validate() di sini
 
-    // minimal check sesuai kebutuhanmu
     if (_nameC.text.trim().isEmpty) return false;
 
     if (!_useVariants) {
       if (_toInt(_singleSkuPriceC.text) <= 0) return false;
       if (_skuNoSpaceValidator(_singleSkuNameC.text) != null) return false;
     } else {
-      final st = variantsKey.currentState;
-      if (st == null || !st.hasAtLeastOneRow) return false;
+      if (_variantsDraft == null || _variantsDraft!.skusJson.isEmpty) {
+        return false;
+      }
       if (_useMultiPrice && !_variantPricesUniform) return false;
     }
 
@@ -544,18 +547,16 @@ class _AddProductScreenState extends State<AddProductScreen> {
       }
 
       late final List<Map<String, dynamic>> skusJson;
+
       if (_useVariants) {
-        final st = variantsKey.currentState;
-        if (st == null) {
+        if (_variantsDraft == null || _variantsDraft!.skusJson.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Variants section is not ready.')),
+            const SnackBar(
+              content: Text('Variants are empty. Please add variants.'),
+            ),
           );
           return;
         }
-        final skusBuilt = st
-            .buildSkus()
-            .where((s) => s.code.trim().isNotEmpty && s.price > 0)
-            .toList();
         if (_useMultiPrice && !_variantPricesUniform) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -566,17 +567,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
           );
           return;
         }
-        skusJson = skusBuilt
-            .map(
-              (s) => {
-                'code': s.code.isEmpty ? null : s.code,
-                'price': s.price,
-                'attributes': s.attributes
-                    .map((a) => {'name': a.name, 'value': a.value})
-                    .toList(),
-              },
-            )
-            .toList();
+        skusJson = _variantsDraft!.skusJson;
       } else {
         final code = _singleSkuNameC.text.trim();
         final price = _toInt(_singleSkuPriceC.text);
@@ -915,6 +906,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 }
                               }
 
+                              // multi price hanya boleh jika uniform
                               if (_useVariants && !_variantPricesUniform) {
                                 _useMultiPrice = false;
                               }
@@ -925,8 +917,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     ),
                     const SizedBox(height: 12),
 
+                    // ✅ Variants UI dipindah: di sini hanya ringkasan
                     if (_useVariants) ...[
-                      VariantsSectionDynamic(key: variantsKey),
+                      _VariantsSummaryCard(
+                        variantNames: _variantsDraft?.variantNames ?? const [],
+                        skuCount: _variantsDraft?.skusJson.length ?? 0,
+                        onAddOrEdit: _openVariantsEditor,
+                      ),
                       const SizedBox(height: 16),
                     ] else ...[
                       // Single SKU block (SKU Code only)
@@ -960,7 +957,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     // ==========================================================
                     // ✅ MULTI PRICE TOGGLE (PREMIUM GATED) - UPDATED FULL
                     // ==========================================================
-                    // Multi Price toggle
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -973,7 +969,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         children: [
                           Row(
                             children: [
-                              // ✅ Title + badge di kiri
                               Expanded(
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -990,8 +985,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 8),
-
-                                    // ✅ Badge premium nempel di samping title
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 8,
@@ -1028,8 +1021,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                   ],
                                 ),
                               ),
-
-                              // ✅ Switch tetap kanan
                               Switch(
                                 activeColor: AppColors.primaryDark,
                                 value: _useMultiPrice,
@@ -1044,10 +1035,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                               ),
                             ],
                           ),
-
                           const SizedBox(height: 6),
-
-                          // ✅ Deskripsi JANGAN DIHAPUS
                           Builder(
                             builder: (_) {
                               const baseDesc =
@@ -1076,7 +1064,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
                     const SizedBox(height: 12),
 
-                    // Prices section
                     if (_useMultiPrice) ...[
                       const Text(
                         'Prices',
@@ -1085,6 +1072,16 @@ class _AddProductScreenState extends State<AddProductScreen> {
                           color: Color(0xFF111827),
                         ),
                       ),
+                      const SizedBox(height: 6),
+                      if (baseLabel.isNotEmpty)
+                        Text(
+                          baseLabel,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF6B7280),
+                            height: 1.35,
+                          ),
+                        ),
                       const SizedBox(height: 8),
                       ..._prices.asMap().entries.map((entry) {
                         final idx = entry.key;
@@ -1238,7 +1235,72 @@ class _AddProductScreenState extends State<AddProductScreen> {
 }
 
 // ==========================================================
-// ✅ SMALL WIDGETS (NEW) — badge + switch proxy
+// ✅ NEW: Variants summary card (AddProductScreen hanya menampilkan ringkasan)
+// ==========================================================
+class _VariantsSummaryCard extends StatelessWidget {
+  const _VariantsSummaryCard({
+    required this.variantNames,
+    required this.skuCount,
+    required this.onAddOrEdit,
+  });
+
+  final List<String> variantNames;
+  final int skuCount;
+  final VoidCallback onAddOrEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final names = variantNames.isEmpty ? '-' : variantNames.join(', ');
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.tune_rounded, color: Color(0xFF4B5563)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Variants',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Names: $names',
+                  style: const TextStyle(color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'SKU: $skuCount',
+                  style: const TextStyle(color: Color(0xFF6B7280)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: onAddOrEdit,
+            child: Text(variantNames.isEmpty ? 'Add' : 'Edit'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================================
+// ✅ SMALL WIDGETS (existing)
 // ==========================================================
 
 class _PremiumGemBadge extends StatelessWidget {
@@ -1249,8 +1311,6 @@ class _PremiumGemBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // kalau premium → tampil badge kecil “gem”
-    // kalau non-premium → tetap tampil, dan tap membuka modal upgrade
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1301,13 +1361,11 @@ class _SwitchTapProxy extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Switch disabled biasanya tidak bisa dipakai untuk trigger modal.
-    // Jadi: kita tampilkan switch (enabled/disabled) + lapisi tap handler.
     return Stack(
       alignment: Alignment.centerRight,
       children: [
         IgnorePointer(
-          ignoring: true, // biar tidak toggle sendiri
+          ignoring: true,
           child: Opacity(
             opacity: enabled ? 1.0 : 0.55,
             child: Switch(
@@ -1332,7 +1390,7 @@ class _SwitchTapProxy extends StatelessWidget {
 }
 
 // ==========================================================
-// ✅ MODAL CAROUSEL (NEW) — same feel as HomeScreen
+// ✅ MODAL CAROUSEL (existing)
 // ==========================================================
 
 class _PremiumFeatureItem {
@@ -1521,7 +1579,7 @@ class _PremiumFeatureCarouselState extends State<_PremiumFeatureCarousel> {
 }
 
 // ==========================================================
-// ORIGINAL HELPERS (unchanged from your snippet)
+// ORIGINAL HELPERS (unchanged)
 // ==========================================================
 
 class Field extends StatelessWidget {

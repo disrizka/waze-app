@@ -1722,6 +1722,57 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // CANCEL / RESET PREMIUM PAYMENT STATE
+  // ---------------------------------------------------------------------------
+  void cancelPaymentTimer() {
+    debugPrint('🧹 [SubscriptionProvider] cancelPaymentTimer() CALLED');
+
+    _paymentCheckTimer?.cancel();
+    _paymentCheckTimer = null;
+
+    _currentTransactionNumber = null;
+  }
+
+  void resetPaymentState() {
+    debugPrint('🧹 [SubscriptionProvider] resetPaymentState() CALLED');
+
+    // stop polling timer
+    _paymentCheckTimer?.cancel();
+    _paymentCheckTimer = null;
+
+    // reset tx number
+    _currentTransactionNumber = null;
+
+    // stop processing flags
+    _isProcessing = false;
+    _errorMessage = null;
+
+    // optional: force-complete midtrans completer supaya gak menggantung
+    if (_snapCompleter != null && !(_snapCompleter!.isCompleted)) {
+      _snapCompleter!.complete(
+        PaymentResult('aborted', message: 'Cancelled by user'),
+      );
+    }
+    _snapCompleter = null;
+
+    notifyListeners();
+  }
+
+  /// Alias yang bisa dipanggil dari screen (biar jelas niatnya)
+  Future<void> cancelPendingPayment({BuildContext? context}) async {
+    // Saat ini yang bisa kita lakukan hanya stop polling + reset state lokal.
+    // (Midtrans UI flow tidak punya API cancel dari sini; user sudah menutup/back.)
+    resetPaymentState();
+
+    // kalau kamu mau, bisa juga show snackbar di sini (optional)
+    if (context != null && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Payment cancelled.')));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // UPGRADE PREMIUM (Midtrans)
   // ---------------------------------------------------------------------------
   Future<void> goToPayment({
@@ -2022,13 +2073,13 @@ class SubscriptionProvider with ChangeNotifier {
   // MIDTRANS
   // ---------------------------------------------------------------------------
   Future<void> _initMidtransIfNeeded(BuildContext context) async {
-    final midtransClientKey = dotenv.env['MIDTRANS_CLIENT_KEY'];
+    final midtransClientKey = "SB-Mid-client-OlAvtRicKKPMklc4";
 
     if (_midtrans != null) return;
 
     _midtrans = await MidtransSDK.init(
       config: MidtransConfig(
-        merchantBaseUrl: dotenv.env['MERCHANT_BASE_URL']!,
+        merchantBaseUrl: "https://wave-api.eon.id",
         clientKey: midtransClientKey!,
         colorTheme: ColorTheme(
           colorPrimary: Theme.of(context).colorScheme.primary,

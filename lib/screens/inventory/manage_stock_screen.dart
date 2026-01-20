@@ -64,6 +64,17 @@ class ManageStockScreen extends StatelessWidget {
                 '/stock/opname/create', // TODO: sesuaikan dengan route-mu
               ),
             ),
+
+            const SizedBox(height: 8),
+            // ✅ Initial Stock
+            _MenuTile(
+              icon: Icons.add,
+              title: 'Adjustment Stock',
+              onTap: () => Navigator.pushNamed(
+                context,
+                '/adjustment', // TODO: sesuaikan dengan route-mu
+              ),
+            ),
           ],
         ),
       ),

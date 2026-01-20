@@ -213,15 +213,42 @@ class RoleProvider with ChangeNotifier {
     return (bizId: bizId, roleId: roleId);
   }
 
+  void _markReadyFallback({String? reason}) {
+    // fallback: minimal hanya public routes, pages kosong (atau waba kalau force)
+    _role = null;
+    _allowedPages = _forceWaba ? {'waba'} : {};
+    _allowedRoutes = buildAllowedRoutesFromPages(_allowedPages);
+    _isReady = true;
+    _updatedAt = DateTime.now();
+    if (kDebugMode) debugPrint('[RoleProvider] READY FALLBACK: $reason');
+    notifyListeners();
+  }
+
   /// Publik: baca id dari prefs → fetch detail role → apply ke provider.
   Future<bool> refreshActiveRoleFromPrefs(BuildContext context) async {
+    // optional: set loading dulu (kalau kamu mau shimmer muncul saat refresh)
+    _isReady = false;
+    notifyListeners();
+
     final pair = await _readActiveBizAndRoleIds();
-    if (pair == null) return false;
-    return refreshDetailRoleAndApplyFH(
+    if (pair == null) {
+      _markReadyFallback(reason: 'prefs bizId/roleId invalid');
+      return false;
+    }
+
+    final ok = await refreshDetailRoleAndApplyFH(
       context: context,
       idBusiness: pair.bizId,
       idAdminRole: pair.roleId,
     );
+
+    if (!ok) {
+      // fetch gagal / null → jangan biarkan shimmer selamanya
+      _markReadyFallback(reason: 'fetch role failed or returned null');
+      return false;
+    }
+
+    return true;
   }
 
   void setFromDetailRoleApi(Map<String, dynamic> json) {
