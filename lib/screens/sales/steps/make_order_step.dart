@@ -62,24 +62,20 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
     if (alreadySelected) return;
 
     final sp = context.read<st.StoreProvider>();
-    // Pastikan stores sudah tersedia
     if (sp.stores.isEmpty && !sp.loadingList) {
       await sp.fetchStoreLocations(context);
     }
 
     if (!mounted) return;
 
-    // Kalau cuma 1 store → set otomatis
     if (sp.stores.length == 1) {
       final s = sp.stores.first;
 
-      // Set ke SalesProvider
       sales.setOrderMeta(
         storeLocationId: s.idStoreLocation,
         storeLocationName: s.name,
       );
 
-      // Sinkronkan ProductProvider (paging/filternya)
       await context.read<ProductProvider>().setInfiniteStoreAndRefresh(
         context,
         s.idStoreLocation,
@@ -102,11 +98,10 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
       storeLocationName: picked.label,
     );
 
-    // sinkronkan filter product paging
     final prodProv = context.read<ProductProvider>();
     await prodProv.setInfiniteStoreAndRefresh(context, picked.id);
 
-    setState(() {}); // repaint UI
+    setState(() {});
   }
 
   @override
@@ -125,7 +120,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
         ..ensureReferenceInitialized(notify: true)
         ..normalizeCart();
 
-      // 🔽 AUTO SELECT STORE kalau cuma ada 1
       await _autoSelectSingleStoreIfNeeded();
     });
   }
@@ -137,7 +131,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
     super.dispose();
   }
 
-  /// Subtotal setelah diskon per item (tanpa alokasi order discount)
   int _subtotalPerItemOnly(SalesProvider prov) {
     var sum = 0;
     for (final it in prov.cartItems) {
@@ -149,16 +142,14 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
     return sum;
   }
 
-  // Service fee ditiadakan → selalu 0
   int _serviceFeeOn(int base) => 0;
 
-  // total akhir = subtotal (per-item only) + fee(=0) - adjustment
   (int subtotal, int fee, int total) _totals(
     SalesProvider prov,
     int adjustment,
   ) {
     final sub = _subtotalPerItemOnly(prov);
-    final fee = 0; // dihapus
+    final fee = 0;
     final grand = (sub + fee - adjustment).clamp(0, 1 << 31) as int;
     return (sub, fee, grand);
   }
@@ -175,7 +166,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
       _customerName = picked.label;
     });
 
-    // persist ke SalesProvider
     context.read<SalesProvider>().setOrderMeta(
       customerId: picked.id,
       customerName: picked.label,
@@ -212,7 +202,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
 
   @override
   Widget build(BuildContext context) {
-    final cartLen = context.select<SalesProvider, int>((p) => p.cartLen);
     final prov = context.watch<SalesProvider>();
     final storeId = prov.storeLocationId;
     final storeName = prov.storeLocationName;
@@ -231,7 +220,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                // ============ STORE SELECTOR (REQUIRED) ============
                 _Section(
                   titleWidget: Row(
                     children: [
@@ -266,13 +254,12 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
                   ),
                   child: SelectFieldTile(
                     label: 'Choose a store',
-                    valueText: storeName, // dari provider
+                    valueText: storeName,
                     emptyHint: 'Select store…',
                     onTap: _pickStore,
                   ),
                 ),
 
-                // ============ CUSTOMER (OPTIONAL) ============
                 const SizedBox(height: 12),
                 _Section(
                   titleWidget: Row(
@@ -318,7 +305,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
                   ),
                 ),
 
-                // ============ NOTES (OPTIONAL) ============
                 const SizedBox(height: 12),
                 _Section(
                   titleWidget: Row(
@@ -352,7 +338,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
             ),
           ),
 
-          // CTA minimal
           SafeArea(
             minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: SizedBox(
@@ -361,7 +346,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
                 onPressed: (!storeNotSelected)
                     ? () {
                         final d = int.tryParse(_discountC.text.trim()) ?? 0;
-                        // kirim discount, customer, dan notes
                         context.read<SalesProvider>().setOrderMeta(
                           discount: d,
                           note: _notesC.text.trim(),
@@ -419,7 +403,7 @@ Widget _orderSummaryList(SalesProvider prov, BuildContext context) {
     );
   }
 
-  const double _rowExtent = 86.0; // tinggi 1 baris
+  const double _rowExtent = 86.0;
   final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
   final int maxVisible = isTablet ? 9 : 4;
 
@@ -439,7 +423,6 @@ Widget _orderSummaryList(SalesProvider prov, BuildContext context) {
       final it = prov.cartItems[i];
       final sku = it.sku;
 
-      // ⬇️ Tambahan: hitung line total (harga efek per item × qty)
       final itemDisc = prov.perItemDiscountOf(sku.skuId);
       final unitAfterItem = (sku.price - itemDisc).clamp(0, 1 << 31) as int;
       final lineTotal = unitAfterItem * it.qty;
@@ -449,9 +432,10 @@ Widget _orderSummaryList(SalesProvider prov, BuildContext context) {
         child: _OrderItemTile(
           imageUrl: sku.imageUrl,
           productName: sku.productName,
+          // ✅ tampilkan UUID (diisi dari AddProductSheet saat add to cart)
           skuCode: sku.skuCode,
           qty: it.qty,
-          lineTotal: lineTotal, // ⬅️ kirim ke tile
+          lineTotal: lineTotal,
           onMinus: () => prov.removeOne(sku),
           onPlus: () => prov.add(sku),
         ),
@@ -469,252 +453,6 @@ Widget _orderSummaryList(SalesProvider prov, BuildContext context) {
       thumbVisibility: true,
       radius: const Radius.circular(999),
       child: list,
-    ),
-  );
-}
-
-// ====== Compact DataTable builder (minimal look) ======
-Widget _orderTable(int cartLen, SalesProvider prov) {
-  if (cartLen == 0) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: UI.bg,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: const [
-          Icon(Icons.inventory_2_outlined, color: UI.sub),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Belum ada item. Tambahkan produk dari katalog.',
-              style: UI.tsSub,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  const minTableWidth = 900.0;
-  const _rowHeight = 52.0;
-  const _headHeight = 40.0;
-  const _visibleRows = 7;
-
-  final needsVerticalScroll = prov.cartItems.length > _visibleRows;
-  final tableViewportHeight = _headHeight + (_rowHeight * _visibleRows) + 12;
-
-  const _wQty = 108.0;
-  const _wDisc = 132.0;
-  const _wUnit = 112.0;
-  const _wLineTotal = 136.0;
-
-  Widget _hRight(String t, double w) => SizedBox(
-    width: w,
-    child: Align(alignment: Alignment.centerRight, child: Text(t)),
-  );
-  Widget _cRight(Widget child, double w) => SizedBox(
-    width: w,
-    child: Align(alignment: Alignment.centerRight, child: child),
-  );
-
-  final table = DataTable(
-    horizontalMargin: 10,
-    columnSpacing: 14,
-    headingRowHeight: _headHeight,
-    dataRowMinHeight: 48,
-    dataRowMaxHeight: 56,
-    dividerThickness: .6,
-    headingTextStyle: UI.tsSub.copyWith(fontSize: 11),
-    columns: [
-      const DataColumn(label: Text('Product')),
-      const DataColumn(label: Text('SKU')),
-      DataColumn(label: _hRight('Qty', _wQty)),
-      DataColumn(label: _hRight('Disc/Item', _wDisc)),
-      DataColumn(label: _hRight('Unit (Base)', _wUnit)),
-      DataColumn(label: _hRight('Unit (Effective)', _wUnit)),
-      DataColumn(label: _hRight('Line Total', _wLineTotal)),
-      const DataColumn(label: Text('')),
-    ],
-    rows: prov.cartItems.map((it) {
-      final sku = it.sku;
-      final skuId = sku.skuId;
-
-      // ambil disc dari provider
-      final itemDisc = prov.perItemDiscountOf(skuId);
-      final unitAfterItem = (sku.price - itemDisc).clamp(0, 1 << 31) as int;
-      final lineTotal = unitAfterItem * it.qty;
-      final money = NumberFormat.decimalPattern('id_ID');
-
-      Widget thumb() {
-        final fallback = Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: UI.bg,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Icon(Icons.image, color: UI.sub, size: 18),
-        );
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: (sku.imageUrl.isNotEmpty)
-              ? Image.network(
-                  sku.imageUrl,
-                  width: 36,
-                  height: 36,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => fallback,
-                )
-              : fallback,
-        );
-      }
-
-      return DataRow(
-        cells: [
-          // Product
-          DataCell(
-            Row(
-              children: [
-                thumb(),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Text(
-                    sku.productName,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // SKU
-          DataCell(
-            Text(
-              sku.skuCode,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: UI.tsSub,
-            ),
-          ),
-
-          // Qty
-          DataCell(
-            _cRight(
-              _QtyEditor2(
-                qty: it.qty,
-                onMinus: () => prov.removeOne(sku),
-                onPlus: () => prov.add(sku),
-                onTyped: (v) {
-                  final cur = it.qty;
-                  if (v <= 0) {
-                    for (var i = 0; i < cur; i++) prov.removeOne(sku);
-                  } else if (v > cur) {
-                    for (var i = 0; i < (v - cur); i++) prov.add(sku);
-                  } else if (v < cur) {
-                    for (var i = 0; i < (cur - v); i++) prov.removeOne(sku);
-                  }
-                },
-              ),
-              _wQty,
-            ),
-          ),
-
-          // Disc/Item
-          DataCell(
-            _cRight(
-              SizedBox(
-                width: _wDisc,
-                child: TextFormField(
-                  initialValue: itemDisc.toString(),
-                  textAlign: TextAlign.right,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: InputDecoration(
-                    isDense: true,
-                    border: UI.thinBorder(),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    prefixText: 'Rp ',
-                  ),
-                  onChanged: (v) => prov.setPerItemDiscount(
-                    skuId: skuId,
-                    discountPerItem: int.tryParse(v) ?? 0,
-                  ),
-                ),
-              ),
-              _wDisc,
-            ),
-          ),
-
-          // Unit (Base)
-          DataCell(_cRight(Text(money.format(sku.price)), _wUnit)),
-
-          // Unit (Effective)
-          DataCell(
-            _cRight(
-              Text(
-                money.format(unitAfterItem),
-                style: TextStyle(
-                  fontWeight: itemDisc > 0 ? FontWeight.w800 : FontWeight.w700,
-                ),
-              ),
-              _wUnit,
-            ),
-          ),
-
-          // Line Total
-          DataCell(
-            _cRight(
-              Text(
-                money.format(lineTotal),
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-              _wLineTotal,
-            ),
-          ),
-
-          // Remove
-          DataCell(
-            IconButton(
-              tooltip: 'Remove',
-              icon: const Icon(Icons.delete_outline, color: UI.sub),
-              onPressed: () {
-                for (var i = 0; i < it.qty; i++) {
-                  prov.removeOne(sku);
-                }
-                // Provider membersihkan diskon terkait SKU ketika remove
-              },
-            ),
-          ),
-        ],
-      );
-    }).toList(),
-  );
-
-  return SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: minTableWidth),
-      child: needsVerticalScroll
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: SizedBox(
-                height: tableViewportHeight,
-                child: Scrollbar(
-                  thumbVisibility: true,
-                  thickness: 6,
-                  radius: const Radius.circular(999),
-                  child: SingleChildScrollView(child: table),
-                ),
-              ),
-            )
-          : table,
     ),
   );
 }
@@ -760,9 +498,12 @@ class _Section extends StatelessWidget {
 class _OrderItemTile extends StatelessWidget {
   final String imageUrl;
   final String productName;
+
+  /// ✅ sekarang dipakai untuk menampilkan UUID SKU (bukan code lama)
   final String skuCode;
+
   final int qty;
-  final int lineTotal; // ⬅️ NEW
+  final int lineTotal;
   final VoidCallback onMinus;
   final VoidCallback onPlus;
 
@@ -772,16 +513,16 @@ class _OrderItemTile extends StatelessWidget {
     required this.productName,
     required this.skuCode,
     required this.qty,
-    required this.lineTotal, // ⬅️ NEW
+    required this.lineTotal,
     required this.onMinus,
     required this.onPlus,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.decimalPattern('id_ID'); // format Rp
+    final money = NumberFormat.decimalPattern('id_ID');
     return SizedBox(
-      height: 86, // sinkron dengan _rowExtent
+      height: 86,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -792,7 +533,6 @@ class _OrderItemTile extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Nama produk
                 Text(
                   productName,
                   maxLines: 2,
@@ -800,7 +540,7 @@ class _OrderItemTile extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 4),
-                // SKU Code
+                // ✅ tampil UUID
                 Text(
                   skuCode,
                   maxLines: 1,
@@ -808,7 +548,6 @@ class _OrderItemTile extends StatelessWidget {
                   style: UI.tsSub,
                 ),
                 const SizedBox(height: 4),
-                // ⬇️ TOTAL per SKU (line total)
                 Text(
                   'Rp ${money.format(lineTotal)}',
                   maxLines: 1,
@@ -890,9 +629,9 @@ class _OrderItemTile extends StatelessWidget {
 }
 
 class StickyTotalsBar extends StatelessWidget {
-  final int subtotal; // ← dipertahankan demi kompat, TIDAK ditampilkan
-  final String serviceFeeLabel; // ← dipertahankan demi kompat
-  final int serviceFee; // ← dipertahankan demi kompat
+  final int subtotal;
+  final String serviceFeeLabel;
+  final int serviceFee;
   final int adjustment;
   final int total;
   final bool enabled;
@@ -933,8 +672,6 @@ class StickyTotalsBar extends StatelessWidget {
               const Divider(height: 1, color: UI.line),
               const SizedBox(height: 8),
             ],
-
-            // Total kiri, angka kanan
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1123,8 +860,218 @@ class _QtyEditor2State extends State<_QtyEditor2> {
 }
 
 // ===============================
-// ADD PRODUCT BOTTOM SHEET
+// ADD PRODUCT BOTTOM SHEET (with Brand/Category filter)
+// - No clear buttons on grid
+// - Reset all only exists in advanced sheet
 // ===============================
+
+@immutable
+class _CatalogFilters {
+  final String? brandId;
+  final String? categoryId;
+
+  const _CatalogFilters({this.brandId, this.categoryId});
+
+  bool get hasAny =>
+      (brandId != null && brandId!.isNotEmpty) ||
+      (categoryId != null && categoryId!.isNotEmpty);
+
+  String toSearchString({required String rawQuery}) {
+    final tokens = <String>[];
+    final q = rawQuery.trim();
+    if (q.isNotEmpty) tokens.add('q:$q');
+    if ((brandId ?? '').isNotEmpty) tokens.add('brand:$brandId');
+    if ((categoryId ?? '').isNotEmpty) tokens.add('cat:$categoryId');
+    return tokens.join(' ');
+  }
+}
+
+class _PickerOption {
+  final String id;
+  final String label;
+  const _PickerOption({required this.id, required this.label});
+}
+
+Future<String?> _showSimpleListPicker({
+  required BuildContext context,
+  required String title,
+  required List<_PickerOption> options,
+  String? selectedId,
+}) async {
+  final searchC = TextEditingController();
+  List<_PickerOption> filtered = List.of(options);
+
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    useSafeArea: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+    ),
+    builder: (ctx) {
+      return DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.86,
+        minChildSize: 0.55,
+        maxChildSize: 0.95,
+        builder: (_, sheetCtrl) {
+          return StatefulBuilder(
+            builder: (context, setState) {
+              void doFilter(String q) {
+                final low = q.trim().toLowerCase();
+                setState(() {
+                  filtered = options
+                      .where((o) => o.label.toLowerCase().contains(low))
+                      .toList();
+                });
+              }
+
+              return Column(
+                children: [
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF111827),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(Icons.close_rounded),
+                          splashRadius: 20,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                    child: TextField(
+                      controller: searchC,
+                      onChanged: doFilter,
+                      decoration: InputDecoration(
+                        hintText: 'Search…',
+                        isDense: true,
+                        filled: true,
+                        fillColor: const Color(0xFFF3F4F6),
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE5E7EB),
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: const BorderSide(
+                            color: Color(0xFFCBD5E1),
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                  Expanded(
+                    child: ListView.separated(
+                      controller: sheetCtrl,
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1, color: Color(0xFFF3F4F6)),
+                      itemBuilder: (_, i) {
+                        final o = filtered[i];
+                        final isSel = o.id == selectedId;
+                        return ListTile(
+                          onTap: () => Navigator.pop(ctx, o.id),
+                          leading: Radio<String>(
+                            value: o.id,
+                            groupValue: selectedId,
+                            onChanged: (_) => Navigator.pop(ctx, o.id),
+                          ),
+                          title: Text(
+                            o.label,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF111827),
+                            ),
+                          ),
+                          trailing: isSel
+                              ? const Icon(
+                                  Icons.check_circle,
+                                  color: AppColors.primary,
+                                )
+                              : null,
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    },
+  );
+}
+
+Future<String?> _pickBrandId(BuildContext context, {String? selectedId}) async {
+  final prov = context.read<ProductProvider>();
+  if (prov.brands.isEmpty) {
+    await prov.fetchProductBrands(context);
+  }
+  final opts = prov.brands
+      .map((b) => _PickerOption(id: b.idProductBrand, label: b.name))
+      .toList();
+  if (!context.mounted) return selectedId;
+  return _showSimpleListPicker(
+    context: context,
+    title: 'Brand',
+    options: opts,
+    selectedId: selectedId,
+  );
+}
+
+Future<String?> _pickCategoryId(
+  BuildContext context, {
+  String? selectedId,
+}) async {
+  final prov = context.read<ProductProvider>();
+  if (prov.categories.isEmpty) {
+    await prov.fetchProductCategories(context);
+  }
+  final opts = prov.categories
+      .map((c) => _PickerOption(id: c.idProductCategory, label: c.name))
+      .toList();
+  if (!context.mounted) return selectedId;
+  return _showSimpleListPicker(
+    context: context,
+    title: 'Category',
+    options: opts,
+    selectedId: selectedId,
+  );
+}
 
 class AddProductSheet extends StatefulWidget {
   const AddProductSheet({super.key});
@@ -1139,6 +1086,9 @@ class AddProductSheetState extends State<AddProductSheet> {
   Timer? _debounce;
   bool _loadMoreArmed = false;
   bool _kicked = false;
+
+  // filters
+  _CatalogFilters _filters = const _CatalogFilters();
 
   // ===== Stock rule (business setting) =====
   bool _canSellOutOfStock = false;
@@ -1168,7 +1118,6 @@ class AddProductSheetState extends State<AddProductSheet> {
 
       bool isPremium = false;
 
-      // 1) coba key yang paling umum
       final direct = prefs.getBool('activeBizIsPremium');
       if (direct != null) {
         isPremium = direct == true;
@@ -1177,7 +1126,6 @@ class AddProductSheetState extends State<AddProductSheet> {
         if (alt1 != null) isPremium = alt1 == true;
       }
 
-      // 2) fallback: parse business_full (list business)
       if (!isPremium) {
         final activeBizId = (prefs.getString('activeBizId') ?? '').trim();
         final rawFull = (prefs.getString('business_full') ?? '').trim();
@@ -1232,7 +1180,7 @@ class AddProductSheetState extends State<AddProductSheet> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _isFreePlan = false; // fallback aman
+        _isFreePlan = false;
       });
     }
   }
@@ -1277,12 +1225,30 @@ class AddProductSheetState extends State<AddProductSheet> {
     } catch (_) {}
   }
 
+  String _composeSearch() {
+    final q = _searchC.text.trim();
+    return _filters.toSearchString(rawQuery: q);
+  }
+
+  Future<void> _applySearchAndRefresh({bool jumpTop = true}) async {
+    final composed = _composeSearch();
+    await _pp?.setInfiniteSearch(context, composed);
+    await _pp?.refreshInfinite(context);
+
+    // trigger page fetch (important for empty list)
+    _pp?.pagingController?.fetchNextPage();
+
+    if (jumpTop && _gridScrollC.hasClients) _gridScrollC.jumpTo(0);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _kickOnOpen() async {
     if (_kicked || !mounted) return;
     _kicked = true;
 
     final prov = context.read<ProductProvider>();
 
+    // init paging without filters first (filters apply via _applySearchAndRefresh)
     prov.initInfinitePaging(context, initialSearch: '');
 
     try {
@@ -1291,59 +1257,59 @@ class AddProductSheetState extends State<AddProductSheet> {
           .timeout(const Duration(seconds: 6));
     } catch (_) {}
 
-    await prov.refreshInfinite(context);
+    await _applySearchAndRefresh(jumpTop: false);
 
+    // extra kick
     prov.pagingController?.fetchNextPage();
-
     Future.delayed(const Duration(milliseconds: 300), () {
       if (!mounted) return;
       if (prov.products.isEmpty) {
         prov.pagingController?.fetchNextPage();
       }
     });
-
-    if (mounted) setState(() {});
   }
 
   Future<void> _manualRetry() async {
     final prov = context.read<ProductProvider>();
-    prov.initInfinitePaging(context, initialSearch: _searchC.text.trim());
+    prov.initInfinitePaging(context, initialSearch: _composeSearch());
     try {
       await prov
           .ensureDefaultStoreLocation(context)
           .timeout(const Duration(seconds: 6));
     } catch (_) {}
-    await prov.refreshInfinite(context);
+    await _applySearchAndRefresh(jumpTop: false);
     prov.pagingController?.fetchNextPage();
     if (mounted) setState(() {});
   }
 
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _searchC.dispose();
-    _gridScrollC.dispose();
-    super.dispose();
-  }
-
-  String _composeSearch(String raw) {
-    final q = raw.trim();
-    if (q.isEmpty) return '';
-    return 'q:$q'; // samakan dengan ProductScreen
-  }
-
-  void _debouncedSearch(String raw) {
-    final q = raw.trim();
+  void _debouncedSearch(String _) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 250), () async {
-      await _pp?.setInfiniteSearch(context, q);
-      await _pp?.refreshInfinite(context);
-
-      // ✅ penting: kalau list kosong, scroll gak bakal memicu loadMore
-      _pp?.pagingController?.fetchNextPage();
-
-      if (_gridScrollC.hasClients) _gridScrollC.jumpTo(0);
+      await _applySearchAndRefresh(jumpTop: true);
     });
+  }
+
+  Future<void> _openAdvancedFilter(ProductProvider prov) async {
+    if (prov.brands.isEmpty) await prov.fetchProductBrands(context);
+    if (prov.categories.isEmpty) await prov.fetchProductCategories(context);
+    if (!mounted) return;
+
+    final result = await showModalBottomSheet<_CatalogFilters>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _AddProductAdvancedFilterSheet(initial: _filters),
+    );
+
+    if (!mounted) return;
+    if (result != null) {
+      setState(() => _filters = result);
+      await _applySearchAndRefresh(jumpTop: true);
+    }
   }
 
   void _armLoadMore() {
@@ -1352,6 +1318,26 @@ class AddProductSheetState extends State<AddProductSheet> {
     Future.delayed(const Duration(milliseconds: 200), () {
       _loadMoreArmed = false;
     });
+  }
+
+  String? _brandName(ProductProvider prov, String? id) {
+    if (id == null || id.isEmpty) return null;
+    final i = prov.brands.indexWhere((b) => b.idProductBrand == id);
+    return i == -1 ? null : prov.brands[i].name;
+  }
+
+  String? _categoryName(ProductProvider prov, String? id) {
+    if (id == null || id.isEmpty) return null;
+    final i = prov.categories.indexWhere((c) => c.idProductCategory == id);
+    return i == -1 ? null : prov.categories[i].name;
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchC.dispose();
+    _gridScrollC.dispose();
+    super.dispose();
   }
 
   @override
@@ -1394,11 +1380,21 @@ class AddProductSheetState extends State<AddProductSheet> {
     final selectedItems = salesProv.cartItems.length;
     final selectedQty = salesProv.cartItems.fold<int>(0, (s, it) => s + it.qty);
 
-    // ✅ FREE plan: no stock UI & no restriction
-    final bool showStockUI = !_isFreePlan; // premium -> true
+    // FREE plan: no stock UI & no restriction
+    final bool showStockUI = !_isFreePlan;
     final bool effectiveAllowOutOfStock = _isFreePlan
         ? true
         : _canSellOutOfStock;
+
+    // minimal filter summary text (no reset button here)
+    final bName = _brandName(prov, _filters.brandId);
+    final cName = _categoryName(prov, _filters.categoryId);
+    final String filterSummary = _filters.hasAny
+        ? [
+            if ((bName ?? '').isNotEmpty) 'Brand: $bName',
+            if ((cName ?? '').isNotEmpty) 'Category: $cName',
+          ].join(' • ')
+        : '';
 
     return SafeArea(
       minimum: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -1409,55 +1405,87 @@ class AddProductSheetState extends State<AddProductSheet> {
           children: [
             const _SheetHeader(title: 'Select Products'),
 
-            // SEARCH
-            Material(
-              elevation: 1,
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              child: TextField(
-                controller: _searchC,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) async {
-                  final q = _searchC.text.trim();
-                  await _pp?.setInfiniteSearch(context, q);
-                  await _pp?.refreshInfinite(context);
-
-                  // ✅ trigger fetch page pertama setelah reset
-                  context
-                      .read<ProductProvider>()
-                      .pagingController
-                      ?.fetchNextPage();
-                },
-
-                onChanged: (t) {
-                  setState(() {});
-                  _debouncedSearch(t);
-                },
-                decoration: InputDecoration(
-                  hintText: 'Search product / SKU',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: (_searchC.text.trim().isEmpty)
-                      ? null
-                      : IconButton(
-                          onPressed: () async {
-                            _searchC.clear();
-                            await _pp?.setInfiniteSearch(context, '');
-                            await _pp?.refreshInfinite(context);
-                            _pp?.pagingController?.fetchNextPage(); // ✅
-                            if (mounted) setState(() {});
-                          },
-
-                          icon: const Icon(Icons.close_rounded),
+            // Search + filter button (minimal)
+            Row(
+              children: [
+                Expanded(
+                  child: Material(
+                    elevation: 0,
+                    color: const Color(0xFFF3F4F6),
+                    borderRadius: BorderRadius.circular(12),
+                    child: TextField(
+                      controller: _searchC,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) async =>
+                          _applySearchAndRefresh(jumpTop: true),
+                      onChanged: (t) {
+                        setState(() {});
+                        _debouncedSearch(t);
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Search product / SKU',
+                        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                        suffixIcon: (_searchC.text.trim().isEmpty)
+                            ? null
+                            : IconButton(
+                                onPressed: () async {
+                                  _searchC.clear();
+                                  await _applySearchAndRefresh(jumpTop: true);
+                                },
+                                icon: const Icon(Icons.close_rounded, size: 20),
+                                splashRadius: 18,
+                              ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
                         ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppColors.divider),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                      ),
+                    ),
                   ),
-                  isDense: true,
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: ElevatedButton(
+                    onPressed: () => _openAdvancedFilter(prov),
+                    style: ElevatedButton.styleFrom(
+                      elevation: 0,
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Icon(Icons.tune_rounded, size: 20),
+                  ),
+                ),
+              ],
+            ),
+
+            if (_filters.hasAny)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  filterSummary,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.25,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
+
+            const SizedBox(height: 10),
 
             // GRID
             Expanded(
@@ -1488,7 +1516,7 @@ class AddProductSheetState extends State<AddProductSheet> {
                       },
                       child: GridView.builder(
                         controller: _gridScrollC,
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                        padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
                         gridDelegate:
                             const SliverGridDelegateWithFixedCrossAxisCount(
                               crossAxisCount: 2,
@@ -1508,22 +1536,26 @@ class AddProductSheetState extends State<AddProductSheet> {
                           }
                           final p = visible[i];
                           final g = _toGroup(p);
-                          final selectedForProduct = salesProv.cartItems
-                              .where((it) => it.sku.productId == g.productId)
-                              .fold<int>(0, (s, it) => s + it.qty);
+                          final selectedForProduct = g.skus.isNotEmpty
+                              ? g.skus.fold<int>(
+                                  0,
+                                  (sum, sku) =>
+                                      sum + salesProv.qtyBySkuUuid(sku.uuid),
+                                )
+                              : salesProv.cartItems
+                                    .where(
+                                      (it) => it.sku.productId == g.productId,
+                                    )
+                                    .fold<int>(0, (s, it) => s + it.qty);
 
-                          // premium: stock enabled; free: ignore stock
                           final bool isOut = showStockUI
                               ? (p.totalStockQty <= 0)
                               : false;
 
-                          // block hanya untuk premium yang tidak boleh oversell
                           final bool hardBlock =
                               isOut && showStockUI && !effectiveAllowOutOfStock;
 
-                          final double cardOpacity = hardBlock
-                              ? 0.6
-                              : 1.0; // abu-abu jika blocked
+                          final double cardOpacity = hardBlock ? 0.6 : 1.0;
 
                           return Stack(
                             children: [
@@ -1595,27 +1627,24 @@ class AddProductSheetState extends State<AddProductSheet> {
                       ),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: FilledButton.icon(
-                        onPressed: () => Navigator.pop<bool>(context, true),
-                        icon: const Icon(Icons.check_rounded, size: 24),
-                        label: const Text('Use selected'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          textStyle: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 17,
-                            letterSpacing: .2,
-                          ),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.pop<bool>(context, true),
+                      icon: const Icon(Icons.check_rounded, size: 24),
+                      label: const Text('Use selected'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          letterSpacing: .2,
                         ),
                       ),
                     ),
@@ -1652,6 +1681,179 @@ class AddProductSheetState extends State<AddProductSheet> {
     );
   }
 }
+
+// ===============================
+// Advanced Filter Sheet (Brand & Category)
+// Reset all hanya di sini
+// ===============================
+
+class _AddProductAdvancedFilterSheet extends StatefulWidget {
+  final _CatalogFilters initial;
+  const _AddProductAdvancedFilterSheet({required this.initial});
+
+  @override
+  State<_AddProductAdvancedFilterSheet> createState() =>
+      _AddProductAdvancedFilterSheetState();
+}
+
+class _AddProductAdvancedFilterSheetState
+    extends State<_AddProductAdvancedFilterSheet> {
+  String? _brandId;
+  String? _categoryId;
+
+  @override
+  void initState() {
+    super.initState();
+    _brandId = widget.initial.brandId;
+    _categoryId = widget.initial.categoryId;
+  }
+
+  String? _brandName(ProductProvider prov, String? id) {
+    if (id == null || id.isEmpty) return null;
+    final i = prov.brands.indexWhere((b) => b.idProductBrand == id);
+    return i == -1 ? null : prov.brands[i].name;
+  }
+
+  String? _categoryName(ProductProvider prov, String? id) {
+    if (id == null || id.isEmpty) return null;
+    final i = prov.categories.indexWhere((c) => c.idProductCategory == id);
+    return i == -1 ? null : prov.categories[i].name;
+  }
+
+  Future<void> _pickBrand(BuildContext context) async {
+    final picked = await _pickBrandId(context, selectedId: _brandId);
+    if (!mounted) return;
+    setState(() => _brandId = picked);
+  }
+
+  Future<void> _pickCategory(BuildContext context) async {
+    final picked = await _pickCategoryId(context, selectedId: _categoryId);
+    if (!mounted) return;
+    setState(() => _categoryId = picked);
+  }
+
+  void _resetAll() {
+    setState(() {
+      _brandId = null;
+      _categoryId = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prov = context.watch<ProductProvider>();
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.72,
+      minChildSize: 0.5,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (context, controller) {
+        return Column(
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5E7EB),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Filter',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _resetAll,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      'Reset all',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  SizedBox(
+                    height: 36,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(
+                          context,
+                          _CatalogFilters(
+                            brandId: _brandId,
+                            categoryId: _categoryId,
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Apply',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
+                children: [
+                  SelectFieldTile(
+                    label: 'Brand',
+                    valueText: _brandName(prov, _brandId),
+                    emptyHint: 'All brands',
+                    onTap: () => _pickBrand(context),
+                  ),
+                  const SizedBox(height: 14),
+                  SelectFieldTile(
+                    label: 'Category',
+                    valueText: _categoryName(prov, _categoryId),
+                    emptyHint: 'All categories',
+                    onTap: () => _pickCategory(context),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ===============================
+// Product grid header + badges
+// ===============================
 
 class _SheetHeader extends StatelessWidget {
   final String title;
@@ -1774,7 +1976,7 @@ class _SalesProductCard extends StatelessWidget {
   final int selectedQty;
   final VoidCallback onChoose;
   final bool allowOutOfStock;
-  final bool showStockUI; // premium: true, free: false
+  final bool showStockUI;
 
   const _SalesProductCard({
     Key? key,
@@ -1814,7 +2016,6 @@ class _SalesProductCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ---- GAMBAR PRODUK ----
           AspectRatio(
             aspectRatio: 1,
             child: Stack(
@@ -1839,15 +2040,11 @@ class _SalesProductCard extends StatelessWidget {
                           ),
                         ),
                 ),
-
-                // === BADGE JUMLAH TERPILIH ===
                 Positioned(
                   top: 8,
                   right: 8,
                   child: _CountBadge(count: selectedQty),
                 ),
-
-                // ✅ PREMIUM: tampilkan overlay Empty Stock
                 if (showStockUI && isOut)
                   Container(
                     color: Colors.white.withOpacity(0.5),
@@ -1875,8 +2072,6 @@ class _SalesProductCard extends StatelessWidget {
               ],
             ),
           ),
-
-          // ---- INFORMASI PRODUK ----
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
@@ -1895,7 +2090,6 @@ class _SalesProductCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-
                   Text(
                     'from Rp ${_formatCurrency(minPrice)}',
                     maxLines: 1,
@@ -1907,8 +2101,6 @@ class _SalesProductCard extends StatelessWidget {
                       height: 1.2,
                     ),
                   ),
-
-                  // ✅ PREMIUM: tampilkan info stok (angka)
                   if (showStockUI) ...[
                     const SizedBox(height: 4),
                     Row(
@@ -1930,9 +2122,7 @@ class _SalesProductCard extends StatelessWidget {
                       ],
                     ),
                   ],
-
                   const Spacer(),
-
                   SizedBox(
                     width: double.infinity,
                     height: 36,
@@ -1967,28 +2157,32 @@ class _SalesProductCard extends StatelessWidget {
       ),
     );
   }
-
-  String _formatCurrency(int value) {
-    String s = value.toString();
-    if (s.length <= 3) return s;
-    final buffer = StringBuffer();
-    int count = 0;
-    for (int i = s.length - 1; i >= 0; i--) {
-      buffer.write(s[i]);
-      count++;
-      if (count == 3 && i != 0) {
-        buffer.write('.');
-        count = 0;
-      }
-    }
-    return buffer.toString().split('').reversed.join();
-  }
 }
+
+String _formatCurrency(int value) {
+  String s = value.toString();
+  if (s.length <= 3) return s;
+  final buffer = StringBuffer();
+  int count = 0;
+  for (int i = s.length - 1; i >= 0; i--) {
+    buffer.write(s[i]);
+    count++;
+    if (count == 3 && i != 0) {
+      buffer.write('.');
+      count = 0;
+    }
+  }
+  return buffer.toString().split('').reversed.join();
+}
+
+// ===============================
+// Variant sheet (the one used by AddProductSheetState)
+// ===============================
 
 class _SalesVariantAttributeSheet extends StatefulWidget {
   final _SalesProductGroup group;
   final bool allowOutOfStock;
-  final bool showStockUI; // premium: true, free: false
+  final bool showStockUI;
 
   const _SalesVariantAttributeSheet({
     required this.group,
@@ -2019,10 +2213,8 @@ class _SalesVariantAttributeSheetState
     }
   }
 
-  int _qtyInCartOfSku(SalesProvider prov, String skuId) {
-    return prov.cartItems
-        .where((it) => it.sku.skuId == skuId)
-        .fold<int>(0, (s, it) => s + it.qty);
+  int _qtyInCartOfSkuUuid(SalesProvider prov, String skuUuid) {
+    return prov.qtyBySkuUuid(skuUuid);
   }
 
   int _computeUnitPriceWithWholesale(int basePrice, int qty) {
@@ -2059,14 +2251,14 @@ class _SalesVariantAttributeSheetState
 
     final money = NumberFormat.decimalPattern('id_ID');
 
-    // FREE plan: stok tidak dipakai sama sekali
     final bool stockEnabled = widget.showStockUI;
     final bool allowOversell = stockEnabled ? widget.allowOutOfStock : true;
 
     final int stockRaw = matched?.stockQty ?? _p.totalStockQty;
     final int alreadyInCart = (matched == null)
         ? 0
-        : _qtyInCartOfSku(prov, matched.idProductSku);
+        : _qtyInCartOfSkuUuid(prov, matched.uuid);
+
     final int leftRaw = stockRaw - alreadyInCart;
 
     if (stockEnabled && !allowOversell) {
@@ -2104,8 +2296,6 @@ class _SalesVariantAttributeSheetState
           children: [
             const _SheetHeader(title: 'Choose Variants'),
             const SizedBox(height: 4),
-
-            // HERO + Info (Premium: show stock; Free: no stock)
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -2207,17 +2397,17 @@ class _SalesVariantAttributeSheetState
                           ),
                         ],
                         if (matched != null) ...[
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 6),
+                          // ✅ tampilkan UUID (stabil) di sheet juga biar konsisten sama list
+                          // (opsional) tetap tampilkan code lama sebagai info tambahan
                           Text(
-                            matched.code,
+                            'SKU Code: ${matched.code}',
                             style: const TextStyle(
                               color: AppColors.textSecondary,
-                              fontSize: 12,
+                              fontSize: 11,
                             ),
                           ),
                         ],
-
-                        // ✅ PREMIUM: tampilkan info stok persis seperti konteks sebelumnya
                         if (stockEnabled) ...[
                           const SizedBox(height: 6),
                           Row(
@@ -2246,10 +2436,9 @@ class _SalesVariantAttributeSheetState
                 ],
               ),
             ),
-
             const SizedBox(height: 12),
 
-            // ATRIBUT
+            // attributes
             Expanded(
               child: ListView(
                 children: attrsMap.entries.map((e) {
@@ -2407,7 +2596,10 @@ class _SalesVariantAttributeSheetState
 
                                 final posSku = PosSku(
                                   skuId: matched!.idProductSku,
-                                  skuCode: matched.code,
+                                  skuUuid: matched
+                                      .uuid, // ✅ ini yang dipakai untuk dedupe
+                                  skuCode: matched
+                                      .code, // ✅ tetap ditampilkan di list
                                   price: unitPrice,
                                   productId: _p.idProduct,
                                   productName: _p.name,
@@ -2497,8 +2689,9 @@ class _SalesVariantAttributeSheetState
 }
 
 // ===============================
-// (Opsional) EXACT PURCHASE-STYLE VARIANT SHEET (tidak diubah)
+// (Opsional) EXACT PURCHASE-STYLE VARIANT SHEET (unchanged)
 // ===============================
+
 class _SalesPicked {
   final String skuId;
   final int qty;

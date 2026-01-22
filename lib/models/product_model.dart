@@ -7,7 +7,7 @@ class ProductBrand {
 
   const ProductBrand({required this.idProductBrand, required this.name});
 
-  String get id => idProductBrand; // alias agar UI bisa pakai .id
+  String get id => idProductBrand;
 
   factory ProductBrand.fromJson(Map<String, dynamic> j) => ProductBrand(
     idProductBrand: j['idProductBrand']?.toString() ?? '',
@@ -33,8 +33,8 @@ class ProductCategory {
 @immutable
 class ProductImage {
   final String idProductImage;
-  final String image; // filename
-  final String imagePath; // full url
+  final String image;
+  final String imagePath;
   final int position;
 
   const ProductImage({
@@ -66,8 +66,12 @@ class ProductPrice {
 
   factory ProductPrice.fromJson(Map<String, dynamic> j) => ProductPrice(
     idProductPrice: j['idProductPrice']?.toString() ?? '',
-    minQty: (j['minQty'] is num) ? (j['minQty'] as num).toInt() : 0,
-    price: (j['price'] is num) ? (j['price'] as num).toInt() : 0,
+    minQty: (j['minQty'] is num)
+        ? (j['minQty'] as num).toInt()
+        : int.tryParse('${j['minQty'] ?? 0}') ?? 0,
+    price: (j['price'] is num)
+        ? (j['price'] as num).toInt()
+        : int.tryParse('${j['price'] ?? 0}') ?? 0,
   );
 }
 
@@ -83,28 +87,77 @@ class SkuAttribute {
   );
 }
 
+/// Item untuk currentStock di SKU (ringan, sesuai response)
+@immutable
+class SkuCurrentStock {
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String note;
+  final int qty;
+  final String type;
+  final StoreLocation? storeLocation;
+
+  const SkuCurrentStock({
+    required this.createdAt,
+    required this.updatedAt,
+    required this.note,
+    required this.qty,
+    required this.type,
+    required this.storeLocation,
+  });
+
+  factory SkuCurrentStock.fromJson(Map<String, dynamic> j) => SkuCurrentStock(
+    createdAt:
+        DateTime.tryParse(j['createdAt']?.toString() ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    updatedAt:
+        DateTime.tryParse(j['updatedAt']?.toString() ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    note: j['note']?.toString() ?? '',
+    qty: (j['qty'] is num)
+        ? (j['qty'] as num).toInt()
+        : int.tryParse('${j['qty'] ?? 0}') ?? 0,
+    type: j['type']?.toString() ?? '',
+    storeLocation: (j['storeLocation'] is Map<String, dynamic>)
+        ? StoreLocation.fromJson(j['storeLocation'] as Map<String, dynamic>)
+        : null,
+  );
+}
+
 @immutable
 class ProductSku {
+  /// NEW
+  final String uuid;
+
   final String idProductSku;
   final String code;
   final int price;
   final List<SkuAttribute> attributes;
+
+  /// stok summary dari API: qty / stock_qty
   final int? stockQty;
 
+  /// NEW (opsional): detail stok per store
+  final List<SkuCurrentStock> currentStock;
+
   const ProductSku({
+    required this.uuid,
     required this.idProductSku,
     required this.code,
     required this.price,
     this.attributes = const [],
     this.stockQty,
+    this.currentStock = const [],
   });
 
   factory ProductSku.fromJson(Map<String, dynamic> j) => ProductSku(
+    uuid: j['uuid']?.toString() ?? '',
     idProductSku: j['idProductSku']?.toString() ?? '',
     code: j['code']?.toString() ?? '',
-    price: (j['price'] is num) ? (j['price'] as num).toInt() : 0,
+    price: (j['price'] is num)
+        ? (j['price'] as num).toInt()
+        : int.tryParse('${j['price'] ?? 0}') ?? 0,
 
-    // ⬇️ stok dari API: "qty" (fallback: "stock_qty"), tangani juga string/num
     stockQty: (j['qty'] is num)
         ? (j['qty'] as num).toInt()
         : (j['stock_qty'] is num)
@@ -117,6 +170,13 @@ class ProductSku {
               .map(SkuAttribute.fromJson)
               .toList(growable: false)
         : const <SkuAttribute>[],
+
+    currentStock: (j['currentStock'] is List)
+        ? (j['currentStock'] as List)
+              .whereType<Map<String, dynamic>>()
+              .map(SkuCurrentStock.fromJson)
+              .toList(growable: false)
+        : const <SkuCurrentStock>[],
   );
 }
 
@@ -137,7 +197,6 @@ class StoreLocation {
   });
 
   factory StoreLocation.fromJson(Map<String, dynamic> j) => StoreLocation(
-    // dukung camelCase & snake_case
     idStoreLocation:
         (j['idStoreLocation'] ?? j['id_store_location'] ?? j['id'])
             ?.toString() ??
@@ -181,6 +240,9 @@ class Province {
 
 @immutable
 class Product {
+  /// NEW
+  final String uuid;
+
   final String idProduct;
   final String name;
   final String description;
@@ -191,10 +253,10 @@ class Product {
   final List<ProductSku> productSkus;
   final List<ProductPrice> productPrices;
 
-  /// NEW: lokasi toko (opsional)
   final StoreLocation? storeLocation;
 
   const Product({
+    required this.uuid,
     required this.idProduct,
     required this.name,
     required this.description,
@@ -204,11 +266,10 @@ class Product {
     required this.productImages,
     required this.productSkus,
     required this.productPrices,
-    this.storeLocation, // NEW
+    this.storeLocation,
   });
 
   factory Product.fromJson(Map<String, dynamic> j) {
-    // prices bisa muncul sebagai productPrices / prices / product_prices
     final pricesListRaw = (j['productPrices'] is List)
         ? j['productPrices']
         : (j['prices'] is List)
@@ -222,7 +283,6 @@ class Product {
         .map(ProductPrice.fromJson)
         .toList(growable: false);
 
-    // storeLocation bisa camelCase / snake_case
     final storeRaw = (j['storeLocation'] is Map<String, dynamic>)
         ? j['storeLocation'] as Map<String, dynamic>
         : (j['store_location'] is Map<String, dynamic>)
@@ -230,6 +290,7 @@ class Product {
         : null;
 
     return Product(
+      uuid: j['uuid']?.toString() ?? '',
       idProduct:
           j['idProduct']?.toString() ?? j['id_product']?.toString() ?? '',
       name: j['name']?.toString() ?? '',
@@ -274,13 +335,13 @@ class Product {
       productPrices: productPrices,
       storeLocation: (storeRaw == null)
           ? null
-          : StoreLocation.fromJson(storeRaw), // NEW
+          : StoreLocation.fromJson(storeRaw),
     );
   }
 
   int get totalStockQty {
     if (productSkus.isEmpty) return 0;
-    int total = 0;
+    var total = 0;
     for (final sku in productSkus) {
       total += sku.stockQty ?? 0;
     }

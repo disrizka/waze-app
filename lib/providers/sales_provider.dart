@@ -387,9 +387,12 @@ const Set<_PayState> _doneStates = {
 };
 
 /// Representasi 1 SKU yang bisa dijual (ringan untuk cart)
+/// Representasi 1 SKU yang bisa dijual (ringan untuk cart)
 class PosSku {
-  final String skuId; // idProductSku
-  final String skuCode; // code
+  final String skuId; // idProductSku -> untuk payload
+  final String skuUuid; // uuid -> untuk dedupe/identity di cart
+  final String skuCode; // code -> untuk ditampilkan di UI
+
   final int price; // harga retail
   final String productId; // idProduct
   final String productName; // name
@@ -398,6 +401,7 @@ class PosSku {
 
   const PosSku({
     required this.skuId,
+    required this.skuUuid,
     required this.skuCode,
     required this.price,
     required this.productId,
@@ -650,49 +654,70 @@ class SalesProvider extends SafeChangeNotifier {
     return id.isEmpty ? null : id;
   }
 
-  // ================= MERGE PROOF CART =================
+  // ================= MERGE PROOF CART (UUID-BASED) =================
+  //
+  // Identity cart = skuUuid
+  // UI tetap bisa tampil skuCode, payload tetap pakai skuId
 
-  // Normalisasi key: pakai skuId kalau ada; kalau kosong pakai productId__SKUCODE
-  String _normalizedCompositeKey(
-    String productId,
-    String skuCode,
-    String skuId,
-  ) {
-    final sid = skuId.trim();
-    if (sid.isNotEmpty) return sid; // id asli menang
-    return '${productId.trim()}__${skuCode.trim().toUpperCase()}';
+  String _normalizedUuidKey(String skuUuid) {
+    final u = skuUuid.trim();
+    return u.isNotEmpty ? u : '';
   }
 
-  // Selalu panggil ini untuk bikin key
-  String _keyFor(PosSku s) =>
-      _normalizedCompositeKey(s.productId, s.skuCode, s.skuId);
+  String _keyFor(PosSku s) {
+    final u = _normalizedUuidKey(s.skuUuid);
+    // fallback safety: kalau uuid kosong, pakai skuId agar tetap bisa jalan
+    if (u.isNotEmpty) return u;
+    final sid = s.skuId.trim();
+    if (sid.isNotEmpty) return sid;
+    return '${s.productId.trim()}__${s.skuCode.trim().toUpperCase()}';
+  }
 
-  // Cari baris existing: by skuId OR by (productId+skuCode) (case-insensitive)
   String? _findExistingKey(PosSku s) {
-    final exact = _keyFor(s);
-    if (_cart.containsKey(exact)) return exact;
-
-    final pid = s.productId.trim();
-    final code = s.skuCode.trim().toUpperCase();
-    for (final e in _cart.entries) {
-      final it = e.value.sku;
-      if (it.productId.trim() == pid &&
-          it.skuCode.trim().toUpperCase() == code) {
-        return e.key;
-      }
-    }
-    return null;
+    final k = _keyFor(s);
+    return _cart.containsKey(k) ? k : null;
   }
 
-  /// Tambah qty sambil merge (PAKAI INI dari semua UI add)
+  /// helper: pindahkan diskon dari skuId lama -> skuId baru (kalau perlu)
+  void _migrateDiscountIfNeeded({
+    required String oldSkuId,
+    required String newSkuId,
+  }) {
+    if (oldSkuId == newSkuId) return;
+    final old = _itemDiscount.remove(oldSkuId);
+    if (old == null) return;
+
+    // kalau skuId baru belum punya diskon, taruh di baru
+    _itemDiscount.putIfAbsent(newSkuId, () => old);
+
+    // kalau sudah ada, ambil yang lebih besar (biar aman)
+    final cur = _itemDiscount[newSkuId] ?? 0;
+    if (old > cur) _itemDiscount[newSkuId] = old;
+  }
+
+  /// Tambah qty sambil merge by UUID (PAKAI INI dari semua UI add)
   void addQuantity(PosSku s, int qty) {
     if (qty <= 0) return;
+
     final k = _findExistingKey(s);
     if (k != null) {
-      _cart[k]!.qty += qty; // ← merge qty, tidak bikin baris baru
+      final existing = _cart[k]!;
+      final oldSkuId = existing.sku.skuId;
+      final newSkuId = s.skuId;
+
+      // qty merge
+      final newQty = existing.qty + qty;
+
+      // update stored sku info ke yang terbaru (skuId untuk payload, skuCode untuk display)
+      _cart[k] = CartItem(sku: s, qty: newQty);
+
+      // diskon ikut pindah kalau skuId berubah
+      _migrateDiscountIfNeeded(oldSkuId: oldSkuId, newSkuId: newSkuId);
+
       notifyListeners();
       return;
     }
+
     final newKey = _keyFor(s);
     _cart[newKey] = CartItem(sku: s, qty: qty);
     notifyListeners();
@@ -701,19 +726,21 @@ class SalesProvider extends SafeChangeNotifier {
   // Kompat lama (tambah 1)
   void add(PosSku s) => addQuantity(s, 1);
 
-  // add by ref juga merge
+  /// add by ref juga merge (tambahkan skuUuid optional)
   void addByRef({
     required String productId,
     required String productName,
     required String skuId,
     required String skuCode,
     required int price,
+    String? skuUuid, // ✅ tambah
     String imageUrl = '',
     bool inStock = true,
   }) {
     addQuantity(
       PosSku(
         skuId: skuId,
+        skuUuid: (skuUuid ?? '').trim().isNotEmpty ? skuUuid!.trim() : skuId,
         skuCode: skuCode,
         price: price,
         productId: productId,
@@ -729,26 +756,31 @@ class SalesProvider extends SafeChangeNotifier {
   void normalizeCart() {
     if (_cart.isEmpty) return;
 
+    // karena key sekarang uuid, cukup rebuild + merge safe
     final Map<String, CartItem> merged = {};
     final Map<String, int> newDiscount = {};
 
     for (final item in _cart.values) {
-      final newKey = _normalizedCompositeKey(
-        item.sku.productId,
-        item.sku.skuCode,
-        item.sku.skuId,
-      );
+      final key = _keyFor(item.sku);
 
-      if (!merged.containsKey(newKey)) {
-        merged[newKey] = CartItem(sku: item.sku, qty: item.qty);
+      if (!merged.containsKey(key)) {
+        merged[key] = CartItem(sku: item.sku, qty: item.qty);
+
         final d = _itemDiscount[item.sku.skuId] ?? 0;
         if (d > 0) newDiscount[item.sku.skuId] = d;
       } else {
-        merged[newKey]!.qty += item.qty;
-        // pilih diskon per item yang lebih besar
-        final dOld = newDiscount[merged[newKey]!.sku.skuId] ?? 0;
+        // merge qty
+        merged[key]!.qty += item.qty;
+
+        // pilih sku "terbaru" (biar payload mengikuti id terakhir yg dipilih)
+        final oldSkuId = merged[key]!.sku.skuId;
+        merged[key] = CartItem(sku: item.sku, qty: merged[key]!.qty);
+
+        // merge discount: ambil yang paling besar, dan pastikan pindah ke skuId terbaru
+        final dOld = _itemDiscount[oldSkuId] ?? 0;
         final dNew = _itemDiscount[item.sku.skuId] ?? 0;
-        newDiscount[merged[newKey]!.sku.skuId] = dOld > dNew ? dOld : dNew;
+        final best = dOld > dNew ? dOld : dNew;
+        if (best > 0) newDiscount[item.sku.skuId] = best;
       }
     }
 
@@ -761,6 +793,41 @@ class SalesProvider extends SafeChangeNotifier {
       ..addAll(newDiscount);
 
     notifyListeners();
+  }
+
+  // ================= MERGE PROOF CART =================
+
+  /// Qty terpilih untuk SKU berdasarkan UUID (untuk UI badge di sheet)
+  int qtyBySkuUuid(String skuUuid) {
+    final key = skuUuid.trim();
+    if (key.isEmpty) return 0;
+    return _cart[key]?.qty ?? 0;
+  }
+
+  /// Apakah SKU (uuid) sudah ada di cart
+  bool isSelectedBySkuUuid(String skuUuid) => qtyBySkuUuid(skuUuid) > 0;
+
+  /// (Opsional) qty berdasarkan skuId fallback (kalau ada UI lama)
+  int qtyBySkuIdFallback(String skuId) {
+    final sid = skuId.trim();
+    if (sid.isEmpty) return 0;
+
+    // kalau key cart pakai uuid, cari dengan skuId di value
+    for (final it in _cart.values) {
+      if (it.sku.skuId == sid) return it.qty;
+    }
+    return 0;
+  }
+
+  // Normalisasi key: pakai skuId kalau ada; kalau kosong pakai productId__SKUCODE
+  String _normalizedCompositeKey(
+    String productId,
+    String skuCode,
+    String skuId,
+  ) {
+    final sid = skuId.trim();
+    if (sid.isNotEmpty) return sid; // id asli menang
+    return '${productId.trim()}__${skuCode.trim().toUpperCase()}';
   }
 
   // import 'dart:math' as math; // sudah ada
@@ -1713,6 +1780,7 @@ class SalesProvider extends SafeChangeNotifier {
             mapped.add(
               PosSku(
                 skuId: '${productId}_BASE',
+                skuUuid: '${productId}_BASE', // ✅
                 skuCode: 'BASE',
                 price: base,
                 productId: productId,
@@ -1732,9 +1800,12 @@ class SalesProvider extends SafeChangeNotifier {
           final price = s.price > 0 ? s.price : (p.basePrice ?? 0);
           if (price <= 0) continue;
 
+          final uuid = (s.uuid ?? '').toString().trim();
+
           mapped.add(
             PosSku(
               skuId: safeId,
+              skuUuid: uuid.isNotEmpty ? uuid : safeId, // ✅ penting
               skuCode: s.code,
               price: price,
               productId: productId,
@@ -1781,6 +1852,7 @@ class SalesProvider extends SafeChangeNotifier {
           mapped.add(
             PosSku(
               skuId: '${productId}_BASE',
+              skuUuid: p.uuid,
               skuCode: 'BASE',
               price: base,
               productId: productId,
@@ -1803,6 +1875,7 @@ class SalesProvider extends SafeChangeNotifier {
         mapped.add(
           PosSku(
             skuId: safeId,
+            skuUuid: s.uuid,
             skuCode: s.code,
             price: price,
             productId: productId,
@@ -1864,21 +1937,22 @@ class SalesProvider extends SafeChangeNotifier {
 
   void removeOne(PosSku s) {
     final key = _keyFor(s);
-    if (!_cart.containsKey(key)) return;
-    final item = _cart[key]!;
+    final item = _cart[key];
+    if (item == null) return;
+
     if (item.qty > 1) {
       item.qty -= 1;
     } else {
       _cart.remove(key);
-      _itemDiscount.remove(s.skuId);
+      _itemDiscount.remove(item.sku.skuId);
     }
     notifyListeners();
   }
 
   void removeAll(PosSku s) {
     final key = _keyFor(s);
-    _cart.remove(key);
-    _itemDiscount.remove(s.skuId);
+    final item = _cart.remove(key);
+    if (item != null) _itemDiscount.remove(item.sku.skuId);
     notifyListeners();
   }
 

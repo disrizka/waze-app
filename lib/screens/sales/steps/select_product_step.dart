@@ -628,6 +628,7 @@ class _VariantAttributeSheetState extends State<_VariantAttributeSheet> {
                             ? () {
                                 final inStock = !_p.isHide;
                                 final posSku = PosSku(
+                                  skuUuid: matched!.uuid,
                                   skuId: matched!.idProductSku,
                                   skuCode: matched!.code,
                                   price: matched!.price,

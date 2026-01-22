@@ -16,10 +16,10 @@ import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 
-/// Screen untuk create stock opname:
-/// - Menampilkan LIST SKU (bukan produk)
-/// - Card: gambar dari induk product, nama produk, kode SKU, current stock SKU
-/// - Tap card -> input qty saja (tanpa pilih SKU)
+/// Screen to create stock opname:
+/// - Shows SKU list (not product list)
+/// - Card: parent product image, product name, SKU code, current stock
+/// - Tap card -> input qty only (no SKU selection)
 class StockOpnameCreateScreen extends StatefulWidget {
   const StockOpnameCreateScreen({super.key});
 
@@ -34,10 +34,10 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
 
   late final ProductProvider _prodProv;
 
-  // filter model ala ProductScreen (tanpa date range)
+  // Filter model (no date range)
   _SkuFilters _filters = const _SkuFilters();
 
-  // store (dipakai juga untuk label)
+  // Store (also used for label)
   String? _storeId;
   String? _storeName;
 
@@ -148,14 +148,13 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
     return code.isEmpty ? '-' : code;
   }
 
-  // ---- Month label (BULAN-TAHUN) ----
+  // ---- Month label (MONTH-YEAR) ----
   String _monthYearLabel(DateTime? d) {
-    if (d == null) return 'Bulan';
-    // label Indonesia: "Januari 2026"
-    return DateFormat('MMMM yyyy', 'id_ID').format(d);
+    if (d == null) return 'Month';
+    return DateFormat('MMMM yyyy', 'en_US').format(d);
   }
 
-  // token backend: "MM-yyyy" (contoh: 01-2026)
+  // Backend token: "MM-yyyy" (example: 01-2026)
   String _monthYearToken(DateTime d) {
     return DateFormat('MM-yyyy').format(d);
   }
@@ -167,25 +166,94 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
     final now = DateTime.now();
     final init = initial ?? DateTime(now.year, now.month, 1);
 
+    final seedBlue = AppColors.blueButton;
+    final base = Theme.of(context);
+
     final picked = await showDatePicker(
       context: context,
       initialDate: init,
       firstDate: DateTime(now.year - 2, 1, 1),
       lastDate: DateTime(now.year + 1, 12, 31),
-      helpText: 'Pilih bulan & tahun',
+      helpText: 'Select month & year',
       fieldHintText: 'dd/mm/yyyy',
-      builder: (ctx, child) => Theme(data: Theme.of(ctx), child: child!),
+      builder: (ctx, child) {
+        final cs =
+            ColorScheme.fromSeed(
+              seedColor: seedBlue,
+              brightness: Brightness.light,
+            ).copyWith(
+              primary: seedBlue,
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: const Color(0xFF111827),
+            );
+
+        return Theme(
+          data: base.copyWith(
+            colorScheme: cs,
+            dialogBackgroundColor: Colors.white,
+            // Works on newer Flutter versions; harmless on older if unused.
+            datePickerTheme: DatePickerThemeData(
+              backgroundColor: Colors.white,
+              headerBackgroundColor: seedBlue,
+              headerForegroundColor: Colors.white,
+              dayForegroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.disabled)) {
+                  return const Color(0xFF9CA3AF);
+                }
+                if (states.contains(WidgetState.selected)) {
+                  return Colors.white;
+                }
+                return const Color(0xFF111827);
+              }),
+              dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return seedBlue;
+                }
+                return Colors.transparent;
+              }),
+              todayForegroundColor: WidgetStateProperty.all(seedBlue),
+              todayBackgroundColor: WidgetStateProperty.all(
+                const Color(0x1A4C6EF5),
+              ),
+              yearForegroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return seedBlue;
+                }
+                return const Color(0xFF111827);
+              }),
+              yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const Color(0x144C6EF5);
+                }
+                return Colors.transparent;
+              }),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                foregroundColor: seedBlue,
+                textStyle: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
+
     if (picked == null) return;
 
-    // kita ambil month-year saja (day diabaikan)
+    // Use month-year only (day ignored)
     final monthYear = DateTime(picked.year, picked.month, 1);
     onPicked(monthYear);
   }
 
   // ---- Advanced Filter (bottom sheet) ----
   Future<void> _openAdvancedFilter(ProductProvider prov) async {
-    // pastikan data dropdown siap
+    // Ensure dropdown data is ready
     if (prov.brands.isEmpty) {
       await prov.fetchProductBrands(context);
     }
@@ -212,14 +280,14 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
     if (!mounted) return;
     if (result == null) return;
 
-    // apply filter
+    // Apply filter
     setState(() {
       _filters = result;
       _storeId = result.storeLocationId;
       _syncStoreLabel();
     });
 
-    // store wajib -> apply to provider dulu supaya backend fetch benar
+    // Store is required -> apply to provider first so backend fetch matches
     if ((_filters.storeLocationId ?? '').isNotEmpty) {
       await context.read<ProductProvider>().setStoreLocationAndRefresh(
         context,
@@ -273,7 +341,7 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
         centerTitle: false,
         actions: [
           IconButton(
-            tooltip: 'History Stock Opname',
+            tooltip: 'Stock Opname History',
             icon: const Icon(Icons.history_rounded),
             onPressed: () => Navigator.pushNamed(context, '/stock/opname'),
           ),
@@ -289,6 +357,8 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
               return _buildLoadingSkeleton();
             }
 
+            final bool hasOptionalActive = _filters.hasOptionalFilters;
+
             final state = controller.value;
 
             void next() {
@@ -298,62 +368,6 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
               if (cur != null && tot != null && cur >= tot) return;
               controller.fetchNextPage();
             }
-
-            // ✅ Top controls: Search + Filter button (akan dibuat sticky)
-            final topControls = Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchC,
-                      onChanged: _onSearchChanged,
-                      textInputAction: TextInputAction.search,
-                      decoration: InputDecoration(
-                        hintText: 'Cari nama atau SKU',
-                        isDense: true,
-                        filled: true,
-                        fillColor: const Color(0xFFF3F4F6),
-                        prefixIcon: const Icon(Icons.search, size: 20),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(
-                            color: Color(0xFFE5E7EB),
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(
-                            color: Color(0xFFCBD5E1),
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    height: 42,
-                    width: 42,
-                    child: ElevatedButton(
-                      onPressed: () => _openAdvancedFilter(provider),
-                      style: ElevatedButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        backgroundColor: AppColors.blueButton,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Icon(Icons.tune_rounded, size: 20),
-                    ),
-                  ),
-                ],
-              ),
-            );
 
             const double _kStickyTopPadding = 10;
             const double _kStickyControlsHeight = 48;
@@ -371,12 +385,15 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
               child: CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
-                  // ✅ STICKY HEADER WAJIB ADA DI SINI
                   SliverPersistentHeader(
                     pinned: true,
                     delegate: _StickyHeaderDelegate(
                       height: stickyHeight,
+                      // ✅ token supaya delegate tau harus rebuild saat filter berubah
+                      rebuildToken: _filters.rebuildToken,
                       builder: (context, overlaps) {
+                        final bool isActive = _filters.hasOptionalFilters;
+
                         return Material(
                           color: Colors.white,
                           child: Container(
@@ -395,7 +412,6 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // ✅ INI SEARCH + FILTER (JANGAN KOSONG)
                                 Padding(
                                   padding: const EdgeInsets.fromLTRB(
                                     16,
@@ -414,7 +430,8 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                                             textInputAction:
                                                 TextInputAction.search,
                                             decoration: InputDecoration(
-                                              hintText: 'Cari nama atau SKU',
+                                              hintText:
+                                                  'Search product name or SKU',
                                               isDense: true,
                                               filled: true,
                                               fillColor: const Color(
@@ -450,23 +467,11 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                                         SizedBox(
                                           height: 42,
                                           width: 42,
-                                          child: ElevatedButton(
+                                          child: _AdvancedFilterIconButton(
+                                            // ✅ compute inside builder so it always reflects latest state
+                                            isActive: isActive,
                                             onPressed: () =>
                                                 _openAdvancedFilter(provider),
-                                            style: ElevatedButton.styleFrom(
-                                              padding: EdgeInsets.zero,
-                                              backgroundColor:
-                                                  AppColors.blueButton,
-                                              foregroundColor: Colors.white,
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(10),
-                                              ),
-                                            ),
-                                            child: const Icon(
-                                              Icons.tune_rounded,
-                                              size: 20,
-                                            ),
                                           ),
                                         ),
                                       ],
@@ -486,7 +491,6 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                     ),
                   ),
 
-                  // LIST
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                     sliver: PagedSliverList<int, Product>(
@@ -505,13 +509,13 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                                 productName: p.name,
                                 productImage: productImage,
                                 skuCode: '-',
-                                stockQty: p.totalStockQty,
                                 onTap: () {
                                   AppSnackbar.show(
                                     context,
                                     type: AppSnackType.error,
-                                    title: 'SKU tidak ditemukan',
-                                    message: 'Produk ini tidak memiliki SKU.',
+                                    title: 'SKU not found',
+                                    message:
+                                        'This product does not have any SKU.',
                                   );
                                 },
                               ),
@@ -533,7 +537,6 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                                   productName: p.name,
                                   productImage: productImage,
                                   skuCode: skuCode,
-                                  stockQty: stock,
                                   onTap: () async {
                                     final sid =
                                         _filters.storeLocationId ??
@@ -546,9 +549,9 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                                       AppSnackbar.show(
                                         context,
                                         type: AppSnackType.error,
-                                        title: 'Store wajib',
+                                        title: 'Store is required',
                                         message:
-                                            'Pilih store location dulu di Filter.',
+                                            'Please select a store location in Filter.',
                                       );
                                       return;
                                     }
@@ -557,9 +560,9 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                                       AppSnackbar.show(
                                         context,
                                         type: AppSnackType.error,
-                                        title: 'SKU tidak valid',
+                                        title: 'Invalid SKU',
                                         message:
-                                            'SKU ID tidak ditemukan untuk item ini.',
+                                            'SKU ID is missing for this item.',
                                       );
                                       return;
                                     }
@@ -575,6 +578,14 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                                         ),
                                       ),
                                       builder: (_) => _StockOpnameQtySheet(
+                                        hostContext: context,
+                                        onOpenHistory: () {
+                                          if (!context.mounted) return;
+                                          Navigator.pushNamed(
+                                            context,
+                                            '/stock/opname',
+                                          );
+                                        },
                                         storeId: sid,
                                         productId: p.idProduct,
                                         productSkuId: skuId,
@@ -622,11 +633,89 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
   }
 }
 
+/// ✅ Advanced Filter button:
+/// - Dot ONLY appears when OPTIONAL filters are active.
+/// - No dot at all when inactive.
+/// - Store(required) should NOT affect isActive (pass _filters.hasOptionalFilters)
+class _AdvancedFilterIconButton extends StatelessWidget {
+  const _AdvancedFilterIconButton({
+    required this.isActive,
+    required this.onPressed,
+  });
+
+  final bool isActive;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    // Base (soft grey)
+    const Color bg = Color(0xFFF3F4F6);
+    const Color bd = Color(0xFFE5E7EB);
+    const Color iconColor = Color(0xFF111827);
+
+    // When active: keep grey, but add subtle border + shadow (optional)
+    final Color activeBorder = AppColors.blueButton.withOpacity(0.35);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(10),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: isActive ? activeBorder : bd),
+            boxShadow: isActive
+                ? const [
+                    BoxShadow(
+                      color: Color(0x144C6EF5),
+                      blurRadius: 12,
+                      offset: Offset(0, 6),
+                    ),
+                  ]
+                : const [],
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Center(
+                child: Icon(Icons.tune_rounded, size: 20, color: iconColor),
+              ),
+
+              // ✅ Dot appears only when active
+              if (isActive)
+                Positioned(
+                  right: 9,
+                  top: 9,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: AppColors.blueButton,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _StickyHeaderDelegate extends SliverPersistentHeaderDelegate {
   final double height;
+  final int rebuildToken;
   final Widget Function(BuildContext context, bool overlapsContent) builder;
 
-  const _StickyHeaderDelegate({required this.height, required this.builder});
+  const _StickyHeaderDelegate({
+    required this.height,
+    required this.rebuildToken,
+    required this.builder,
+  });
 
   @override
   double get minExtent => height;
@@ -645,12 +734,14 @@ class _StickyHeaderDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   bool shouldRebuild(covariant _StickyHeaderDelegate oldDelegate) {
-    return oldDelegate.height != height;
+    return oldDelegate.height != height ||
+        oldDelegate.rebuildToken != rebuildToken ||
+        oldDelegate.builder != builder;
   }
 }
 
 // =====================
-// Filter model (tanpa date range)
+// Filter model (no date range)
 // =====================
 @immutable
 class _SkuFilters {
@@ -699,24 +790,47 @@ class _SkuFilters {
     );
   }
 
+  int get rebuildToken => Object.hash(
+    (brandId ?? '').trim(),
+    (categoryId ?? '').trim(),
+    storeLocationId ??
+        '', // store tidak bikin dot, tapi boleh ikut token supaya UI tetap sync
+    stockOpnameMonth?.year,
+    stockOpnameMonth?.month,
+    (stockOpnameStatus ?? '').trim(),
+  );
+
+  bool get hasOptionalFilters {
+    final b = (brandId ?? '').trim().isNotEmpty;
+    final c = (categoryId ?? '').trim().isNotEmpty;
+    final m = stockOpnameMonth != null;
+
+    final s = (stockOpnameStatus ?? '').trim();
+    final statusActive = (s == 'SUDAH' || s == 'BELUM');
+
+    return b || c || m || statusActive;
+  }
+
   String toSearchString({String rawQuery = ''}) {
     final tokens = <String>[];
     final q = rawQuery.isNotEmpty ? rawQuery : (query ?? '');
     if (q.isNotEmpty) tokens.add('q:$q');
     if ((brandId ?? '').isNotEmpty) tokens.add('brand:$brandId');
     if ((categoryId ?? '').isNotEmpty) tokens.add('cat:$categoryId');
-    if ((storeLocationId ?? '').isNotEmpty)
+    if ((storeLocationId ?? '').isNotEmpty) {
       tokens.add('store:$storeLocationId');
+    }
 
-    // ✅ stock_opname_month = BULAN-TAHUN (token: MM-yyyy)
+    // stock_opname_month = MONTH-YEAR (token: MM-yyyy)
     if (stockOpnameMonth != null) {
       final token = DateFormat('MM-yyyy').format(stockOpnameMonth!);
       tokens.add('stock_opname_month:$token');
     }
 
-    // ✅ stock_opname_status = SUDAH / BELUM
-    if ((stockOpnameStatus ?? '').isNotEmpty) {
-      tokens.add('stock_opname_status:${stockOpnameStatus!.trim()}');
+    // Backend token values must remain: SUDAH / BELUM
+    final s = (stockOpnameStatus ?? '').trim();
+    if (s == 'SUDAH' || s == 'BELUM') {
+      tokens.add('stock_opname_status:$s');
     }
 
     return tokens.join(' ');
@@ -750,13 +864,17 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
   String? _brandId;
   String? _categoryId;
 
-  // store wajib
+  // Store is required
   String? _storeId;
   String? _storeName;
   String? _storeError;
 
   DateTime? _monthYear;
-  String? _status; // "SUDAH" / "BELUM"
+
+  /// Backend token values:
+  /// - "SUDAH"
+  /// - "BELUM"
+  String? _status;
 
   @override
   void initState() {
@@ -781,7 +899,7 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
         setState(() {
           _storeId = null;
           _storeName = null;
-          _storeError = 'Store location wajib diisi';
+          _storeError = 'Store location is required';
         });
         return;
       }
@@ -799,6 +917,12 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
     });
   }
 
+  bool get _hasAnyOptional =>
+      _brandId != null ||
+      _categoryId != null ||
+      _monthYear != null ||
+      _status != null;
+
   String? _brandName(ProductProvider prov, String? id) {
     if (id == null) return null;
     final i = prov.brands.indexWhere((b) => b.idProductBrand == id);
@@ -809,6 +933,17 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
     if (id == null) return null;
     final i = prov.categories.indexWhere((c) => c.idProductCategory == id);
     return i == -1 ? null : prov.categories[i].name;
+  }
+
+  String _statusLabel(String token) {
+    switch (token) {
+      case 'SUDAH':
+        return 'Done';
+      case 'BELUM':
+        return 'Not yet';
+      default:
+        return token;
+    }
   }
 
   Future<void> _pickStore() async {
@@ -840,6 +975,36 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
     );
   }
 
+  Future<void> _resetOptionalFilters() async {
+    setState(() {
+      _brandId = null;
+      _categoryId = null;
+      _monthYear = null;
+      _status = null;
+    });
+  }
+
+  void _apply() {
+    if (_storeId == null || _storeId!.isEmpty) {
+      setState(() => _storeError = 'Store location is required');
+      return;
+    }
+
+    final s = (_status ?? '').trim();
+    final sanitizedStatus = (s == 'SUDAH' || s == 'BELUM') ? s : null;
+
+    final next = _SkuFilters(
+      query: widget.initial.query,
+      storeLocationId: _storeId,
+      brandId: _brandId,
+      categoryId: _categoryId,
+      stockOpnameMonth: _monthYear,
+      stockOpnameStatus: sanitizedStatus,
+    );
+
+    Navigator.pop(context, next);
+  }
+
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<ProductProvider>();
@@ -851,296 +1016,532 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
         .map((c) => _PickerOption(id: c.idProductCategory, label: c.name))
         .toList();
 
-    final statusOpts = const [
-      _PickerOption(id: 'SUDAH', label: 'SUDAH'),
-      _PickerOption(id: 'BELUM', label: 'BELUM'),
-    ];
+    final seedBlue = AppColors.blueButton;
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.88,
-      minChildSize: 0.5,
+      initialChildSize: 0.90,
+      minChildSize: 0.55,
       maxChildSize: 0.95,
       expand: false,
       builder: (context, controller) {
-        return Column(
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE5E7EB),
-                borderRadius: BorderRadius.circular(999),
-              ),
+        final chips = <Widget>[];
+
+        if (_monthYear != null) {
+          chips.add(
+            _MiniChip(
+              label: widget.monthYearLabel(_monthYear),
+              onClear: () => setState(() => _monthYear = null),
             ),
-            const SizedBox(height: 8),
+          );
+        }
+        if ((_status ?? '').isNotEmpty) {
+          chips.add(
+            _MiniChip(
+              label: 'Status: ${_statusLabel(_status!)}',
+              onClear: () => setState(() => _status = null),
+            ),
+          );
+        }
+        final bn = _brandName(prov, _brandId);
+        if ((bn ?? '').isNotEmpty) {
+          chips.add(
+            _MiniChip(
+              label: 'Brand: $bn',
+              onClear: () => setState(() => _brandId = null),
+            ),
+          );
+        }
+        final cn = _categoryName(prov, _categoryId);
+        if ((cn ?? '').isNotEmpty) {
+          chips.add(
+            _MiniChip(
+              label: 'Category: $cn',
+              onClear: () => setState(() => _categoryId = null),
+            ),
+          );
+        }
 
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Advanced Filter',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF111827),
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      setState(() {
-                        _brandId = null;
-                        _categoryId = null;
-                        _monthYear = null;
-                        _status = null;
-                      });
-                    },
-                    child: const Text(
-                      'Reset',
-                      style: TextStyle(color: Colors.black),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  ElevatedButton(
-                    onPressed: () {
-                      if (_storeId == null || _storeId!.isEmpty) {
-                        setState(
-                          () => _storeError = 'Store location wajib diisi',
-                        );
-                        return;
-                      }
+        return SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5E7EB),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(height: 10),
 
-                      Navigator.pop(
-                        context,
-                        widget.initial.copyWith(
-                          brandId: _brandId,
-                          categoryId: _categoryId,
-                          storeLocationId: _storeId,
-                          stockOpnameMonth: _monthYear,
-                          stockOpnameStatus: _status,
+              // Header (minimal + reset only when needed)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Filter',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF111827),
                         ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.blueButton,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    child: const Text('Apply'),
-                  ),
-                ],
-              ),
-            ),
-
-            Expanded(
-              child: ListView(
-                controller: controller,
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-                children: [
-                  const Text(
-                    'Store Location',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF111827),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  _SelectFieldTile(
-                    placeholder: 'Pilih store…',
-                    valueText: _storeName,
-                    onTap: _pickStore,
-                  ),
-                  if ((_storeError ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      _storeError!,
-                      style: const TextStyle(color: Color(0xFFEF4444)),
-                    ),
+                    if (_hasAnyOptional)
+                      TextButton.icon(
+                        onPressed: _resetOptionalFilters,
+                        icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                        label: const Text('Reset'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF111827),
+                        ),
+                      ),
                   ],
+                ),
+              ),
 
-                  const SizedBox(height: 18),
+              // Active chips (compact)
+              if (chips.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 2, 18, 10),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(spacing: 8, runSpacing: 8, children: chips),
+                  ),
+                )
+              else
+                const SizedBox(height: 6),
 
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Month',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF111827),
-                          ),
+              Expanded(
+                child: ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 100),
+                  children: [
+                    const _SectionLabel('Required'),
+                    const SizedBox(height: 10),
+                    _FilterTile(
+                      icon: Icons.store_rounded,
+                      title: 'Store Location',
+                      value: _storeName ?? 'Select store…',
+                      isPlaceholder: (_storeName ?? '').isEmpty,
+                      onTap: _pickStore,
+                      onClear: null, // required, cannot be cleared
+                    ),
+                    if ((_storeError ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _storeError!,
+                        style: const TextStyle(
+                          color: Color(0xFFEF4444),
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      if (_monthYear != null)
-                        TextButton(
-                          onPressed: () => setState(() => _monthYear = null),
-                          child: const Text('Hapus'),
-                        ),
                     ],
-                  ),
-                  InkWell(
-                    onTap: () async {
-                      await widget.onPickMonthYear(
-                        _monthYear,
-                        (picked) => setState(() => _monthYear = picked),
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
+
+                    const SizedBox(height: 18),
+                    const _SectionLabel('Optional'),
+                    const SizedBox(height: 10),
+
+                    _FilterTile(
+                      icon: Icons.calendar_month_rounded,
+                      title: 'Month',
+                      value: _monthYear == null
+                          ? 'All months'
+                          : widget.monthYearLabel(_monthYear),
+                      isPlaceholder: _monthYear == null,
+                      onTap: () async {
+                        await widget.onPickMonthYear(
+                          _monthYear,
+                          (picked) => setState(() => _monthYear = picked),
+                        );
+                      },
+                      onClear: _monthYear == null
+                          ? null
+                          : () => setState(() => _monthYear = null),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // ✅ Status as colored chips (only a few options)
+                    Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 14,
-                        vertical: 14,
+                        vertical: 12,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF3F4F6),
-                        borderRadius: BorderRadius.circular(10),
+                        color: const Color(0xFFF9FAFB),
+                        borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: const Color(0xFFE5E7EB)),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Text(
-                              _monthYear == null
-                                  ? 'Semua bulan'
-                                  : widget.monthYearLabel(_monthYear),
-                              style: TextStyle(
-                                color: _monthYear == null
-                                    ? const Color(0xFF9CA3AF)
-                                    : const Color(0xFF111827),
-                                fontWeight: _monthYear == null
-                                    ? FontWeight.w500
-                                    : FontWeight.w800,
+                          Row(
+                            children: [
+                              Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF3F4F6),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFFE5E7EB),
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.fact_check_rounded,
+                                  size: 18,
+                                  color: Color(0xFF6B7280),
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Text(
+                                  'Stock Opname Status',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF111827),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                              if ((_status ?? '').isNotEmpty)
+                                IconButton(
+                                  tooltip: 'Clear',
+                                  onPressed: () =>
+                                      setState(() => _status = null),
+                                  icon: const Icon(
+                                    Icons.close_rounded,
+                                    size: 18,
+                                  ),
+                                  color: const Color(0xFF6B7280),
+                                ),
+                            ],
                           ),
-                          const Icon(
-                            Icons.calendar_month_rounded,
-                            color: Color(0xFF6B7280),
-                            size: 18,
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              _StatusChip(
+                                label: 'Done',
+                                selected: _status == 'SUDAH',
+                                selectedColor: seedBlue,
+                                onTap: () => setState(() {
+                                  _status = (_status == 'SUDAH')
+                                      ? null
+                                      : 'SUDAH';
+                                }),
+                              ),
+                              _StatusChip(
+                                label: 'Not yet',
+                                selected: _status == 'BELUM',
+                                selectedColor: seedBlue,
+                                onTap: () => setState(() {
+                                  _status = (_status == 'BELUM')
+                                      ? null
+                                      : 'BELUM';
+                                }),
+                              ),
+                              _StatusChip(
+                                label: 'All',
+                                selected: (_status ?? '').isEmpty,
+                                selectedColor: const Color(0xFF111827),
+                                onTap: () => setState(() => _status = null),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                  ),
 
-                  const SizedBox(height: 18),
+                    const SizedBox(height: 12),
 
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Stock Opname Status by Month',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF111827),
-                          ),
-                        ),
-                      ),
-                      if (_status != null)
-                        TextButton(
-                          onPressed: () => setState(() => _status = null),
-                          child: const Text('Hapus'),
-                        ),
-                    ],
-                  ),
-                  _SelectFieldTile(
-                    placeholder: 'Semua status',
-                    valueText: _status,
-                    onTap: () async {
-                      final picked = await _pickOption(
-                        title: 'Pilih Status',
-                        options: statusOpts,
-                        selectedId: _status,
-                      );
-                      if (!mounted) return;
-                      setState(() => _status = picked);
-                    },
-                  ),
+                    _FilterTile(
+                      icon: Icons.sell_rounded,
+                      title: 'Brand',
+                      value: _brandName(prov, _brandId) ?? 'All brands',
+                      isPlaceholder: _brandId == null,
+                      onTap: () async {
+                        final picked = await _pickOption(
+                          title: 'Select Brand',
+                          options: brandOpts,
+                          selectedId: _brandId,
+                        );
+                        if (!mounted) return;
+                        setState(() => _brandId = picked);
+                      },
+                      onClear: _brandId == null
+                          ? null
+                          : () => setState(() => _brandId = null),
+                    ),
 
-                  const SizedBox(height: 18),
+                    const SizedBox(height: 12),
 
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Brand',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF111827),
-                          ),
-                        ),
-                      ),
-                      if (_brandId != null)
-                        TextButton(
-                          onPressed: () => setState(() => _brandId = null),
-                          child: const Text('Hapus'),
-                        ),
-                    ],
-                  ),
-                  _SelectFieldTile(
-                    placeholder: 'Semua brand',
-                    valueText: _brandName(prov, _brandId),
-                    onTap: () async {
-                      final picked = await _pickOption(
-                        title: 'Pilih Brand',
-                        options: brandOpts,
-                        selectedId: _brandId,
-                      );
-                      if (!mounted) return;
-                      setState(() => _brandId = picked);
-                    },
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Category',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF111827),
-                          ),
-                        ),
-                      ),
-                      if (_categoryId != null)
-                        TextButton(
-                          onPressed: () => setState(() => _categoryId = null),
-                          child: const Text('Hapus'),
-                        ),
-                    ],
-                  ),
-                  _SelectFieldTile(
-                    placeholder: 'Semua category',
-                    valueText: _categoryName(prov, _categoryId),
-                    onTap: () async {
-                      final picked = await _pickOption(
-                        title: 'Pilih Category',
-                        options: catOpts,
-                        selectedId: _categoryId,
-                      );
-                      if (!mounted) return;
-                      setState(() => _categoryId = picked);
-                    },
-                  ),
-                ],
+                    _FilterTile(
+                      icon: Icons.category_rounded,
+                      title: 'Category',
+                      value:
+                          _categoryName(prov, _categoryId) ?? 'All categories',
+                      isPlaceholder: _categoryId == null,
+                      onTap: () async {
+                        final picked = await _pickOption(
+                          title: 'Select Category',
+                          options: catOpts,
+                          selectedId: _categoryId,
+                        );
+                        if (!mounted) return;
+                        setState(() => _categoryId = picked);
+                      },
+                      onClear: _categoryId == null
+                          ? null
+                          : () => setState(() => _categoryId = null),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+
+              // Bottom actions (sticky style)
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                ),
+                child: SizedBox(
+                  height: 50,
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _apply,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.blueButton,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text(
+                      'Apply Filter',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
   }
 }
 
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.label,
+    required this.selected,
+    required this.selectedColor,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Color selectedColor;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = selected ? selectedColor : const Color(0xFFF3F4F6);
+    final bd = selected ? selectedColor : const Color(0xFFE5E7EB);
+    final fg = selected ? Colors.white : const Color(0xFF111827);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: bd),
+          boxShadow: selected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x1A4C6EF5),
+                    blurRadius: 12,
+                    offset: Offset(0, 6),
+                  ),
+                ]
+              : const [],
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: fg,
+            fontWeight: FontWeight.w900,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text.toUpperCase(),
+      style: const TextStyle(
+        fontSize: 12,
+        letterSpacing: 1.1,
+        fontWeight: FontWeight.w900,
+        color: Color(0xFF6B7280),
+      ),
+    );
+  }
+}
+
+class _MiniChip extends StatelessWidget {
+  const _MiniChip({required this.label, required this.onClear});
+  final String label;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF111827),
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(width: 6),
+          InkWell(
+            onTap: onClear,
+            borderRadius: BorderRadius.circular(999),
+            child: const Icon(
+              Icons.close_rounded,
+              size: 16,
+              color: Color(0xFF6B7280),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterTile extends StatelessWidget {
+  const _FilterTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.isPlaceholder,
+    required this.onTap,
+    required this.onClear,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final bool isPlaceholder;
+  final VoidCallback onTap;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final valueColor = isPlaceholder
+        ? const Color(0xFF9CA3AF)
+        : const Color(0xFF111827);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9FAFB),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Icon(icon, size: 18, color: const Color(0xFF6B7280)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF111827),
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: valueColor,
+                      fontWeight: isPlaceholder
+                          ? FontWeight.w600
+                          : FontWeight.w900,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (onClear != null)
+              IconButton(
+                tooltip: 'Clear',
+                onPressed: onClear,
+                icon: const Icon(Icons.close_rounded, size: 18),
+                color: const Color(0xFF6B7280),
+              )
+            else
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF6B7280)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // =====================
-// Simple picker (search + radio) untuk Brand/Category/Status
+// Simple picker (search + radio) for Brand/Category
 // =====================
 class _PickerOption {
   final String id;
@@ -1217,7 +1618,7 @@ Future<String?> _showOptionPicker({
                           ),
                           TextButton(
                             onPressed: () => Navigator.pop(ctx),
-                            child: const Text('Tutup'),
+                            child: const Text('Close'),
                           ),
                         ],
                       ),
@@ -1229,7 +1630,7 @@ Future<String?> _showOptionPicker({
                         controller: controller,
                         onChanged: (q) => doFilter(setState, q),
                         decoration: InputDecoration(
-                          hintText: 'Cari…',
+                          hintText: 'Search…',
                           isDense: true,
                           filled: true,
                           fillColor: const Color(0xFFF3F4F6),
@@ -1304,7 +1705,7 @@ Future<String?> _showOptionPicker({
 }
 
 // =====================
-// UI Components (SKU tiles & sheet qty)
+// UI Components (SKU tiles & qty sheet)
 // =====================
 class _SelectFieldTile extends StatelessWidget {
   const _SelectFieldTile({
@@ -1352,20 +1753,18 @@ class _SelectFieldTile extends StatelessWidget {
   }
 }
 
-/// Card SKU:
+/// SKU card
 class _SkuTile extends StatelessWidget {
   const _SkuTile({
     required this.productName,
     required this.productImage,
     required this.skuCode,
-    required this.stockQty,
     required this.onTap,
   });
 
   final String productName;
   final String productImage;
   final String skuCode;
-  final int stockQty;
   final VoidCallback onTap;
 
   @override
@@ -1433,7 +1832,6 @@ class _SkuTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-            const SizedBox(width: 10),
             Container(
               width: 34,
               height: 34,
@@ -1480,7 +1878,7 @@ class _StockBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'Stok',
+            'Stock',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w900,
@@ -1578,12 +1976,12 @@ class _ErrorRetry extends StatelessWidget {
       children: [
         const Icon(Icons.error_outline, color: Colors.redAccent),
         const SizedBox(height: 8),
-        const Text('Gagal memuat data'),
+        const Text('Failed to load data'),
         const SizedBox(height: 8),
         TextButton.icon(
           onPressed: onRetry,
           icon: const Icon(Icons.refresh),
-          label: const Text('Coba lagi'),
+          label: const Text('Try again'),
         ),
       ],
     ),
@@ -1673,9 +2071,10 @@ Widget _buildShimmerColumn() {
   );
 }
 
-/// Bottom sheet qty (tetap input qty saja)
 class _StockOpnameQtySheet extends StatefulWidget {
   const _StockOpnameQtySheet({
+    required this.hostContext,
+    required this.onOpenHistory,
     required this.storeId,
     required this.productId,
     required this.productSkuId,
@@ -1684,6 +2083,12 @@ class _StockOpnameQtySheet extends StatefulWidget {
     required this.skuCode,
     required this.currentStock,
   });
+
+  /// ✅ Use this context for snackbar + navigation (parent screen context)
+  final BuildContext hostContext;
+
+  /// ✅ Navigation callback from parent
+  final VoidCallback onOpenHistory;
 
   final String storeId;
   final String productId;
@@ -1737,18 +2142,29 @@ class _StockOpnameQtySheetState extends State<_StockOpnameQtySheet> {
 
     if (res != null) {
       Navigator.pop(context, true);
+
+      // ✅ Use the host context (parent screen), not the bottom sheet context
+      if (!widget.hostContext.mounted) return;
+
       AppSnackbar.show(
-        context,
+        widget.hostContext,
         type: AppSnackType.success,
-        title: 'Berhasil',
-        message: 'Stock opname berhasil dibuat.',
+        title: 'Success',
+        message:
+            'Open stock opname history list to adjust stock opname into the system.',
+        actionLabel: 'Open',
+        onAction: () {
+          if (!widget.hostContext.mounted) return;
+          widget.onOpenHistory();
+        },
+        duration: const Duration(seconds: 6),
       );
     } else {
       AppSnackbar.show(
         context,
         type: AppSnackType.error,
-        title: 'Gagal',
-        message: 'Gagal membuat stock opname. ${sp.lastError ?? ''}',
+        title: 'Failed',
+        message: 'Failed to create stock opname. ${sp.lastError ?? ''}',
       );
     }
   }
@@ -1756,7 +2172,6 @@ class _StockOpnameQtySheetState extends State<_StockOpnameQtySheet> {
   @override
   Widget build(BuildContext context) {
     final padBottom = MediaQuery.of(context).viewInsets.bottom;
-    final isOut = widget.currentStock <= 0;
 
     return Padding(
       padding: EdgeInsets.only(bottom: padBottom),
@@ -1835,34 +2250,6 @@ class _StockOpnameQtySheetState extends State<_StockOpnameQtySheet> {
                                       fontSize: 12,
                                     ),
                                   ),
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isOut
-                                          ? const Color(0xFFFFF1F2)
-                                          : const Color(0xFFEFF6FF),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(
-                                        color: isOut
-                                            ? const Color(0xFFFECACA)
-                                            : const Color(0xFFDBEAFE),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      'Stok saat ini: ${widget.currentStock}',
-                                      style: TextStyle(
-                                        color: isOut
-                                            ? const Color(0xFFDC2626)
-                                            : const Color(0xFF1F3D99),
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
                                 ],
                               ),
                             ),
@@ -1900,7 +2287,7 @@ class _StockOpnameQtySheetState extends State<_StockOpnameQtySheet> {
                                 isDense: true,
                                 filled: true,
                                 fillColor: const Color(0xFFF3F4F6),
-                                hintText: 'Input qty stock opname',
+                                hintText: 'Enter stock opname qty',
                                 contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 14,
                                   vertical: 14,
@@ -1967,7 +2354,7 @@ class _StockOpnameQtySheetState extends State<_StockOpnameQtySheet> {
                             ),
                           )
                         : const Text(
-                            'Buat Stock Opname',
+                            'Create Stock Opname',
                             style: TextStyle(fontWeight: FontWeight.w900),
                           ),
                   ),

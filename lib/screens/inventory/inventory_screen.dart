@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:intl/intl.dart';
 
-import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -13,10 +12,8 @@ import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/inventory/product_stock_history.dart';
-import 'package:wa_blast/screens/products/create_edit_sheet/add_product_sheet.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
-import 'package:wa_blast/widgets/empty_state.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 import 'package:wa_blast/widgets/variant_section_dynamic.dart';
 
