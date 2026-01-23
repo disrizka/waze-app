@@ -1,5 +1,5 @@
-import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
 import '../constants/design_system.dart';
 
@@ -9,7 +9,10 @@ class StepperHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final prov = context.read<SalesProvider>();
+    // Masih boleh keep ini kalau kamu butuh provider untuk hal lain,
+    // tapi sekarang kita tidak memanggil prov.goTo dari tap.
+    context.read<SalesProvider>();
+
     const labels = ['Create Order', 'Detail Order', 'Payment'];
 
     return Container(
@@ -25,7 +28,13 @@ class StepperHeader extends StatelessWidget {
 
           return Expanded(
             child: InkWell(
-              onTap: () => prov.goTo(i),
+              // Disable tap: user tidak bisa klik step header
+              onTap: null,
+              // Opsional: hapus semua efek visual saat tap/hover/focus
+              splashColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              hoverColor: Colors.transparent,
+              focusColor: Colors.transparent,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Column(

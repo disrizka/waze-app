@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CLIENT_ID</key>
+	<string>1094236657957-5s63dhut8d49aomv91gefd9srg5pl23k.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.1094236657957-5s63dhut8d49aomv91gefd9srg5pl23k</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>1094236657957-i6d3ihcv3mcmqktr2resn8ts38mn41qf.apps.googleusercontent.com</string>
 	<key>API_KEY</key>
 	<string>AIzaSyAQfUNHo63MfzjThBj6f53FQESJBaetI54</string>
 	<key>GCM_SENDER_ID</key>
@@ -9,7 +15,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.wave.biz</string>
+	<string>com.wave.updev</string>
 	<key>PROJECT_ID</key>
 	<string>wave-biz</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +31,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:1094236657957:ios:caab8a3bb7fdde7571e2cc</string>
+	<string>1:1094236657957:ios:2590cb769d44877171e2cc</string>
 </dict>
 </plist>

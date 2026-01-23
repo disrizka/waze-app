@@ -57,6 +57,12 @@ class _SubscriptionCheckoutScreenState
   String? _voucherName;
   String? _voucherDesc;
 
+  // ---------------------------------------------------------------------------
+  // PAYMENT BACK-GUARD (cancel modal when pending/loading)
+  // ---------------------------------------------------------------------------
+  Timer? _paymentGuardTimer;
+  bool _paymentGuardActive = false;
+
   @override
   void initState() {
     super.initState();
@@ -77,12 +83,249 @@ class _SubscriptionCheckoutScreenState
 
   @override
   void dispose() {
+    _paymentGuardTimer?.cancel();
     _voucherC.dispose();
     super.dispose();
   }
 
   String _money(int v) => 'Rp. ${_idrFormatter.format(v)}';
 
+  // ---------------------------------------------------------------------------
+  // GUARD HELPERS
+  // ---------------------------------------------------------------------------
+  void _startPaymentGuard() {
+    _paymentGuardActive = true;
+
+    _paymentGuardTimer?.cancel();
+    // Minimal: ada timer yang bisa dibatalkan ketika user back.
+    _paymentGuardTimer = Timer.periodic(const Duration(seconds: 1), (_) {});
+  }
+
+  void _stopPaymentGuard() {
+    _paymentGuardActive = false;
+    _paymentGuardTimer?.cancel();
+    _paymentGuardTimer = null;
+  }
+
+  bool _isPaymentPendingFromProvider(SubscriptionProvider subscription) {
+    // Opsional: kalau provider punya field status pembayaran.
+    // Dibuat "dynamic-safe" agar tidak bikin error compile bila field belum ada.
+    try {
+      final dynamic sub = subscription;
+      final raw =
+          (sub.paymentStatus ??
+                  sub.lastPaymentStatus ??
+                  sub.currentPaymentStatus ??
+                  sub.statusPayment ??
+                  '')
+              .toString()
+              .trim()
+              .toLowerCase();
+
+      if (raw.isEmpty) return false;
+      return raw.contains('pending') ||
+          raw.contains('unpaid') ||
+          raw.contains('waiting') ||
+          raw.contains('process');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _shouldShowCancelPaymentModal(SubscriptionProvider subscription) {
+    if (_currentStep != 1) return false;
+
+    final bool loadingGoToPayment =
+        subscription.isProcessing || subscription.iosPurchasing;
+
+    final bool timerRunning = _paymentGuardTimer?.isActive == true;
+    final bool pendingStatus = _isPaymentPendingFromProvider(subscription);
+
+    return loadingGoToPayment ||
+        timerRunning ||
+        pendingStatus ||
+        _paymentGuardActive;
+  }
+
+  Future<bool> _showCancelPaymentModal() async {
+    if (!mounted) return false;
+
+    const blue = SubscriptionCheckoutScreen._primaryBlue;
+
+    final res = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.35),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 24,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      icon: const Icon(Icons.close_rounded),
+                      splashRadius: 20,
+                      tooltip: 'Close',
+                    ),
+                  ],
+                ),
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [blue.withOpacity(0.18), blue.withOpacity(0.08)],
+                    ),
+                    border: Border.all(color: blue.withOpacity(0.18)),
+                  ),
+                  child: const Icon(
+                    Icons.payments_rounded,
+                    color: blue,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Cancel payment?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Your payment is still pending. If you go back now, we will cancel the current payment process and return you to the Subscription page.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.45,
+                    color: Color(0xFF6B7280),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF111827),
+                          backgroundColor: const Color(0xFFF3F4F6),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        child: const Text(
+                          'Keep waiting',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: blue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        child: const Text(
+                          'Cancel payment',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    return res == true;
+  }
+
+  Future<void> _cancelPaymentAndGoSubscription(
+    SubscriptionProvider subscription,
+  ) async {
+    _stopPaymentGuard();
+
+    // Optional: kalau provider punya timer/poller, coba cancel juga (aman walau method tidak ada)
+    final dynamic sub = subscription;
+    try {
+      await sub.cancelPaymentTimer();
+    } catch (_) {}
+    try {
+      await sub.cancelPendingPayment(context: context);
+    } catch (_) {}
+    try {
+      sub.resetPaymentState();
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    subscription.cancelPaymentTimer();
+    await subscription.cancelPendingPayment(context: context);
+    subscription.resetPaymentState();
+
+    // balik ke /subscription dari awal (clear stack)
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil('/subscription', (route) => false);
+  }
+
+  Future<void> _handleBackPressed(SubscriptionProvider subscription) async {
+    // Step 0: normal pop
+    if (_currentStep == 0) {
+      _stopPaymentGuard();
+      Navigator.of(context).pop();
+      return;
+    }
+
+    // Step 1: kalau pending/loading/timer aktif -> modal cancel + redirect
+    if (_shouldShowCancelPaymentModal(subscription)) {
+      final ok = await _showCancelPaymentModal();
+      if (ok) {
+        await _cancelPaymentAndGoSubscription(subscription);
+      }
+      return;
+    }
+
+    // Step 1 tapi tidak pending -> balik ke step 0 saja
+    _stopPaymentGuard();
+    if (mounted) setState(() => _currentStep = 0);
+  }
+
+  // ---------------------------------------------------------------------------
+  // LOGGING
+  // ---------------------------------------------------------------------------
   Future<void> logBundleId() async {
     final info = await PackageInfo.fromPlatform();
     debugPrint('✅ bundleId/packageName = ${info.packageName}');
@@ -1123,473 +1366,476 @@ class _SubscriptionCheckoutScreenState
   // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Consumer<SubscriptionProvider>(
-          builder: (context, subscription, _) {
-            // ✅ show ios message sekali (snackbar) kalau provider set message
-            final iosMsg = (subscription.iosLastMessage ?? '').trim();
-            if (iosMsg.isNotEmpty) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context)
-                  ..hideCurrentSnackBar()
-                  ..showSnackBar(SnackBar(content: Text(iosMsg)));
-                subscription.clearIosLastMessage();
-              });
-            }
+    return Consumer<SubscriptionProvider>(
+      builder: (context, subscription, _) {
+        // ✅ show ios message sekali (snackbar) kalau provider set message
+        final iosMsg = (subscription.iosLastMessage ?? '').trim();
+        if (iosMsg.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(SnackBar(content: Text(iosMsg)));
+            subscription.clearIosLastMessage();
+          });
+        }
 
-            final List<PremiumPlan> plans = subscription.plans
-                .where((p) => p.isActive)
-                .toList();
+        final List<PremiumPlan> plans = subscription.plans
+            .where((p) => p.isActive)
+            .toList();
 
-            final bool isLoadingPlans = subscription.isLoadingPlans;
+        final bool isLoadingPlans = subscription.isLoadingPlans;
 
-            final isIOS = subscription.isIOS;
+        final isIOS = subscription.isIOS;
 
-            String bottomInfoText;
-            if (_currentStep == 0) {
-              if (_selectedPlan == null) {
-                bottomInfoText = 'Choose a plan first to continue.';
-              } else if (_selectedPricing == null) {
-                bottomInfoText = 'Choose your billing period to continue.';
-              } else {
-                bottomInfoText =
-                    'Tap Continue to enter voucher and choose your payment method.';
-              }
-            } else {
-              if (_selectedPlan == null || _selectedPricing == null) {
-                bottomInfoText =
-                    'Please go back and choose a plan and billing period first.';
-              } else if (isIOS) {
-                bottomInfoText =
-                    'You will be charged via App Store every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
-              } else if (_selectedPaymentMethod == 2) {
-                bottomInfoText =
-                    'You will be charged every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
-              } else {
-                bottomInfoText =
-                    'You will be charged once for this ${_periodLabelForMonths(_selectedPricing!.period)} plan.';
-              }
-            }
+        String bottomInfoText;
+        if (_currentStep == 0) {
+          if (_selectedPlan == null) {
+            bottomInfoText = 'Choose a plan first to continue.';
+          } else if (_selectedPricing == null) {
+            bottomInfoText = 'Choose your billing period to continue.';
+          } else {
+            bottomInfoText =
+                'Tap Continue to enter voucher and choose your payment method.';
+          }
+        } else {
+          if (_selectedPlan == null || _selectedPricing == null) {
+            bottomInfoText =
+                'Please go back and choose a plan and billing period first.';
+          } else if (isIOS) {
+            bottomInfoText =
+                'You will be charged via App Store every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
+          } else if (_selectedPaymentMethod == 2) {
+            bottomInfoText =
+                'You will be charged every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
+          } else {
+            bottomInfoText =
+                'You will be charged once for this ${_periodLabelForMonths(_selectedPricing!.period)} plan.';
+          }
+        }
 
-            final bool canProceed =
-                !subscription.isProcessing &&
-                !subscription.iosPurchasing &&
-                _selectedPlan != null &&
-                _selectedPricing != null &&
-                (_currentStep == 0 || !isIOS || subscription.iosIapInitDone) &&
-                (_currentStep == 0 ||
-                    !isIOS ||
-                    !subscription.iosIapInitLoading);
+        final bool canProceed =
+            !subscription.isProcessing &&
+            !subscription.iosPurchasing &&
+            _selectedPlan != null &&
+            _selectedPricing != null &&
+            (_currentStep == 0 || !isIOS || subscription.iosIapInitDone) &&
+            (_currentStep == 0 || !isIOS || !subscription.iosIapInitLoading);
 
-            String _buildPlanPriceLabel(PremiumPlan plan) {
-              if (plan.pricing.isEmpty) return 'No pricing available yet';
-              final minPrice = plan.pricing
-                  .map((p) => p.price)
-                  .reduce((a, b) => a < b ? a : b);
-              return 'Starts from ${_money(minPrice)}';
-            }
+        String _buildPlanPriceLabel(PremiumPlan plan) {
+          if (plan.pricing.isEmpty) return 'No pricing available yet';
+          final minPrice = plan.pricing
+              .map((p) => p.price)
+              .reduce((a, b) => a < b ? a : b);
+          return 'Starts from ${_money(minPrice)}';
+        }
 
-            final String primaryButtonLabel = _currentStep == 0
-                ? 'Continue'
-                : 'Go to payment';
+        final String primaryButtonLabel = _currentStep == 0
+            ? 'Continue'
+            : 'Go to payment';
 
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(
-                          Icons.arrow_back_ios_new_rounded,
-                          size: 18,
-                        ),
-                        onPressed: () {
-                          if (_currentStep == 0) {
-                            Navigator.of(context).pop();
-                          } else {
-                            setState(() => _currentStep = 0);
-                          }
-                        },
-                      ),
-                      const SizedBox(width: 2),
-                      _isLoadingHeader
-                          ? const CircleAvatar(
-                              radius: 18,
-                              backgroundColor: Color(0xFFE5EDFF),
-                              child: SizedBox(
-                                height: 16,
-                                width: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            )
-                          : CircleAvatar(
-                              radius: 18,
-                              backgroundColor: const Color(0xFFE5EDFF),
-                              backgroundImage: _businessLogoPath.isNotEmpty
-                                  ? NetworkImage(_businessLogoPath)
-                                  : null,
-                              child: _businessLogoPath.isEmpty
-                                  ? Text(
-                                      _buildInitials(_businessName),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: SubscriptionCheckoutScreen
-                                            ._primaryBlue,
-                                      ),
-                                    )
-                                  : null,
-                            ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _businessName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            if (_businessUsername != '—' &&
-                                _businessUsername.isNotEmpty)
-                              Text(
-                                '@$_businessUsername',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.black45,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                  child: _HorizontalLineStepper(currentStep: _currentStep),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
+        return PopScope(
+          canPop: _currentStep == 0, // step 1 jangan auto-pop
+          onPopInvoked: (didPop) {
+            if (didPop) return;
+            _handleBackPressed(subscription);
+          },
+          child: Scaffold(
+            backgroundColor: Colors.white,
+            body: SafeArea(
+              child: Column(
+                children: [
+                  Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 8,
+                      horizontal: 8,
+                      vertical: 4,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        if (_currentStep == 0) ...[
-                          const Text(
-                            'Choose a plan',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                            ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.arrow_back_ios_new_rounded,
+                            size: 18,
                           ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'First, select a premium plan. Then choose how long you want to subscribe.',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.black54,
-                            ),
+                          onPressed: () => _handleBackPressed(subscription),
+                        ),
+                        const SizedBox(width: 2),
+                        _isLoadingHeader
+                            ? const CircleAvatar(
+                                radius: 18,
+                                backgroundColor: Color(0xFFE5EDFF),
+                                child: SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              )
+                            : CircleAvatar(
+                                radius: 18,
+                                backgroundColor: const Color(0xFFE5EDFF),
+                                backgroundImage: _businessLogoPath.isNotEmpty
+                                    ? NetworkImage(_businessLogoPath)
+                                    : null,
+                                child: _businessLogoPath.isEmpty
+                                    ? Text(
+                                        _buildInitials(_businessName),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: SubscriptionCheckoutScreen
+                                              ._primaryBlue,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _businessName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              if (_businessUsername != '—' &&
+                                  _businessUsername.isNotEmpty)
+                                Text(
+                                  '@$_businessUsername',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.black45,
+                                  ),
+                                ),
+                            ],
                           ),
-                          const SizedBox(height: 20),
-                          if (isLoadingPlans && plans.isEmpty) ...[
+                        ),
+                        const SizedBox(width: 12),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                    child: _HorizontalLineStepper(currentStep: _currentStep),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 8,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_currentStep == 0) ...[
                             const Text(
-                              'Loading plans...',
+                              'Choose a plan',
                               style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.black45,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                          ] else if (plans.isEmpty) ...[
+                            const SizedBox(height: 4),
                             const Text(
-                              'No active premium plans available at the moment.',
+                              'First, select a premium plan. Then choose how long you want to subscribe.',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 13,
                                 color: Colors.black54,
                               ),
                             ),
-                          ] else ...[
-                            for (final plan in plans) ...[
-                              const SizedBox(height: 8),
-                              _PlanCard(
-                                title: plan.name,
-                                priceLabel: _buildPlanPriceLabel(plan),
-                                isSelected:
-                                    _selectedPlan?.idPlan == plan.idPlan,
-                                onTap: () {
-                                  setState(() {
-                                    _selectedPlan = plan;
-                                    _selectedPricing = null;
-                                    _clearVoucherState();
-                                  });
-                                },
-                                highlightColor:
-                                    SubscriptionCheckoutScreen._primaryBlue,
-                              ),
-                            ],
                             const SizedBox(height: 20),
-                            AnimatedSize(
-                              duration: const Duration(milliseconds: 220),
-                              curve: Curves.easeInOut,
-                              child: _selectedPlan == null
-                                  ? const SizedBox.shrink()
-                                  : Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Choose billing period',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w700,
+                            if (isLoadingPlans && plans.isEmpty) ...[
+                              const Text(
+                                'Loading plans...',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black45,
+                                ),
+                              ),
+                            ] else if (plans.isEmpty) ...[
+                              const Text(
+                                'No active premium plans available at the moment.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ] else ...[
+                              for (final plan in plans) ...[
+                                const SizedBox(height: 8),
+                                _PlanCard(
+                                  title: plan.name,
+                                  priceLabel: _buildPlanPriceLabel(plan),
+                                  isSelected:
+                                      _selectedPlan?.idPlan == plan.idPlan,
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedPlan = plan;
+                                      _selectedPricing = null;
+                                      _clearVoucherState();
+                                    });
+                                  },
+                                  highlightColor:
+                                      SubscriptionCheckoutScreen._primaryBlue,
+                                ),
+                              ],
+                              const SizedBox(height: 20),
+                              AnimatedSize(
+                                duration: const Duration(milliseconds: 220),
+                                curve: Curves.easeInOut,
+                                child: _selectedPlan == null
+                                    ? const SizedBox.shrink()
+                                    : Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Choose billing period',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                           ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        if (_selectedPlan!.pricing.isEmpty)
-                                          Container(
-                                            width: double.infinity,
-                                            padding: const EdgeInsets.all(14),
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                              color: const Color(0xFFF8FAFF),
-                                              border: Border.all(
-                                                color: Color(0xFFE0E7FF),
+                                          const SizedBox(height: 8),
+                                          if (_selectedPlan!.pricing.isEmpty)
+                                            Container(
+                                              width: double.infinity,
+                                              padding: const EdgeInsets.all(14),
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                                color: const Color(0xFFF8FAFF),
+                                                border: Border.all(
+                                                  color: Color(0xFFE0E7FF),
+                                                ),
                                               ),
-                                            ),
-                                            child: const Text(
-                                              'No pricing options are configured for this plan yet.',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.black87,
+                                              child: const Text(
+                                                'No pricing options are configured for this plan yet.',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.black87,
+                                                ),
                                               ),
-                                            ),
-                                          )
-                                        else
-                                          for (final pricing
-                                              in _selectedPlan!.pricing) ...[
-                                            const SizedBox(height: 8),
-                                            _PlanCard(
-                                              title: _periodLabelForMonths(
-                                                pricing.period,
-                                              ),
-                                              priceLabel:
-                                                  '${_money(pricing.price)} for ${_periodLabelForMonths(pricing.period)}',
-                                              isSelected:
-                                                  _selectedPricing?.id ==
-                                                  pricing.id,
-                                              onTap: () {
-                                                setState(() {
-                                                  _selectedPricing = pricing;
-                                                  _clearVoucherState();
-                                                });
+                                            )
+                                          else
+                                            for (final pricing
+                                                in _selectedPlan!.pricing) ...[
+                                              const SizedBox(height: 8),
+                                              _PlanCard(
+                                                title: _periodLabelForMonths(
+                                                  pricing.period,
+                                                ),
+                                                priceLabel:
+                                                    '${_money(pricing.price)} for ${_periodLabelForMonths(pricing.period)}',
+                                                isSelected:
+                                                    _selectedPricing?.id ==
+                                                    pricing.id,
+                                                onTap: () {
+                                                  setState(() {
+                                                    _selectedPricing = pricing;
+                                                    _clearVoucherState();
+                                                  });
 
-                                                // ✅ jika iOS dan belum init, init dari provider
-                                                if (isIOS &&
-                                                    !subscription
-                                                        .iosIapInitDone &&
-                                                    !subscription
-                                                        .iosIapInitLoading) {
-                                                  unawaited(
-                                                    subscription.initIosIap(),
-                                                  );
-                                                }
-                                              },
-                                              highlightColor:
-                                                  SubscriptionCheckoutScreen
-                                                      ._primaryBlue,
-                                            ),
-                                          ],
-                                      ],
-                                    ),
+                                                  // ✅ jika iOS dan belum init, init dari provider
+                                                  if (isIOS &&
+                                                      !subscription
+                                                          .iosIapInitDone &&
+                                                      !subscription
+                                                          .iosIapInitLoading) {
+                                                    unawaited(
+                                                      subscription.initIosIap(),
+                                                    );
+                                                  }
+                                                },
+                                                highlightColor:
+                                                    SubscriptionCheckoutScreen
+                                                        ._primaryBlue,
+                                              ),
+                                            ],
+                                        ],
+                                      ),
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+                            const Text(
+                              'What you’ll get',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
+                            const SizedBox(height: 10),
+                            const _FeatureList(),
+                            const SizedBox(height: 16),
+                          ] else ...[
+                            const Text(
+                              'Payment',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Review your plan, apply a voucher, and choose how you want to pay.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            _PlanSummaryTile(
+                              selectedPlan: _selectedPlan,
+                              selectedPricing: _selectedPricing,
+                              formatter: _idrFormatter,
+                              voucherDiscount: _voucherDiscountValue,
+                              voucherFinalPrice: _voucherFinalPrice,
+                              voucherCode: _appliedVoucherCode,
+                            ),
+                            const SizedBox(height: 16),
+                            _buildVoucherSection(subscription),
+                            _buildPaymentMethodsSection(subscription),
                             const SizedBox(height: 24),
                           ],
-                          const Text(
-                            'What you’ll get',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          const _FeatureList(),
-                          const SizedBox(height: 16),
-                        ] else ...[
-                          const Text(
-                            'Payment',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Review your plan, apply a voucher, and choose how you want to pay.',
-                            style: TextStyle(
-                              fontSize: 13,
+                        ],
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(20),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          offset: const Offset(0, -3),
+                          blurRadius: 16,
+                          color: Colors.black.withOpacity(0.07),
+                        ),
+                      ],
+                    ),
+                    child: SafeArea(
+                      top: false,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            bottomInfoText,
+                            style: const TextStyle(
+                              fontSize: 11,
                               color: Colors.black54,
                             ),
                           ),
-                          const SizedBox(height: 20),
-                          _PlanSummaryTile(
-                            selectedPlan: _selectedPlan,
-                            selectedPricing: _selectedPricing,
-                            formatter: _idrFormatter,
-                            voucherDiscount: _voucherDiscountValue,
-                            voucherFinalPrice: _voucherFinalPrice,
-                            voucherCode: _appliedVoucherCode,
-                          ),
-                          const SizedBox(height: 16),
-                          _buildVoucherSection(subscription),
-                          _buildPaymentMethodsSection(subscription),
-                          const SizedBox(height: 24),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(20),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        offset: const Offset(0, -3),
-                        blurRadius: 16,
-                        color: Colors.black.withOpacity(0.07),
-                      ),
-                    ],
-                  ),
-                  child: SafeArea(
-                    top: false,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          bottomInfoText,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.black54,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        if (_currentStep == 1 && _selectedPricing != null) ...[
-                          _buildBottomPriceSummary(),
                           const SizedBox(height: 8),
-                        ],
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              minimumSize: const Size.fromHeight(56),
-                              backgroundColor: AppColors.blueButton,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(28),
+                          if (_currentStep == 1 &&
+                              _selectedPricing != null) ...[
+                            _buildBottomPriceSummary(),
+                            const SizedBox(height: 8),
+                          ],
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(56),
+                                backgroundColor: AppColors.blueButton,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(28),
+                                ),
                               ),
-                            ),
-                            onPressed: !canProceed
-                                ? null
-                                : () async {
-                                    if (_currentStep == 0) {
-                                      setState(() => _currentStep = 1);
-                                      return;
-                                    }
+                              onPressed: !canProceed
+                                  ? null
+                                  : () async {
+                                      if (_currentStep == 0) {
+                                        setState(() => _currentStep = 1);
+                                        return;
+                                      }
 
-                                    if (_selectedPlan == null ||
-                                        _selectedPricing == null) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'Please choose a plan and billing period.',
+                                      if (_selectedPlan == null ||
+                                          _selectedPricing == null) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Please choose a plan and billing period.',
+                                            ),
                                           ),
-                                        ),
+                                        );
+                                        return;
+                                      }
+
+                                      if (isIOS) {
+                                        await subscription
+                                            .startIosSubscriptionPurchase(
+                                              pricing: _selectedPricing!,
+                                            );
+                                        return;
+                                      }
+
+                                      final planId = _selectedPlan!.idPlan;
+                                      final pricingId = _selectedPricing!.id;
+                                      final voucherCode = _voucherApplied
+                                          ? _appliedVoucherCode!
+                                          : '';
+
+                                      // ✅ mulai guard timer (kalau user back saat pending/loading)
+                                      _startPaymentGuard();
+
+                                      subscription.goToPayment(
+                                        context: context,
+                                        planId: planId,
+                                        pricingId: pricingId,
+                                        paymentMethod: _selectedPaymentMethod,
+                                        voucherCode: voucherCode,
                                       );
-                                      return;
-                                    }
-
-                                    if (isIOS) {
-                                      await subscription
-                                          .startIosSubscriptionPurchase(
-                                            pricing: _selectedPricing!,
-                                          );
-                                      return;
-                                    }
-
-                                    final planId = _selectedPlan!.idPlan;
-                                    final pricingId = _selectedPricing!.id;
-                                    final voucherCode = _voucherApplied
-                                        ? _appliedVoucherCode!
-                                        : '';
-
-                                    subscription.goToPayment(
-                                      context: context,
-                                      planId: planId,
-                                      pricingId: pricingId,
-                                      paymentMethod: _selectedPaymentMethod,
-                                      voucherCode: voucherCode,
-                                    );
-                                  },
-                            child:
-                                (subscription.isProcessing ||
-                                    subscription.iosPurchasing ||
-                                    (isIOS &&
-                                        _currentStep == 1 &&
-                                        subscription.iosIapInitLoading))
-                                ? const SizedBox(
-                                    height: 22,
-                                    width: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation(
-                                        Colors.white,
+                                    },
+                              child:
+                                  (subscription.isProcessing ||
+                                      subscription.iosPurchasing ||
+                                      (isIOS &&
+                                          _currentStep == 1 &&
+                                          subscription.iosIapInitLoading))
+                                  ? const SizedBox(
+                                      height: 22,
+                                      width: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation(
+                                          Colors.white,
+                                        ),
+                                      ),
+                                    )
+                                  : Text(
+                                      primaryButtonLabel,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                  )
-                                : Text(
-                                    primaryButtonLabel,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
