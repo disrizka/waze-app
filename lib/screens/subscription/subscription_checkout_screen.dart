@@ -277,28 +277,15 @@ class _SubscriptionCheckoutScreenState
   ) async {
     _stopPaymentGuard();
 
-    // Optional: kalau provider punya timer/poller, coba cancel juga (aman walau method tidak ada)
-    final dynamic sub = subscription;
-    try {
-      await sub.cancelPaymentTimer();
-    } catch (_) {}
-    try {
-      await sub.cancelPendingPayment(context: context);
-    } catch (_) {}
-    try {
-      sub.resetPaymentState();
-    } catch (_) {}
-
-    if (!mounted) return;
-
     subscription.cancelPaymentTimer();
     await subscription.cancelPendingPayment(context: context);
     subscription.resetPaymentState();
 
-    // balik ke /subscription dari awal (clear stack)
+    if (!mounted) return;
+
     Navigator.of(
       context,
-    ).pushNamedAndRemoveUntil('/subscription', (route) => false);
+    ).pushNamedAndRemoveUntil('/subscription', ModalRoute.withName('/home'));
   }
 
   Future<void> _handleBackPressed(SubscriptionProvider subscription) async {

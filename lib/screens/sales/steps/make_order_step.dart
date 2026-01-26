@@ -259,7 +259,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
                     onTap: _pickStore,
                   ),
                 ),
-
                 const SizedBox(height: 12),
                 _Section(
                   titleWidget: Row(
@@ -304,7 +303,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 12),
                 _Section(
                   titleWidget: Row(
@@ -337,7 +335,6 @@ class _MakeOrderStepState extends State<MakeOrderStep> {
               ],
             ),
           ),
-
           SafeArea(
             minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: SizedBox(
@@ -1607,7 +1604,7 @@ class AddProductSheetState extends State<AddProductSheet> {
                     ),
             ),
 
-            // FOOTER
+            // FOOTER (still available, but sheet will now auto-close when user taps Add to cart)
             SafeArea(
               top: false,
               minimum: const EdgeInsets.only(top: 8),
@@ -2398,8 +2395,6 @@ class _SalesVariantAttributeSheetState
                         ],
                         if (matched != null) ...[
                           const SizedBox(height: 6),
-                          // ✅ tampilkan UUID (stabil) di sheet juga biar konsisten sama list
-                          // (opsional) tetap tampilkan code lama sebagai info tambahan
                           Text(
                             'SKU Code: ${matched.code}',
                             style: const TextStyle(
@@ -2596,10 +2591,8 @@ class _SalesVariantAttributeSheetState
 
                                 final posSku = PosSku(
                                   skuId: matched!.idProductSku,
-                                  skuUuid: matched
-                                      .uuid, // ✅ ini yang dipakai untuk dedupe
-                                  skuCode: matched
-                                      .code, // ✅ tetap ditampilkan di list
+                                  skuUuid: matched.uuid,
+                                  skuCode: matched.code,
                                   price: unitPrice,
                                   productId: _p.idProduct,
                                   productName: _p.name,
@@ -2610,7 +2603,18 @@ class _SalesVariantAttributeSheetState
                                 prov.addQuantity(posSku, toAdd);
                                 prov.normalizeCart();
 
-                                Navigator.pop<bool>(context, true);
+                                // ✅ AUTO CLOSE FLOW:
+                                // 1) close variant sheet
+                                // 2) immediately close parent AddProductSheet too
+                                final nav = Navigator.of(context);
+                                nav.pop<bool>(true); // close this variant sheet
+                                Future.microtask(() {
+                                  if (nav.canPop()) {
+                                    nav.pop<bool>(
+                                      true,
+                                    ); // close AddProductSheet
+                                  }
+                                });
                               },
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.primary,

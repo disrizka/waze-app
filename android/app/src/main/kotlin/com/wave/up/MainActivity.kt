@@ -1,13 +1,12 @@
 package com.wave.up
 
 import android.bluetooth.BluetoothAdapter
-import android.os.Build
 import androidx.annotation.NonNull
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
 
     private val CHANNEL = "bt/paired"
 
@@ -21,13 +20,10 @@ class MainActivity : FlutterActivity() {
                         try {
                             val adapter = BluetoothAdapter.getDefaultAdapter()
                             if (adapter == null) {
-                                // Device tidak punya Bluetooth
                                 result.success(emptyList<Map<String, String>>())
                                 return@setMethodCallHandler
                             }
 
-                            // NOTE: Android 12+ (API 31+) butuh permission BLUETOOTH_CONNECT
-                            // Pastikan sudah di-request lewat permission_handler di Dart
                             val bonded = adapter.bondedDevices
                             val list = bonded.map {
                                 mapOf(
@@ -38,7 +34,6 @@ class MainActivity : FlutterActivity() {
 
                             result.success(list)
                         } catch (e: SecurityException) {
-                            // Kalau belum dapat izin CONNECT
                             result.error(
                                 "BT_SECURITY",
                                 "Missing BLUETOOTH_CONNECT permission",
