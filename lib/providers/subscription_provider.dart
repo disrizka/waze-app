@@ -2069,26 +2069,79 @@ class SubscriptionProvider with ChangeNotifier {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // MIDTRANS
-  // ---------------------------------------------------------------------------
+  MidtransConfig? _midtransConfigSnapshot;
+
   Future<void> _initMidtransIfNeeded(BuildContext context) async {
-    final midtransClientKey = "SB-Mid-client-OlAvtRicKKPMklc4";
+    const midtransClientKey = "SB-Mid-client-OlAvtRicKKPMklc4";
+    // const midtransClientKey = "Mid-client-ej_BQW5VVp_G2hAy";
 
-    if (_midtrans != null) return;
+    const merchantBaseUrl = "https://wave-api.eon.id";
+    final cs = Theme.of(context).colorScheme;
 
-    _midtrans = await MidtransSDK.init(
-      config: MidtransConfig(
-        merchantBaseUrl: "https://wave-api.eon.id",
-        clientKey: midtransClientKey!,
-        colorTheme: ColorTheme(
-          colorPrimary: Theme.of(context).colorScheme.primary,
-          colorPrimaryDark: Theme.of(context).colorScheme.primary,
-          colorSecondary: Theme.of(context).colorScheme.secondary,
-        ),
-        enableLog: true,
+    debugPrint("[Midtrans][init] Clearing previous instance/config...");
+
+    // 1) detach callback lama (pakai no-op, karena tidak bisa null)
+    _clearMidtransCallbacks();
+
+    // 2) clear snapshot + instance dart-side
+    _midtrans = null;
+    _midtransConfigSnapshot = null;
+
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    // 3) init baru
+    final cfg = MidtransConfig(
+      merchantBaseUrl: merchantBaseUrl,
+      clientKey: midtransClientKey,
+      colorTheme: ColorTheme(
+        colorPrimary: cs.primary,
+        colorPrimaryDark: cs.primary,
+        colorSecondary: cs.secondary,
       ),
+      enableLog: true,
     );
+
+    _midtransConfigSnapshot = cfg;
+
+    debugPrint("[Midtrans][init] Initializing...");
+    _midtrans = await MidtransSDK.init(config: cfg);
+
+    debugPrint(
+      "[Midtrans][init] SUCCESS ✅ instanceType=${_midtrans.runtimeType}",
+    );
+    debugMidtransSnapshot();
+  }
+
+  void _clearMidtransCallbacks() {
+    try {
+      _midtrans?.setTransactionFinishedCallback((result) {
+        // no-op: intentionally empty to detach previous handler
+        debugPrint(
+          "[Midtrans] (noop) transaction finished callback fired: $result",
+        );
+      });
+    } catch (e) {
+      debugPrint("[Midtrans] (info) cannot reset callback: $e");
+    }
+  }
+
+  void debugMidtransSnapshot() {
+    final cfg = _midtransConfigSnapshot;
+    if (cfg == null) {
+      debugPrint("[Midtrans][snapshot] config snapshot is null");
+      return;
+    }
+
+    debugPrint("[Midtrans][snapshot] merchantBaseUrl=${cfg.merchantBaseUrl}");
+    debugPrint("[Midtrans][snapshot] clientKey=${(cfg.clientKey)}");
+    debugPrint("[Midtrans][snapshot] enableLog=${cfg.enableLog}");
+  }
+
+  String _maskKey(String key) {
+    if (key.length <= 8) return "****";
+    final head = key.substring(0, 4);
+    final tail = key.substring(key.length - 4);
+    return "$head****$tail";
   }
 
   Future<PaymentResult?> _startSnap(String token, BuildContext context) async {

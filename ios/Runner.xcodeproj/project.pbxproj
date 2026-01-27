@@ -20,6 +20,8 @@
 		A940D7872E98E83D005EDCEF /* Debug-prod.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = A940D7862E98E83D005EDCEF /* Debug-prod.xcconfig */; };
 		A940D7892E98E847005EDCEF /* Release-dev.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = A940D7882E98E847005EDCEF /* Release-dev.xcconfig */; };
 		A940D78B2E98E852005EDCEF /* Release-prod.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = A940D78A2E98E852005EDCEF /* Release-prod.xcconfig */; };
+		A9A0AE7D2F10B03000E8C172 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A9A0AE7C2F10B03000E8C172 /* StoreKit.framework */; };
+		A9A0AE852F10C04300E8C172 /* WaveUp.storekit in Resources */ = {isa = PBXBuildFile; fileRef = A9A0AE842F10C04300E8C172 /* WaveUp.storekit */; };
 		D9FEB28F6D4F2EE1D0A186D8 /* libPods-RunnerTests.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C33ADAD7CE2B6A09B8D5B5C2 /* libPods-RunnerTests.a */; };
 /* End PBXBuildFile section */
 
@@ -74,6 +76,8 @@
 		A940D7862E98E83D005EDCEF /* Debug-prod.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Debug-prod.xcconfig"; sourceTree = "<group>"; };
 		A940D7882E98E847005EDCEF /* Release-dev.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Release-dev.xcconfig"; sourceTree = "<group>"; };
 		A940D78A2E98E852005EDCEF /* Release-prod.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Release-prod.xcconfig"; sourceTree = "<group>"; };
+		A9A0AE7C2F10B03000E8C172 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
+		A9A0AE842F10C04300E8C172 /* WaveUp.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = WaveUp.storekit; sourceTree = "<group>"; };
 		A9E220682E339A6B00E82E9B /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		ABCEC5ED7A3E36449D0D6034 /* Pods-RunnerTests.debug-prod.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug-prod.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug-prod.xcconfig"; sourceTree = "<group>"; };
 		AD33E4E761536DA360550FF4 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
@@ -98,6 +102,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5C01BD0FD867922E4763DCA7 /* Pods_Runner.framework in Frameworks */,
+				A9A0AE7D2F10B03000E8C172 /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,6 +139,7 @@
 		47CD52FCD070ECDF29F5DABE /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				A9A0AE7C2F10B03000E8C172 /* StoreKit.framework */,
 				FE04B0113317229F377B98A5 /* Pods_Runner.framework */,
 				C33ADAD7CE2B6A09B8D5B5C2 /* libPods-RunnerTests.a */,
 			);
@@ -158,6 +164,7 @@
 		97C146E51CF9000F007C117D = {
 			isa = PBXGroup;
 			children = (
+				A9A0AE842F10C04300E8C172 /* WaveUp.storekit */,
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
 				97C146EF1CF9000F007C117D /* Products */,
@@ -290,6 +297,7 @@
 			files = (
 				A940D7892E98E847005EDCEF /* Release-dev.xcconfig in Resources */,
 				97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */,
+				A9A0AE852F10C04300E8C172 /* WaveUp.storekit in Resources */,
 				3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */,
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
@@ -371,7 +379,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
+			shellScript = "/bin/sh \"${FLUTTER_ROOT}/packages/flutter_tools/bin/xcode_backend.sh\" build\n";
 		};
 		DE15CBF9C476235EAC9DDF10 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1116,7 +1124,7 @@
 					"-weak_framework",
 					"\"UserNotifications\"",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.wave.updev;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wave.up;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
