@@ -8,9 +8,31 @@ import 'package:wa_blast/core/provider_helper.dart';
 import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/services/api_service.dart';
 
-/// =========================
-/// MODELS
-/// =========================
+/// ============================================================
+/// HELPERS
+/// ============================================================
+
+int _toInt(dynamic v, {int fallback = 0}) {
+  if (v is num) return v.toInt();
+  return int.tryParse(v?.toString() ?? '') ?? fallback;
+}
+
+Map<String, dynamic> _asMap(dynamic v) {
+  if (v is Map) return v.cast<String, dynamic>();
+  return const <String, dynamic>{};
+}
+
+List<Map<String, dynamic>> _asMapList(dynamic v) {
+  if (v is! List) return const <Map<String, dynamic>>[];
+  return v
+      .whereType<Map>()
+      .map((e) => Map<String, dynamic>.from(e.cast<String, dynamic>()))
+      .toList();
+}
+
+/// ============================================================
+/// MODELS - STORE LOCATION (LITE)
+/// ============================================================
 
 /// Store location versi ringan untuk initial stock.
 @immutable
@@ -28,21 +50,21 @@ class StockStoreLocationLite {
   });
 
   factory StockStoreLocationLite.fromJson(Map<String, dynamic> j) {
-    final cityJ = (j['city'] as Map?)?.cast<String, dynamic>();
-    final provJ = (cityJ?['province'] as Map?)?.cast<String, dynamic>();
+    final cityJ = _asMap(j['city']);
+    final provJ = _asMap(cityJ['province']);
 
     return StockStoreLocationLite(
       idStoreLocation: j['idStoreLocation']?.toString() ?? '',
       name: j['name']?.toString() ?? '',
-      cityName: cityJ?['name']?.toString(),
-      provinceName: provJ?['name']?.toString(),
+      cityName: cityJ['name']?.toString(),
+      provinceName: provJ['name']?.toString(),
     );
   }
 }
 
-/// =========================
+/// ============================================================
 /// MODELS - STOCK OPNAME
-/// =========================
+/// ============================================================
 
 @immutable
 class StockOpnameItem {
@@ -66,19 +88,10 @@ class StockOpnameItem {
   });
 
   factory StockOpnameItem.fromJson(Map<String, dynamic> j) {
-    int _toInt(dynamic v, {int fallback = 0}) {
-      if (v is num) return v.toInt();
-      return int.tryParse(v?.toString() ?? '') ?? fallback;
-    }
-
     return StockOpnameItem(
       idStockOpnameItem: j['idStockOpnameItem']?.toString() ?? '',
-      product: Product.fromJson(
-        (j['product'] as Map?)?.cast<String, dynamic>() ?? const {},
-      ),
-      productSku: StockProductSku.fromJson(
-        (j['productSku'] as Map?)?.cast<String, dynamic>() ?? const {},
-      ),
+      product: Product.fromJson(_asMap(j['product'])),
+      productSku: StockProductSku.fromJson(_asMap(j['productSku'])),
       countedQty: _toInt(j['countedQty']),
       systemQty: _toInt(j['systemQty']),
       variance: _toInt(j['variance']),
@@ -99,11 +112,16 @@ class StockOpname {
   final int countedQty;
   final int variance;
 
-  final String status; // contoh: "submitted", "UNADJUSTED"
-  final String note;
-  final String adjustmentStatus; // contoh: "NOT_ADJUSTED"
+  /// contoh: "submitted", "UNADJUSTED"
+  final String status;
 
-  final String createdAt; // "12-01-2026 11:04"
+  final String note;
+
+  /// contoh: "NOT_ADJUSTED"
+  final String adjustmentStatus;
+
+  /// contoh: "12-01-2026 11:04"
+  final String createdAt;
   final String updatedAt;
 
   const StockOpname({
@@ -122,22 +140,13 @@ class StockOpname {
   });
 
   factory StockOpname.fromJson(Map<String, dynamic> j) {
-    int _toInt(dynamic v, {int fallback = 0}) {
-      if (v is num) return v.toInt();
-      return int.tryParse(v?.toString() ?? '') ?? fallback;
-    }
-
     return StockOpname(
       idStockOpname: j['idStockOpname']?.toString() ?? '',
       storeLocation: StockStoreLocationLite.fromJson(
-        (j['storeLocation'] as Map?)?.cast<String, dynamic>() ?? const {},
+        _asMap(j['storeLocation']),
       ),
-      product: Product.fromJson(
-        (j['product'] as Map?)?.cast<String, dynamic>() ?? const {},
-      ),
-      productSku: StockProductSku.fromJson(
-        (j['productSku'] as Map?)?.cast<String, dynamic>() ?? const {},
-      ),
+      product: Product.fromJson(_asMap(j['product'])),
+      productSku: StockProductSku.fromJson(_asMap(j['productSku'])),
       systemQty: _toInt(j['systemQty']),
       countedQty: _toInt(j['countedQty']),
       variance: _toInt(j['variance']),
@@ -164,7 +173,7 @@ class CreateStockOpnamePayload {
     required this.qty,
   });
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson() => <String, dynamic>{
     'product_id': productId,
     'product_sku_id': productSkuId,
     'qty': qty,
@@ -177,7 +186,9 @@ class StockOpnameBulkAdjustmentResult {
   final String productName;
   final String skuCode;
   final int variance;
-  final String status; // "success" / "skipped" / dll tergantung backend
+
+  /// "success" / "skipped" / dll tergantung backend
+  final String status;
 
   const StockOpnameBulkAdjustmentResult({
     required this.stockOpnameId,
@@ -188,11 +199,6 @@ class StockOpnameBulkAdjustmentResult {
   });
 
   factory StockOpnameBulkAdjustmentResult.fromJson(Map<String, dynamic> j) {
-    int _toInt(dynamic v, {int fallback = 0}) {
-      if (v is num) return v.toInt();
-      return int.tryParse(v?.toString() ?? '') ?? fallback;
-    }
-
     return StockOpnameBulkAdjustmentResult(
       stockOpnameId: j['stockOpnameId']?.toString() ?? '',
       productName: j['productName']?.toString() ?? '',
@@ -220,18 +226,9 @@ class StockOpnameBulkAdjustmentResponse {
   });
 
   factory StockOpnameBulkAdjustmentResponse.fromJson(Map<String, dynamic> j) {
-    int _toInt(dynamic v, {int fallback = 0}) {
-      if (v is num) return v.toInt();
-      return int.tryParse(v?.toString() ?? '') ?? fallback;
-    }
-
-    final list = (j['results'] as List? ?? const [])
-        .whereType<Map>()
-        .map(
-          (e) => StockOpnameBulkAdjustmentResult.fromJson(
-            Map<String, dynamic>.from(e.cast<String, dynamic>()),
-          ),
-        )
+    final resultsJ = _asMapList(j['results']);
+    final list = resultsJ
+        .map(StockOpnameBulkAdjustmentResult.fromJson)
         .toList();
 
     return StockOpnameBulkAdjustmentResponse(
@@ -244,6 +241,10 @@ class StockOpnameBulkAdjustmentResponse {
   }
 }
 
+/// ============================================================
+/// MODELS - INITIAL STOCK (SKU + LIST + DETAIL)
+/// ============================================================
+
 /// Attribute SKU di konteks initial stock.
 @immutable
 class StockSkuAttribute {
@@ -252,11 +253,12 @@ class StockSkuAttribute {
 
   const StockSkuAttribute({required this.name, required this.value});
 
-  factory StockSkuAttribute.fromJson(Map<String, dynamic> j) =>
-      StockSkuAttribute(
-        name: j['name']?.toString() ?? '',
-        value: j['value']?.toString() ?? '',
-      );
+  factory StockSkuAttribute.fromJson(Map<String, dynamic> j) {
+    return StockSkuAttribute(
+      name: j['name']?.toString() ?? '',
+      value: j['value']?.toString() ?? '',
+    );
+  }
 }
 
 /// Representasi SKU di initial stock.
@@ -265,7 +267,10 @@ class StockProductSku {
   final String idProductSku;
   final String code;
   final int price;
-  final int? qty; // qty dari API bisa 0 / nullable
+
+  /// qty dari API bisa 0 / nullable
+  final int? qty;
+
   final List<StockSkuAttribute> attributes;
 
   const StockProductSku({
@@ -277,13 +282,9 @@ class StockProductSku {
   });
 
   factory StockProductSku.fromJson(Map<String, dynamic> j) {
-    final attrs = (j['attributes'] as List<dynamic>? ?? const [])
+    final attrsJ = (j['attributes'] as List<dynamic>? ?? const <dynamic>[])
         .whereType<Map>()
-        .map(
-          (e) => StockSkuAttribute.fromJson(
-            Map<String, dynamic>.from(e.cast<String, dynamic>()),
-          ),
-        )
+        .map((e) => StockSkuAttribute.fromJson(e.cast<String, dynamic>()))
         .toList();
 
     final rawQty = j['qty'];
@@ -291,23 +292,25 @@ class StockProductSku {
         ? rawQty.toInt()
         : int.tryParse(rawQty?.toString() ?? '');
 
+    final rawPrice = j['price'];
+    final parsedPrice = (rawPrice is num)
+        ? rawPrice.toInt()
+        : int.tryParse(rawPrice?.toString() ?? '') ?? 0;
+
     return StockProductSku(
       idProductSku:
           j['idProductSku']?.toString() ??
           j['id_product_sku']?.toString() ??
           '',
       code: j['code']?.toString() ?? '',
-      price: (j['price'] is num)
-          ? (j['price'] as num).toInt()
-          : int.tryParse('${j['price']}') ?? 0,
+      price: parsedPrice,
       qty: parsedQty,
-      attributes: attrs,
+      attributes: attrsJ,
     );
   }
 }
 
-/// SATU baris hasil GET /waveup/{businessId}/initial-stock
-/// (berdasarkan contoh response yang kamu kirim).
+/// Satu baris hasil GET /waveup/{businessId}/initial-stock
 @immutable
 class InitialStockRow {
   final String id;
@@ -330,24 +333,20 @@ class InitialStockRow {
     required this.referenceType,
   });
 
-  factory InitialStockRow.fromJson(Map<String, dynamic> j) => InitialStockRow(
-    id: j['id']?.toString() ?? '',
-    storeLocation: StockStoreLocationLite.fromJson(
-      (j['storeLocation'] as Map?)?.cast<String, dynamic>() ?? const {},
-    ),
-    product: Product.fromJson(
-      (j['product'] as Map?)?.cast<String, dynamic>() ?? const {},
-    ),
-    productSku: StockProductSku.fromJson(
-      (j['productSku'] as Map?)?.cast<String, dynamic>() ?? const {},
-    ),
-    qty: (j['qty'] is num)
-        ? (j['qty'] as num).toInt()
-        : int.tryParse('${j['qty']}') ?? 0,
-    type: j['type']?.toString() ?? '',
-    note: j['note']?.toString() ?? '',
-    referenceType: j['referenceType']?.toString() ?? '',
-  );
+  factory InitialStockRow.fromJson(Map<String, dynamic> j) {
+    return InitialStockRow(
+      id: j['id']?.toString() ?? '',
+      storeLocation: StockStoreLocationLite.fromJson(
+        _asMap(j['storeLocation']),
+      ),
+      product: Product.fromJson(_asMap(j['product'])),
+      productSku: StockProductSku.fromJson(_asMap(j['productSku'])),
+      qty: _toInt(j['qty']),
+      type: j['type']?.toString() ?? '',
+      note: j['note']?.toString() ?? '',
+      referenceType: j['referenceType']?.toString() ?? '',
+    );
+  }
 }
 
 /// Item di dalam dokumen initial stock (untuk detail & payload store/edit).
@@ -357,9 +356,11 @@ class InitialStockItem {
   final String productSkuId;
   final int qty;
   final int price;
-  final int? discount; // per item (optional)
 
-  // Optional: data lengkap kalau API detail mengembalikan product / sku
+  /// per item (optional)
+  final int? discount;
+
+  /// Optional: data lengkap kalau API detail mengembalikan product / sku
   final Product? product;
   final StockProductSku? productSku;
 
@@ -375,40 +376,38 @@ class InitialStockItem {
 
   /// Parser fleksibel: coba baca beberapa kemungkinan nama key.
   factory InitialStockItem.fromJson(Map<String, dynamic> j) {
-    final productJ = (j['product'] as Map?)?.cast<String, dynamic>();
-    final skuJ = (j['productSku'] as Map?)?.cast<String, dynamic>();
+    final productJ = _asMap(j['product']);
+    final skuJ = _asMap(j['productSku']);
 
     final productId =
         j['product_id']?.toString() ??
         j['productId']?.toString() ??
-        productJ?['idProduct']?.toString() ??
-        productJ?['id_product']?.toString() ??
+        productJ['idProduct']?.toString() ??
+        productJ['id_product']?.toString() ??
         '';
 
     final productSkuId =
         j['product_sku_id']?.toString() ??
         j['productSkuId']?.toString() ??
-        skuJ?['idProductSku']?.toString() ??
-        skuJ?['id_product_sku']?.toString() ??
+        skuJ['idProductSku']?.toString() ??
+        skuJ['id_product_sku']?.toString() ??
         '';
 
-    final rawDiscount = j['discount'];
-    final parsedDiscount = (rawDiscount is num)
-        ? rawDiscount.toInt()
-        : int.tryParse(rawDiscount?.toString() ?? '');
+    final parsedDiscount = (j['discount'] == null)
+        ? null
+        : _toInt(j['discount']);
+
+    final hasProduct = productJ.isNotEmpty;
+    final hasSku = skuJ.isNotEmpty;
 
     return InitialStockItem(
       productId: productId,
       productSkuId: productSkuId,
-      qty: (j['qty'] is num)
-          ? (j['qty'] as num).toInt()
-          : int.tryParse('${j['qty']}') ?? 0,
-      price: (j['price'] is num)
-          ? (j['price'] as num).toInt()
-          : int.tryParse('${j['price']}') ?? 0,
+      qty: _toInt(j['qty']),
+      price: _toInt(j['price']),
       discount: parsedDiscount,
-      product: productJ != null ? Product.fromJson(productJ) : null,
-      productSku: skuJ != null ? StockProductSku.fromJson(skuJ) : null,
+      product: hasProduct ? Product.fromJson(productJ) : null,
+      productSku: hasSku ? StockProductSku.fromJson(skuJ) : null,
     );
   }
 
@@ -428,10 +427,7 @@ class InitialStockItem {
       'price': price,
     };
 
-    if (discount != null) {
-      map['discount'] = discount;
-    }
-
+    if (discount != null) map['discount'] = discount;
     return map;
   }
 }
@@ -443,7 +439,10 @@ class InitialStockDetail {
   final String id;
   final StockStoreLocationLite? storeLocation;
   final String note;
-  final int? discount; // total / header discount (jika ada)
+
+  /// total / header discount (jika ada)
+  final int? discount;
+
   final List<InitialStockItem> items;
 
   const InitialStockDetail({
@@ -455,26 +454,18 @@ class InitialStockDetail {
   });
 
   factory InitialStockDetail.fromJson(Map<String, dynamic> j) {
-    final storeJ = (j['storeLocation'] as Map?)?.cast<String, dynamic>();
+    final storeJ = _asMap(j['storeLocation']);
 
-    final itemsJ = (j['items'] as List?) ?? const [];
-    final items = itemsJ
-        .whereType<Map>()
-        .map(
-          (e) => InitialStockItem.fromJson(
-            Map<String, dynamic>.from(e.cast<String, dynamic>()),
-          ),
-        )
-        .toList();
+    final itemsJ = _asMapList(j['items']);
+    final items = itemsJ.map(InitialStockItem.fromJson).toList();
 
-    final rawDiscount = j['discount'];
-    final parsedDiscount = (rawDiscount is num)
-        ? rawDiscount.toInt()
-        : int.tryParse(rawDiscount?.toString() ?? '');
+    final parsedDiscount = (j['discount'] == null)
+        ? null
+        : _toInt(j['discount']);
 
     return InitialStockDetail(
       id: j['id']?.toString() ?? '',
-      storeLocation: storeJ != null
+      storeLocation: storeJ.isNotEmpty
           ? StockStoreLocationLite.fromJson(storeJ)
           : null,
       note: j['note']?.toString() ?? '',
@@ -484,9 +475,9 @@ class InitialStockDetail {
   }
 }
 
-/// =========================
+/// ============================================================
 /// MODELS - TRANSACTION STOCK ADJUSTMENT
-/// =========================
+/// ============================================================
 
 @immutable
 class StockAdjustmentTransaction {
@@ -506,11 +497,16 @@ class StockAdjustmentTransaction {
   final int discount;
   final int shippingFee;
 
-  final int orderAt; // unix timestamp (seconds)
+  /// unix timestamp (seconds)
+  final int orderAt;
+
   final int paymentMethod;
 
-  final String createdAt; // ISO string
-  final String updatedAt; // ISO string
+  /// ISO string
+  final String createdAt;
+
+  /// ISO string
+  final String updatedAt;
 
   const StockAdjustmentTransaction({
     required this.idTransaction,
@@ -532,16 +528,11 @@ class StockAdjustmentTransaction {
   });
 
   factory StockAdjustmentTransaction.fromJson(Map<String, dynamic> j) {
-    int _toInt(dynamic v, {int fallback = 0}) {
-      if (v is num) return v.toInt();
-      return int.tryParse(v?.toString() ?? '') ?? fallback;
-    }
-
     return StockAdjustmentTransaction(
       idTransaction: j['idTransaction']?.toString() ?? '',
       storeLocationId: j['store_location_id']?.toString() ?? '',
       storeLocation: StockStoreLocationLite.fromJson(
-        (j['store_location'] as Map?)?.cast<String, dynamic>() ?? const {},
+        _asMap(j['store_location']),
       ),
       type: _toInt(j['type']),
       number: j['number']?.toString() ?? '',
@@ -560,54 +551,52 @@ class StockAdjustmentTransaction {
   }
 }
 
-/// =========================
+/// ============================================================
 /// PROVIDER
-/// =========================
+/// ============================================================
 
 class StockProvider with ChangeNotifier {
-  /// --- LIST initial stock (GET /waveup/{bizId}/initial-stock)
+  // ============================================================
+  // INITIAL STOCK: LIST
+  // ============================================================
+
   final List<InitialStockRow> _initialStocks = [];
   bool _loadingInitialStocks = false;
   PageMeta? _pageInitialStocks;
   String? _initialStocksError;
 
-  /// --- DETAIL initial stock (GET /waveup/{bizId}/initial-stock/:id)
-  InitialStockDetail? _initialStockDetail;
-  bool _loadingInitialStockDetail = false;
-  String? _initialStockDetailError;
-
-  /// --- Error umum (kalau mau dipakai global)
-  String? _lastError;
-
-  // ===== Getters =====
-
   List<InitialStockRow> get initialStocks => List.unmodifiable(_initialStocks);
-
   bool get loadingInitialStocks => _loadingInitialStocks;
   PageMeta? get pageInitialStocks => _pageInitialStocks;
   String? get initialStocksError => _initialStocksError;
+
+  bool get isInitialStockEmpty =>
+      !_loadingInitialStocks && _initialStocks.isEmpty;
+
+  // ============================================================
+  // INITIAL STOCK: DETAIL
+  // ============================================================
+
+  InitialStockDetail? _initialStockDetail;
+  bool _loadingInitialStockDetail = false;
+  String? _initialStockDetailError;
 
   InitialStockDetail? get initialStockDetail => _initialStockDetail;
   bool get loadingInitialStockDetail => _loadingInitialStockDetail;
   String? get initialStockDetailError => _initialStockDetailError;
 
+  // ============================================================
+  // ERROR (GLOBAL)
+  // ============================================================
+
+  String? _lastError;
   String? get lastError => _lastError;
 
-  bool get isInitialStockEmpty =>
-      !_loadingInitialStocks && _initialStocks.isEmpty;
+  // ============================================================
+  // FETCH: Initial Stock List
+  // GET /waveup/{businessId}/initial-stock
+  // ============================================================
 
-  /// =========================
-  /// FETCH: Initial Stock List
-  /// =========================
-  ///
-  /// GET /waveup/{businessId}/initial-stock
-  ///
-  /// Bentuk response:
-  /// {
-  ///   "status": 200,
-  ///   "page": {...},
-  ///   "data": [ { InitialStockRow }, ... ]
-  /// }
   Future<void> fetchInitialStocks(
     BuildContext context, {
     int? page,
@@ -615,9 +604,9 @@ class StockProvider with ChangeNotifier {
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _initialStocks..clear();
+      _initialStocks.clear();
       _pageInitialStocks = null;
-      _initialStocksError = "Business ID is not available.";
+      _initialStocksError = 'Business ID is not available.';
       _lastError = _initialStocksError;
       notifyListeners();
       return;
@@ -630,27 +619,25 @@ class StockProvider with ChangeNotifier {
     try {
       final buffer = StringBuffer('/waveup/$bizId/initial-stock');
       final query = <String, String>{};
-      if (page != null && page > 0) {
-        query['page'] = page.toString();
-      }
+
+      if (page != null && page > 0) query['page'] = page.toString();
       if (rowPerPage != null && rowPerPage > 0) {
         query['row_per_page'] = rowPerPage.toString();
       }
+
       if (query.isNotEmpty) {
         buffer.write(
-          '?' + query.entries.map((e) => '${e.key}=${e.value}').join('&'),
+          '?${query.entries.map((e) => '${e.key}=${e.value}').join('&')}',
         );
       }
 
       final path = buffer.toString();
-      if (kDebugMode) {
-        debugPrint('[StockProvider] GET $path');
-      }
+      if (kDebugMode) debugPrint('[StockProvider] GET $path');
 
       final jsonMap = await ApiJson.getMap(context, path);
 
       if (jsonMap == null) {
-        _initialStocks..clear();
+        _initialStocks.clear();
         _pageInitialStocks = null;
         _initialStocksError = 'Failed to load initial stock.';
         _lastError = _initialStocksError;
@@ -660,7 +647,7 @@ class StockProvider with ChangeNotifier {
 
       final status = (jsonMap['status'] as num?)?.toInt() ?? 0;
       if (status < 200 || status >= 300) {
-        _initialStocks..clear();
+        _initialStocks.clear();
         _pageInitialStocks = null;
         _initialStocksError =
             jsonMap['message']?.toString() ?? 'Failed to load initial stock.';
@@ -669,21 +656,13 @@ class StockProvider with ChangeNotifier {
         return;
       }
 
-      final pageJ = (jsonMap['page'] as Map?)?.cast<String, dynamic>();
-      if (pageJ != null) {
-        _pageInitialStocks = PageMeta.fromJson(pageJ);
-      } else {
-        _pageInitialStocks = null;
-      }
+      final pageJ = _asMap(jsonMap['page']);
+      _pageInitialStocks = pageJ.isNotEmpty ? PageMeta.fromJson(pageJ) : null;
 
-      final dataList = (jsonMap['data'] as List?) ?? const [];
+      final dataList = (jsonMap['data'] as List?) ?? const <dynamic>[];
       final parsed = dataList
           .whereType<Map>()
-          .map(
-            (e) => InitialStockRow.fromJson(
-              Map<String, dynamic>.from(e.cast<String, dynamic>()),
-            ),
-          )
+          .map((e) => InitialStockRow.fromJson(e.cast<String, dynamic>()))
           .toList();
 
       _initialStocks
@@ -694,7 +673,7 @@ class StockProvider with ChangeNotifier {
       _lastError = null;
       notifyListeners();
     } catch (e, st) {
-      _initialStocks..clear();
+      _initialStocks.clear();
       _pageInitialStocks = null;
       _initialStocksError = e.toString();
       _lastError = _initialStocksError;
@@ -711,11 +690,11 @@ class StockProvider with ChangeNotifier {
     await fetchInitialStocks(context);
   }
 
-  /// =========================
-  /// FETCH: Initial Stock Detail
-  /// =========================
-  ///
-  /// GET /waveup/{bizId}/initial-stock/:id
+  // ============================================================
+  // FETCH: Initial Stock Detail
+  // GET /waveup/{bizId}/initial-stock/:id
+  // ============================================================
+
   Future<InitialStockDetail?> fetchInitialStockDetail(
     BuildContext context,
     String idInitialStock,
@@ -723,7 +702,7 @@ class StockProvider with ChangeNotifier {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _initialStockDetail = null;
-      _initialStockDetailError = "Business ID is not available.";
+      _initialStockDetailError = 'Business ID is not available.';
       _lastError = _initialStockDetailError;
       notifyListeners();
       return null;
@@ -735,9 +714,7 @@ class StockProvider with ChangeNotifier {
 
     try {
       final path = '/waveup/$bizId/initial-stock/$idInitialStock';
-      if (kDebugMode) {
-        debugPrint('[StockProvider] GET $path');
-      }
+      if (kDebugMode) debugPrint('[StockProvider] GET $path');
 
       final jsonMap = await ApiJson.getMap(context, path);
 
@@ -760,8 +737,7 @@ class StockProvider with ChangeNotifier {
         return null;
       }
 
-      final dataJ =
-          (jsonMap['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final dataJ = _asMap(jsonMap['data']);
       if (kDebugMode) {
         debugPrint('[StockProvider] detail data: ${jsonEncode(dataJ)}');
       }
@@ -786,19 +762,11 @@ class StockProvider with ChangeNotifier {
     }
   }
 
-  /// =========================
-  /// STORE: Initial Stock
-  /// =========================
-  ///
-  /// POST /waveup/:idBusiness/initial-stock
-  ///
-  /// Payload:
-  /// {
-  ///   "store_location_id": "...",
-  ///   "note": "...",
-  ///   "discount": 3500,
-  ///   "items": [ InitialStockItem.toJson(), ... ]
-  /// }
+  // ============================================================
+  // STORE: Initial Stock
+  // POST /waveup/:idBusiness/initial-stock
+  // ============================================================
+
   Future<bool> createInitialStock({
     required BuildContext context,
     required String storeLocationId,
@@ -808,7 +776,7 @@ class StockProvider with ChangeNotifier {
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
+      _lastError = 'Business ID is not available.';
       return false;
     }
 
@@ -818,9 +786,7 @@ class StockProvider with ChangeNotifier {
       'items': items.map((e) => e.toJson()).toList(),
     };
 
-    if (discount != null) {
-      payload['discount'] = discount;
-    }
+    if (discount != null) payload['discount'] = discount;
 
     try {
       if (kDebugMode) {
@@ -842,7 +808,6 @@ class StockProvider with ChangeNotifier {
       }
 
       final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
-
       if (!ok) {
         _lastError =
             'Failed to create initial stock: ${res?.statusCode} ${res?.body}';
@@ -860,21 +825,11 @@ class StockProvider with ChangeNotifier {
     }
   }
 
-  /// =========================
-  /// EDIT: Initial Stock
-  /// =========================
-  ///
-  /// POST /waveup/:idBusiness/initial-stock/:id
-  ///
-  /// Payload:
-  /// {
-  ///   "store_location_id": "...",
-  ///   "note": "...",
-  ///   "items": [
-  ///     { "product_id": "...", "product_sku_id": "...", "qty": 50, "price": 100000 },
-  ///     ...
-  ///   ]
-  /// }
+  // ============================================================
+  // EDIT: Initial Stock
+  // POST /waveup/:idBusiness/initial-stock/:id
+  // ============================================================
+
   Future<bool> updateInitialStock({
     required BuildContext context,
     required String idInitialStock,
@@ -885,7 +840,7 @@ class StockProvider with ChangeNotifier {
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
+      _lastError = 'Business ID is not available.';
       return false;
     }
 
@@ -895,9 +850,7 @@ class StockProvider with ChangeNotifier {
       'items': items.map((e) => e.toJson()).toList(),
     };
 
-    if (discount != null) {
-      payload['discount'] = discount;
-    }
+    if (discount != null) payload['discount'] = discount;
 
     try {
       if (kDebugMode) {
@@ -919,7 +872,6 @@ class StockProvider with ChangeNotifier {
       }
 
       final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
-
       if (!ok) {
         _lastError =
             'Failed to update initial stock: ${res?.statusCode} ${res?.body}';
@@ -950,16 +902,14 @@ class StockProvider with ChangeNotifier {
   }
 
   // ============================================================
-  // ✅ STOCK OPNAME (LIST + CREATE)
+  // STOCK OPNAME: LIST + CREATE
   // ============================================================
 
-  /// --- LIST stock opname
   final List<StockOpname> _stockOpnames = [];
   bool _loadingStockOpnames = false;
   PageMeta? _pageStockOpnames;
   String? _stockOpnamesError;
 
-  /// --- CREATE stock opname
   bool _creatingStockOpname = false;
   String? _createStockOpnameError;
 
@@ -973,49 +923,24 @@ class StockProvider with ChangeNotifier {
 
   bool get isStockOpnameEmpty => !_loadingStockOpnames && _stockOpnames.isEmpty;
 
-  /// =========================
-  /// FETCH: Stock Opname List
-  /// =========================
-  ///
-  /// GET /waveup/:idBusiness/store-location/:idStoreLocation/stock-opname
-  ///
-  /// Response:
-  /// {
-  ///   "status": 200,
-  ///   "data": [ {StockOpname}, ... ],
-  ///   "page": {...}
-  /// }
-  /// =========================
-  /// FETCH: Stock Opname List
-  /// =========================
-  ///
-  /// GET /waveup/:idBusiness/store-location/:idStoreLocation/stock-opname
-  ///
+  /// GET /waveup/{idBusiness}/store-location/{idStoreLocation}/stock-opname
   /// Example:
-  /// /waveup/{idBusiness}/store-location/:idStoreLocation/stock-opname
-  ///   ?page=1&limit=10&adjustmentStatus=ADJUSTED&variance=zero
-  ///
-  /// Response:
-  /// {
-  ///   "status": 200,
-  ///   "data": [ {StockOpname}, ... ],
-  ///   "page": {...}
-  /// }
+  /// ?page=1&limit=10&adjustmentStatus=ADJUSTED&variance=zero
   Future<int> fetchStockOpnames(
     BuildContext context, {
     required String idStoreLocation,
     int? page,
     int? rowPerPage, // legacy (mapped to limit)
-    int? limit, // ✅ preferred
-    String? adjustmentStatus, // ✅ NOT_ADJUSTED / ADJUSTED
-    String? variance, // ✅ minus / plus / zero
+    int? limit, // preferred
+    String? adjustmentStatus, // NOT_ADJUSTED / ADJUSTED
+    String? variance, // minus / plus / zero
     bool append = false, // true kalau infinite scroll page>1
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       if (!append) _stockOpnames.clear();
       _pageStockOpnames = null;
-      _stockOpnamesError = "Business ID is not available.";
+      _stockOpnamesError = 'Business ID is not available.';
       _lastError = _stockOpnamesError;
       notifyListeners();
       return 0;
@@ -1032,17 +957,14 @@ class StockProvider with ChangeNotifier {
 
       final query = <String, String>{};
 
-      final p = (page ?? 1);
+      final p = page ?? 1;
       if (p > 0) query['page'] = p.toString();
 
-      // ✅ use limit (fallback from rowPerPage)
       final resolvedLimit = (limit != null && limit > 0)
           ? limit
           : ((rowPerPage != null && rowPerPage > 0) ? rowPerPage : null);
-
       if (resolvedLimit != null) query['limit'] = resolvedLimit.toString();
 
-      // ✅ filters
       final adj = (adjustmentStatus ?? '').trim();
       if (adj.isNotEmpty) query['adjustmentStatus'] = adj;
 
@@ -1051,7 +973,7 @@ class StockProvider with ChangeNotifier {
 
       if (query.isNotEmpty) {
         buffer.write(
-          '?' + query.entries.map((e) => '${e.key}=${e.value}').join('&'),
+          '?${query.entries.map((e) => '${e.key}=${e.value}').join('&')}',
         );
       }
 
@@ -1080,17 +1002,13 @@ class StockProvider with ChangeNotifier {
         return 0;
       }
 
-      final pageJ = (jsonMap['page'] as Map?)?.cast<String, dynamic>();
-      _pageStockOpnames = pageJ != null ? PageMeta.fromJson(pageJ) : null;
+      final pageJ = _asMap(jsonMap['page']);
+      _pageStockOpnames = pageJ.isNotEmpty ? PageMeta.fromJson(pageJ) : null;
 
-      final dataList = (jsonMap['data'] as List?) ?? const [];
+      final dataList = (jsonMap['data'] as List?) ?? const <dynamic>[];
       final parsed = dataList
           .whereType<Map>()
-          .map(
-            (e) => StockOpname.fromJson(
-              Map<String, dynamic>.from(e.cast<String, dynamic>()),
-            ),
-          )
+          .map((e) => StockOpname.fromJson(e.cast<String, dynamic>()))
           .toList();
 
       if (!append) {
@@ -1128,17 +1046,8 @@ class StockProvider with ChangeNotifier {
     await fetchStockOpnames(context, idStoreLocation: idStoreLocation);
   }
 
-  /// =========================
-  /// CREATE: Stock Opname
-  /// =========================
-  ///
-  /// POST /waveup/:idBusiness/store-location/:idStoreLocation/stock-opname
-  ///
-  /// Payload:
-  /// { "product_id": "...", "product_sku_id": "...", "qty": 20 }
-  ///
-  /// Response:
-  /// { "status": 200, "data": { StockOpname } }
+  /// POST /waveup/{idBusiness}/store-location/{idStoreLocation}/stock-opname
+  /// Payload: { "product_id": "...", "product_sku_id": "...", "qty": 20 }
   Future<StockOpname?> createStockOpname({
     required BuildContext context,
     required String idStoreLocation,
@@ -1149,7 +1058,7 @@ class StockProvider with ChangeNotifier {
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
+      _lastError = 'Business ID is not available.';
       _createStockOpnameError = _lastError;
       notifyListeners();
       return null;
@@ -1215,7 +1124,7 @@ class StockProvider with ChangeNotifier {
         return null;
       }
 
-      final dataJ = (map['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final dataJ = _asMap(map['data']);
       final created = StockOpname.fromJson(dataJ);
 
       _createStockOpnameError = null;
@@ -1270,10 +1179,8 @@ class StockProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Tambahkan di dalam class StockProvider (state + function)
-
   // ============================================================
-  // ✅ NEW: STOCK OPNAME ADJUSTMENT (BULK)
+  // STOCK OPNAME: BULK ADJUSTMENT
   // ============================================================
 
   bool _adjustingStockOpnames = false;
@@ -1285,26 +1192,9 @@ class StockProvider with ChangeNotifier {
   StockOpnameBulkAdjustmentResponse? get lastStockOpnameAdjustment =>
       _lastStockOpnameAdjustment;
 
-  /// =========================
-  /// POST: Stock Opname Bulk Adjustment
-  /// =========================
-  ///
-  /// POST /waveup/{idBusiness}/store-location/:idStoreLocation/stock-opname/bulk-adjustment
-  ///
+  /// POST /waveup/{idBusiness}/store-location/{idStoreLocation}/stock-opname/bulk-adjustment
   /// Payload:
-  /// {
-  ///   "stock_opname_ids": ["..."],
-  ///   "note": "Adjustment januari"
-  /// }
-  ///
-  /// Response:
-  /// {
-  ///   "status": 200,
-  ///   "message": "...",
-  ///   "successCount": 1,
-  ///   "skipCount": 0,
-  ///   "results": [ ... ]
-  /// }
+  /// { "stock_opname_ids": ["..."], "note": "Adjustment januari" }
   Future<StockOpnameBulkAdjustmentResponse?> stockOpnameBulkAdjustment({
     required BuildContext context,
     required String idStoreLocation,
@@ -1314,7 +1204,7 @@ class StockProvider with ChangeNotifier {
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _stockOpnameAdjustmentError = "Business ID is not available.";
+      _stockOpnameAdjustmentError = 'Business ID is not available.';
       _lastError = _stockOpnameAdjustmentError;
       notifyListeners();
       return null;
@@ -1322,7 +1212,7 @@ class StockProvider with ChangeNotifier {
 
     final storeId = idStoreLocation.trim();
     if (storeId.isEmpty) {
-      _stockOpnameAdjustmentError = "Store location ID is not available.";
+      _stockOpnameAdjustmentError = 'Store location ID is not available.';
       _lastError = _stockOpnameAdjustmentError;
       notifyListeners();
       return null;
@@ -1334,7 +1224,7 @@ class StockProvider with ChangeNotifier {
         .toList();
 
     if (ids.isEmpty) {
-      _stockOpnameAdjustmentError = "Stock opname IDs cannot be empty.";
+      _stockOpnameAdjustmentError = 'Stock opname IDs cannot be empty.';
       _lastError = _stockOpnameAdjustmentError;
       notifyListeners();
       return null;
@@ -1438,7 +1328,7 @@ class StockProvider with ChangeNotifier {
   }
 
   // ============================================================
-  // ✅ NEW: TRANSACTION STOCK ADJUSTMENT (LIST)
+  // TRANSACTION STOCK ADJUSTMENT: LIST
   // ============================================================
 
   final List<StockAdjustmentTransaction> _stockAdjustments = [];
@@ -1456,18 +1346,7 @@ class StockProvider with ChangeNotifier {
   bool get isStockAdjustmentsEmpty =>
       !_loadingStockAdjustments && _stockAdjustments.isEmpty;
 
-  /// =========================
-  /// FETCH: Stock Adjustment List
-  /// =========================
-  ///
-  /// GET /waveup/{idBusiness}/store-location/:idStoreLocation/transaction-adjustment
-  ///
-  /// Response:
-  /// {
-  ///   "status": 200,
-  ///   "page": {...},
-  ///   "data": [ {Transaction}, ... ]
-  /// }
+  /// GET /waveup/{idBusiness}/store-location/{idStoreLocation}/transaction-adjustment
   Future<void> fetchStockAdjustments(
     BuildContext context, {
     required String idStoreLocation,
@@ -1479,7 +1358,7 @@ class StockProvider with ChangeNotifier {
     if (bizId == null || bizId.isEmpty) {
       if (!append) _stockAdjustments.clear();
       _pageStockAdjustments = null;
-      _stockAdjustmentsError = "Business ID is not available.";
+      _stockAdjustmentsError = 'Business ID is not available.';
       _lastError = _stockAdjustmentsError;
       notifyListeners();
       return;
@@ -1499,9 +1378,10 @@ class StockProvider with ChangeNotifier {
       if (rowPerPage != null && rowPerPage > 0) {
         query['row_per_page'] = rowPerPage.toString();
       }
+
       if (query.isNotEmpty) {
         buffer.write(
-          '?' + query.entries.map((e) => '${e.key}=${e.value}').join('&'),
+          '?${query.entries.map((e) => '${e.key}=${e.value}').join('&')}',
         );
       }
 
@@ -1531,16 +1411,17 @@ class StockProvider with ChangeNotifier {
         return;
       }
 
-      final pageJ = (jsonMap['page'] as Map?)?.cast<String, dynamic>();
-      _pageStockAdjustments = pageJ != null ? PageMeta.fromJson(pageJ) : null;
+      final pageJ = _asMap(jsonMap['page']);
+      _pageStockAdjustments = pageJ.isNotEmpty
+          ? PageMeta.fromJson(pageJ)
+          : null;
 
-      final dataList = (jsonMap['data'] as List?) ?? const [];
+      final dataList = (jsonMap['data'] as List?) ?? const <dynamic>[];
       final parsed = dataList
           .whereType<Map>()
           .map(
-            (e) => StockAdjustmentTransaction.fromJson(
-              Map<String, dynamic>.from(e.cast<String, dynamic>()),
-            ),
+            (e) =>
+                StockAdjustmentTransaction.fromJson(e.cast<String, dynamic>()),
           )
           .toList();
 

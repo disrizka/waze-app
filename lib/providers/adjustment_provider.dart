@@ -9,6 +9,30 @@ import 'package:wa_blast/models/product_model.dart';
 import 'package:wa_blast/services/api_service.dart';
 
 /// =========================
+/// Utils kecil untuk parsing aman
+/// =========================
+int _asInt(dynamic v, {int fallback = 0}) {
+  if (v is num) return v.toInt();
+  return int.tryParse(v?.toString() ?? '') ?? fallback;
+}
+
+String _asString(dynamic v, {String fallback = ''}) =>
+    v?.toString() ?? fallback;
+
+Map<String, dynamic>? _asMap(dynamic v) {
+  if (v is Map) return v.cast<String, dynamic>();
+  return null;
+}
+
+List<Map<String, dynamic>> _asListOfMap(dynamic v) {
+  final list = (v is List) ? v : const [];
+  return list
+      .whereType<Map>()
+      .map((e) => Map<String, dynamic>.from(e.cast<String, dynamic>()))
+      .toList();
+}
+
+/// =========================
 /// MODELS - ADJUSTMENT
 /// =========================
 
@@ -27,12 +51,12 @@ class AdjustmentStoreLocationLite {
   });
 
   factory AdjustmentStoreLocationLite.fromJson(Map<String, dynamic> j) {
-    final cityJ = (j['city'] as Map?)?.cast<String, dynamic>();
-    final provJ = (cityJ?['province'] as Map?)?.cast<String, dynamic>();
+    final cityJ = _asMap(j['city']);
+    final provJ = _asMap(cityJ?['province']);
 
     return AdjustmentStoreLocationLite(
-      idStoreLocation: j['idStoreLocation']?.toString() ?? '',
-      name: j['name']?.toString() ?? '',
+      idStoreLocation: _asString(j['idStoreLocation']),
+      name: _asString(j['name']),
       cityName: cityJ?['name']?.toString(),
       provinceName: provJ?['name']?.toString(),
     );
@@ -48,8 +72,8 @@ class AdjustmentSkuAttribute {
 
   factory AdjustmentSkuAttribute.fromJson(Map<String, dynamic> j) =>
       AdjustmentSkuAttribute(
-        name: j['name']?.toString() ?? '',
-        value: j['value']?.toString() ?? '',
+        name: _asString(j['name']),
+        value: _asString(j['value']),
       );
 }
 
@@ -70,19 +94,9 @@ class AdjustmentProductSku {
   });
 
   factory AdjustmentProductSku.fromJson(Map<String, dynamic> j) {
-    int _toInt(dynamic v, {int fallback = 0}) {
-      if (v is num) return v.toInt();
-      return int.tryParse(v?.toString() ?? '') ?? fallback;
-    }
-
-    final attrs = (j['attributes'] as List<dynamic>? ?? const [])
-        .whereType<Map>()
-        .map(
-          (e) => AdjustmentSkuAttribute.fromJson(
-            Map<String, dynamic>.from(e.cast<String, dynamic>()),
-          ),
-        )
-        .toList();
+    final attrs = _asListOfMap(
+      j['attributes'],
+    ).map(AdjustmentSkuAttribute.fromJson).toList();
 
     final rawQty = j['qty'];
     final parsedQty = (rawQty is num)
@@ -90,12 +104,11 @@ class AdjustmentProductSku {
         : int.tryParse(rawQty?.toString() ?? '');
 
     return AdjustmentProductSku(
-      idProductSku:
-          j['idProductSku']?.toString() ??
-          j['id_product_sku']?.toString() ??
-          '',
-      code: j['code']?.toString() ?? '',
-      price: _toInt(j['price']),
+      idProductSku: _asString(j['idProductSku']).isNotEmpty
+          ? _asString(j['idProductSku'])
+          : _asString(j['id_product_sku']),
+      code: _asString(j['code']),
+      price: _asInt(j['price']),
       qty: parsedQty,
       attributes: attrs,
     );
@@ -123,21 +136,16 @@ class AdjustmentItem {
   });
 
   factory AdjustmentItem.fromJson(Map<String, dynamic> j) {
-    int _toInt(dynamic v, {int fallback = 0}) {
-      if (v is num) return v.toInt();
-      return int.tryParse(v?.toString() ?? '') ?? fallback;
-    }
-
-    final productJ = (j['product'] as Map?)?.cast<String, dynamic>();
-    final skuJ = (j['product_sku'] as Map?)?.cast<String, dynamic>();
+    final productJ = _asMap(j['product']);
+    final skuJ = _asMap(j['product_sku']);
 
     return AdjustmentItem(
-      productId: j['product_id']?.toString() ?? '',
-      productSkuId: j['product_sku_id']?.toString() ?? '',
+      productId: _asString(j['product_id']),
+      productSkuId: _asString(j['product_sku_id']),
       product: productJ != null ? Product.fromJson(productJ) : null,
       productSku: skuJ != null ? AdjustmentProductSku.fromJson(skuJ) : null,
-      qtyIn: _toInt(j['qty_in']),
-      qtyOut: _toInt(j['qty_out']),
+      qtyIn: _asInt(j['qty_in']),
+      qtyOut: _asInt(j['qty_out']),
     );
   }
 
@@ -193,40 +201,29 @@ class AdjustmentTransaction {
   });
 
   factory AdjustmentTransaction.fromJson(Map<String, dynamic> j) {
-    int _toInt(dynamic v, {int fallback = 0}) {
-      if (v is num) return v.toInt();
-      return int.tryParse(v?.toString() ?? '') ?? fallback;
-    }
-
-    final itemsJ = (j['items'] as List?) ?? const [];
-    final parsedItems = itemsJ
-        .whereType<Map>()
-        .map(
-          (e) => AdjustmentItem.fromJson(
-            Map<String, dynamic>.from(e.cast<String, dynamic>()),
-          ),
-        )
-        .toList();
+    final parsedItems = _asListOfMap(
+      j['items'],
+    ).map(AdjustmentItem.fromJson).toList();
 
     return AdjustmentTransaction(
-      idTransaction: j['idTransaction']?.toString() ?? '',
-      storeLocationId: j['store_location_id']?.toString() ?? '',
+      idTransaction: _asString(j['idTransaction']),
+      storeLocationId: _asString(j['store_location_id']),
       storeLocation: AdjustmentStoreLocationLite.fromJson(
-        (j['store_location'] as Map?)?.cast<String, dynamic>() ?? const {},
+        _asMap(j['store_location']) ?? const {},
       ),
-      type: _toInt(j['type']),
-      number: j['number']?.toString() ?? '',
-      storeId: _toInt(j['store_id']),
-      note: j['note']?.toString() ?? '',
-      reference: j['reference']?.toString() ?? '',
-      status: j['status']?.toString() ?? '',
-      amount: _toInt(j['amount']),
-      discount: _toInt(j['discount']),
-      shippingFee: _toInt(j['shipping_fee']),
-      orderAt: _toInt(j['order_at']),
-      paymentMethod: _toInt(j['payment_method']),
-      createdAt: j['created_at']?.toString() ?? '',
-      updatedAt: j['updated_at']?.toString() ?? '',
+      type: _asInt(j['type']),
+      number: _asString(j['number']),
+      storeId: _asInt(j['store_id']),
+      note: _asString(j['note']),
+      reference: _asString(j['reference']),
+      status: _asString(j['status']),
+      amount: _asInt(j['amount']),
+      discount: _asInt(j['discount']),
+      shippingFee: _asInt(j['shipping_fee']),
+      orderAt: _asInt(j['order_at']),
+      paymentMethod: _asInt(j['payment_method']),
+      createdAt: _asString(j['created_at']),
+      updatedAt: _asString(j['updated_at']),
       items: parsedItems,
     );
   }
@@ -271,34 +268,33 @@ class AdjustmentDetailResult {
 /// =========================
 
 class AdjustmentProvider with ChangeNotifier {
-  /// --- LIST adjustment
+  // --- LIST adjustment
   final List<AdjustmentTransaction> _adjustments = [];
   bool _loadingAdjustments = false;
   PageMeta? _pageAdjustments;
   String? _adjustmentsError;
 
-  /// --- DETAIL adjustment
+  // --- DETAIL adjustment
   AdjustmentDetailResult? _adjustmentDetail;
   bool _loadingAdjustmentDetail = false;
   String? _adjustmentDetailError;
 
-  /// --- CREATE adjustment
+  // --- CREATE adjustment
   bool _creatingAdjustment = false;
   String? _createAdjustmentError;
 
-  /// --- DELETE adjustment
+  // --- DELETE adjustment
   bool _deletingAdjustment = false;
   String? _deleteAdjustmentError;
 
-  /// --- EDIT adjustment
+  // --- EDIT adjustment
   bool _editingAdjustment = false;
   String? _editAdjustmentError;
 
-  /// --- Error umum
+  // --- Error umum
   String? _lastError;
 
   // ===== Getters =====
-
   List<AdjustmentTransaction> get adjustments =>
       List.unmodifiable(_adjustments);
 
@@ -339,13 +335,13 @@ class AdjustmentProvider with ChangeNotifier {
     BuildContext context, {
     int? page,
     int limit = 50,
-    bool append = false, // true kalau infinite scroll page>1
+    bool append = false,
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       if (!append) _adjustments.clear();
       _pageAdjustments = null;
-      _adjustmentsError = "Business ID is not available.";
+      _adjustmentsError = 'Business ID is not available.';
       _lastError = _adjustmentsError;
       notifyListeners();
       return;
@@ -356,7 +352,6 @@ class AdjustmentProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // endpoint adjustment pakai page & limit (bukan row_per_page)
       final buffer = StringBuffer('/waveup/$bizId/transaction/adjustment');
 
       final query = <String, String>{};
@@ -365,7 +360,7 @@ class AdjustmentProvider with ChangeNotifier {
 
       if (query.isNotEmpty) {
         buffer.write(
-          '?' + query.entries.map((e) => '${e.key}=${e.value}').join('&'),
+          '?${query.entries.map((e) => '${e.key}=${e.value}').join('&')}',
         );
       }
 
@@ -383,29 +378,25 @@ class AdjustmentProvider with ChangeNotifier {
         return;
       }
 
-      final status = (jsonMap['status'] as num?)?.toInt() ?? 0;
+      final status = _asInt(jsonMap['status']);
       if (status < 200 || status >= 300) {
         if (!append) _adjustments.clear();
         _pageAdjustments = null;
-        _adjustmentsError =
-            jsonMap['message']?.toString() ?? 'Failed to load adjustment list.';
+        _adjustmentsError = _asString(
+          jsonMap['message'],
+          fallback: 'Failed to load adjustment list.',
+        );
         _lastError = _adjustmentsError;
         notifyListeners();
         return;
       }
 
-      final pageJ = (jsonMap['page'] as Map?)?.cast<String, dynamic>();
+      final pageJ = _asMap(jsonMap['page']);
       _pageAdjustments = pageJ != null ? PageMeta.fromJson(pageJ) : null;
 
-      final dataList = (jsonMap['data'] as List?) ?? const [];
-      final parsed = dataList
-          .whereType<Map>()
-          .map(
-            (e) => AdjustmentTransaction.fromJson(
-              Map<String, dynamic>.from(e.cast<String, dynamic>()),
-            ),
-          )
-          .toList();
+      final parsed = _asListOfMap(
+        jsonMap['data'],
+      ).map(AdjustmentTransaction.fromJson).toList();
 
       if (!append) {
         _adjustments
@@ -432,12 +423,8 @@ class AdjustmentProvider with ChangeNotifier {
     }
   }
 
-  Future<void> refreshAdjustments(
-    BuildContext context, {
-    int limit = 50,
-  }) async {
-    await fetchAdjustments(context, limit: limit);
-  }
+  Future<void> refreshAdjustments(BuildContext context, {int limit = 50}) =>
+      fetchAdjustments(context, limit: limit);
 
   void clearAdjustments() {
     _adjustments.clear();
@@ -468,7 +455,7 @@ class AdjustmentProvider with ChangeNotifier {
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
+      _lastError = 'Business ID is not available.';
       _createAdjustmentError = _lastError;
       notifyListeners();
       return false;
@@ -513,22 +500,24 @@ class AdjustmentProvider with ChangeNotifier {
         return false;
       }
 
-      // body tidak kamu definisikan detailnya, tapi minimal pastikan status==200 kalau ada
+      // Jika body JSON dan status bukan 2xx, treat as error.
       try {
         final decoded = jsonDecode(res!.body);
         final map = (decoded is Map) ? decoded.cast<String, dynamic>() : null;
         if (map != null) {
-          final st = (map['status'] as num?)?.toInt() ?? 200;
+          final st = _asInt(map['status'], fallback: 200);
           if (st < 200 || st >= 300) {
-            _createAdjustmentError =
-                map['message']?.toString() ?? 'Failed to create adjustment.';
+            _createAdjustmentError = _asString(
+              map['message'],
+              fallback: 'Failed to create adjustment.',
+            );
             _lastError = _createAdjustmentError;
             notifyListeners();
             return false;
           }
         }
       } catch (_) {
-        // ignore: kalau body bukan JSON, kita tetap anggap ok karena statusCode sudah 2xx
+        // ignore: kalau body bukan JSON, tetap anggap ok karena statusCode sudah 2xx
       }
 
       _createAdjustmentError = null;
@@ -578,7 +567,7 @@ class AdjustmentProvider with ChangeNotifier {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
       _adjustmentDetail = null;
-      _adjustmentDetailError = "Business ID is not available.";
+      _adjustmentDetailError = 'Business ID is not available.';
       _lastError = _adjustmentDetailError;
       notifyListeners();
       return null;
@@ -602,26 +591,25 @@ class AdjustmentProvider with ChangeNotifier {
         return null;
       }
 
-      final status = (jsonMap['status'] as num?)?.toInt() ?? 0;
+      final status = _asInt(jsonMap['status']);
       if (status < 200 || status >= 300) {
         _adjustmentDetail = null;
-        _adjustmentDetailError =
-            jsonMap['message']?.toString() ??
-            'Failed to load adjustment detail.';
+        _adjustmentDetailError = _asString(
+          jsonMap['message'],
+          fallback: 'Failed to load adjustment detail.',
+        );
         _lastError = _adjustmentDetailError;
         notifyListeners();
         return null;
       }
 
-      final dataJ =
-          (jsonMap['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final dataJ = _asMap(jsonMap['data']) ?? const {};
       if (kDebugMode) {
         debugPrint('[AdjustmentProvider] detail data: ${jsonEncode(dataJ)}');
       }
 
       final txn = AdjustmentTransaction.fromJson(dataJ);
-      final stockOpname = (jsonMap['stockOpname'] as Map?)
-          ?.cast<String, dynamic>();
+      final stockOpname = _asMap(jsonMap['stockOpname']);
       final adjStatus = jsonMap['adjustmentStatus']?.toString();
 
       final result = AdjustmentDetailResult(
@@ -671,7 +659,7 @@ class AdjustmentProvider with ChangeNotifier {
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
+      _lastError = 'Business ID is not available.';
       _deleteAdjustmentError = _lastError;
       notifyListeners();
       return false;
@@ -695,11 +683,12 @@ class AdjustmentProvider with ChangeNotifier {
         return false;
       }
 
-      final status = (jsonMap['status'] as num?)?.toInt() ?? 0;
+      final status = _asInt(jsonMap['status']);
       if (status < 200 || status >= 300) {
-        _deleteAdjustmentError =
-            jsonMap['message']?.toString() ??
-            'Adjustment yang sudah diproses tidak dapat dihapus';
+        _deleteAdjustmentError = _asString(
+          jsonMap['message'],
+          fallback: 'Adjustment yang sudah diproses tidak dapat dihapus',
+        );
         _lastError = _deleteAdjustmentError;
         notifyListeners();
         return false;
@@ -736,7 +725,7 @@ class AdjustmentProvider with ChangeNotifier {
   /// 5) EDIT: Adjustment
   /// =========================
   ///
-  /// POST /waveup/:idBusiness/transaction/adjustment/:idtransaction
+  /// POST /waveup/{bizId}/transaction/adjustment/:idtransaction
   ///
   /// Payload:
   /// { "qty": 10, "note": "Correction note" }
@@ -752,7 +741,7 @@ class AdjustmentProvider with ChangeNotifier {
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
+      _lastError = 'Business ID is not available.';
       _editAdjustmentError = _lastError;
       notifyListeners();
       return false;
@@ -793,16 +782,17 @@ class AdjustmentProvider with ChangeNotifier {
         return false;
       }
 
-      // Pastikan status==200 kalau body JSON
+      // Pastikan status==2xx kalau body JSON
       try {
         final decoded = jsonDecode(res!.body);
         final map = (decoded is Map) ? decoded.cast<String, dynamic>() : null;
         if (map != null) {
-          final st = (map['status'] as num?)?.toInt() ?? 200;
+          final st = _asInt(map['status'], fallback: 200);
           if (st < 200 || st >= 300) {
-            _editAdjustmentError =
-                map['message']?.toString() ??
-                'Adjustment yang sudah diproses tidak dapat diubah';
+            _editAdjustmentError = _asString(
+              map['message'],
+              fallback: 'Adjustment yang sudah diproses tidak dapat diubah',
+            );
             _lastError = _editAdjustmentError;
             notifyListeners();
             return false;
@@ -834,80 +824,17 @@ class AdjustmentProvider with ChangeNotifier {
     }
   }
 
-  /// =========================
-  /// 4) DELETE: Adjustment
-  /// =========================
-  ///
-  /// GET /waveup/:idBusiness/transaction/adjustment/remove/:idtransaction
-  ///
-  /// Response:
-  /// { "status": 200 } atau { "status": 400, "message": "..." }
+  /// Backward-compat alias (biar pemanggilan lama tidak rusak).
+  /// Kamu bisa hapus kalau sudah tidak dipakai di tempat lain.
   Future<bool> deleteAdjustmentByEndpoint({
     required BuildContext context,
     required String idTransaction,
     bool removeFromListOnSuccess = true,
-  }) async {
-    final bizId = await BizIdCache.get();
-    if (bizId == null || bizId.isEmpty) {
-      _lastError = "Business ID is not available.";
-      _deleteAdjustmentError = _lastError;
-      notifyListeners();
-      return false;
-    }
-
-    _deletingAdjustment = true;
-    _deleteAdjustmentError = null;
-    notifyListeners();
-
-    try {
-      final path =
-          '/waveup/$bizId/transaction/adjustment/remove/$idTransaction';
-
-      if (kDebugMode) debugPrint('[AdjustmentProvider] GET $path');
-
-      final jsonMap = await ApiJson.getMap(context, path);
-
-      if (jsonMap == null) {
-        _deleteAdjustmentError = 'Empty response';
-        _lastError = _deleteAdjustmentError;
-        notifyListeners();
-        return false;
-      }
-
-      final status = (jsonMap['status'] as num?)?.toInt() ?? 0;
-      if (status < 200 || status >= 300) {
-        _deleteAdjustmentError =
-            jsonMap['message']?.toString() ??
-            'Adjustment yang sudah diproses tidak dapat dihapus';
-        _lastError = _deleteAdjustmentError;
-        notifyListeners();
-        return false;
-      }
-
-      if (removeFromListOnSuccess) {
-        _adjustments.removeWhere((x) => x.idTransaction == idTransaction);
-      }
-
-      // kalau detail yg kebuka adalah transaksi ini, clear biar UI aman
-      if (_adjustmentDetail?.transaction.idTransaction == idTransaction) {
-        _adjustmentDetail = null;
-        _adjustmentDetailError = null;
-      }
-
-      _deleteAdjustmentError = null;
-      _lastError = null;
-      notifyListeners();
-      return true;
-    } catch (e, st) {
-      _deleteAdjustmentError = e.toString();
-      _lastError = _deleteAdjustmentError;
-      debugPrint('[AdjustmentProvider] deleteAdjustmentByEndpoint error: $e');
-      debugPrint('$st');
-      notifyListeners();
-      return false;
-    } finally {
-      _deletingAdjustment = false;
-      notifyListeners();
-    }
+  }) {
+    return deleteAdjustment(
+      context: context,
+      idTransaction: idTransaction,
+      removeFromListOnSuccess: removeFromListOnSuccess,
+    );
   }
 }
