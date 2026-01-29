@@ -1766,6 +1766,7 @@ class _SubscriptionCheckoutScreenState
                                       if (isIOS) {
                                         await subscription
                                             .startIosSubscriptionPurchase(
+                                              context: context,
                                               pricing: _selectedPricing!,
                                             );
                                         return;

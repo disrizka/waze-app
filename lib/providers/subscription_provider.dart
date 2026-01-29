@@ -432,6 +432,130 @@ class SubscriptionProvider with ChangeNotifier {
   bool _iosPurchasing = false;
   String? _iosIapError;
 
+  // ---------------------------------------------------------------------------
+  // ✅ Apple verify endpoint (after purchase success)
+  // ---------------------------------------------------------------------------
+  BuildContext? _iosLastContext;
+  final Set<String> _verifiedAppleTransactionIds = <String>{};
+
+  Future<int> _getUserIdForAppleVerify() async {
+    // Ambil user_id dari SharedPreferences (coba beberapa key umum).
+    // Kalau di project kamu user id disimpan di key lain, tinggal tambahin di candidates.
+    final prefs = await SharedPreferences.getInstance();
+
+    final candidates = <String>[
+      'user_id',
+      'userId',
+      'id_user',
+      'idUser',
+      'uid',
+    ];
+
+    for (final k in candidates) {
+      final v = prefs.get(k);
+      if (v == null) continue;
+
+      if (v is int) return v;
+      final parsed = int.tryParse(v.toString());
+      if (parsed != null && parsed > 0) return parsed;
+    }
+
+    // fallback
+    debugPrint(
+      '[IAP][AppleVerify] ⚠️ user_id not found in SharedPreferences. Using 0.',
+    );
+    return 0;
+  }
+
+  Map<String, dynamic>? _safeJsonMap(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return decoded.cast<String, dynamic>();
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _postAppleVerify({
+    required String transactionId,
+    required String receiptToken,
+  }) async {
+    final ctx = _iosLastContext;
+    if (ctx == null) {
+      debugPrint('[IAP][AppleVerify] ❌ No context available to call API.');
+      return;
+    }
+
+    if (!ctx.mounted) {
+      debugPrint('[IAP][AppleVerify] ❌ Context not mounted.');
+      return;
+    }
+
+    if (transactionId.trim().isEmpty) {
+      debugPrint('[IAP][AppleVerify] ❌ Missing transaction_id.');
+      return;
+    }
+
+    if (_verifiedAppleTransactionIds.contains(transactionId)) {
+      debugPrint(
+        '[IAP][AppleVerify] ⏭️ Already verified tx=$transactionId, skip.',
+      );
+      return;
+    }
+
+    final userId = await _getUserIdForAppleVerify();
+
+    const path = '/premium/apple/verify';
+    final payload = <String, dynamic>{
+      "transaction_id": transactionId,
+      "receipt_token": receiptToken,
+      "user_id": userId,
+    };
+
+    // Debug payload (receipt token panjang, jadi kita chunk)
+    debugPrint(
+      '📤 [IAP][AppleVerify] POST $path payload:\n'
+      '${const JsonEncoder.withIndent("  ").convert({"transaction_id": transactionId, "user_id": userId, "receipt_token_len": receiptToken.length})}',
+    );
+
+    try {
+      final res = await ApiService.post(
+        ctx,
+        path,
+        payload,
+        withAccessToken: true,
+      );
+
+      final raw = res.body;
+      debugPrint(
+        '[IAP][AppleVerify] ◀︎ ${res.statusCode} '
+        '${raw.length > 500 ? raw.substring(0, 500) + "…" : raw}',
+      );
+
+      // Anggap berhasil kalau HTTP 2xx dan/atau JSON status==200
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final m = _safeJsonMap(raw);
+        final apiStatus = (m?['status'] as num?)?.toInt();
+        if (apiStatus == null || apiStatus == 200) {
+          _verifiedAppleTransactionIds.add(transactionId);
+          debugPrint('[IAP][AppleVerify] ✅ Verified OK tx=$transactionId');
+          return;
+        }
+
+        debugPrint(
+          '[IAP][AppleVerify] ⚠️ API status != 200 (status=$apiStatus)',
+        );
+        return;
+      }
+
+      debugPrint('[IAP][AppleVerify] ❌ HTTP error ${res.statusCode}');
+    } catch (e, st) {
+      debugPrint('[IAP][AppleVerify] ❌ error: $e\n$st');
+    }
+  }
+
   /// Dipakai UI untuk show snackbar sekali (screen akan clear).
   String? _iosLastMessage;
 
@@ -626,9 +750,13 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   Future<void> startIosSubscriptionPurchase({
+    required BuildContext context,
     required PlanPricing pricing,
   }) async {
     if (!isIOS) return;
+
+    // simpan context untuk dipakai verify
+    _iosLastContext = context;
 
     if (!_iosIapInitDone || _iosIapInitLoading) {
       await initIosIap();
@@ -679,6 +807,7 @@ class SubscriptionProvider with ChangeNotifier {
       if (p.status == PurchaseStatus.pending) {
         _iosPurchasing = true;
         notifyListeners();
+        continue;
       }
 
       if (p.status == PurchaseStatus.error) {
@@ -686,23 +815,71 @@ class SubscriptionProvider with ChangeNotifier {
         _iosIapError = p.error?.message ?? 'Unknown purchase error';
         _iosLastMessage = _iosIapError;
         notifyListeners();
+        continue;
       }
 
-      // if (p.status == PurchaseStatus.purchased ||
-      //     p.status == PurchaseStatus.restored) {
-      //   _iosPurchasing = false;
+      if (p.status == PurchaseStatus.purchased ||
+          p.status == PurchaseStatus.restored) {
+        _iosPurchasing = false;
 
-      //   final serverData = p.verificationData.serverVerificationData;
-      //   if (kDebugMode) {
-      //     debugPrint('[IAP][Provider] productID=${p.productID}');
-      //     debugPrint(
-      //       '[IAP][Provider] serverVerificationData length=${serverData.length}',
-      //     );
-      //   }
+        // ===== StoreKit 2 JWS =====
+        final receiptToken = p.verificationData.serverVerificationData;
 
-      //   _iosLastMessage = 'Subscription purchased successfully.';
-      //   notifyListeners();
-      // }
+        // 1) purchaseID sering sudah berisi transactionId (bergantung platform wrapper)
+        String? transactionId = p.purchaseID;
+        String? originalTransactionId;
+
+        // 2) Kalau SK2, coba parse transactionId & originalTransactionId dari JWS payload
+        if (p is SK2PurchaseDetails) {
+          final parts = receiptToken.split('.');
+          if (parts.length == 3) {
+            try {
+              final payloadJson = utf8.decode(
+                base64Url.decode(base64Url.normalize(parts[1])),
+              );
+              final payloadMap =
+                  jsonDecode(payloadJson) as Map<String, dynamic>;
+
+              transactionId ??= payloadMap['transactionId']?.toString();
+              originalTransactionId ??= payloadMap['originalTransactionId']
+                  ?.toString();
+            } catch (_) {
+              // ignore parse error, still print payload with what we have
+            }
+          }
+        }
+
+        // ===== Payload yang mau kamu kirim ke backend =====
+        final payload = <String, dynamic>{
+          "platform": "ios",
+          "store": "apple",
+          "product_id": p.productID,
+          "transaction_id": transactionId,
+          "original_transaction_id": originalTransactionId,
+          "receipt_token": receiptToken, // JWS (SK2) biasanya panjang
+        };
+
+        void _printLong(String label, String text, {int chunkSize = 800}) {
+          debugPrint('----- $label (len=${text.length}) -----');
+          for (var i = 0; i < text.length; i += chunkSize) {
+            final end = (i + chunkSize < text.length)
+                ? i + chunkSize
+                : text.length;
+            debugPrint(text.substring(i, end));
+          }
+          debugPrint('----- end $label -----');
+        }
+
+        _printLong('receipt_token', receiptToken);
+
+        // ===== Print payload (rapi) =====
+        debugPrint(
+          '✅ [IAP][SK2] PURCHASE SUCCESS PAYLOAD:\n${const JsonEncoder.withIndent("  ").convert(payload)}',
+        );
+
+        _iosLastMessage = 'Subscription purchased successfully.';
+        notifyListeners();
+      }
 
       if (p.pendingCompletePurchase) {
         try {
@@ -3070,4 +3247,31 @@ class SubscriptionProvider with ChangeNotifier {
 
     super.dispose();
   }
+}
+
+class _ParsedSk2Ids {
+  final String? transactionId;
+  final String? originalTransactionId;
+  const _ParsedSk2Ids({this.transactionId, this.originalTransactionId});
+}
+
+_ParsedSk2Ids? _tryParseSk2IdsFromJws(String jws) {
+  // JWS format: header.payload.signature
+  final parts = jws.split('.');
+  if (parts.length != 3) return null;
+
+  Map<String, dynamic>? payload;
+  try {
+    final normalized = base64Url.normalize(parts[1]);
+    final bytes = base64Url.decode(normalized);
+    payload = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+  } catch (_) {
+    return null;
+  }
+
+  // Apple StoreKit2 JWS biasanya pakai key: "transactionId" & "originalTransactionId"
+  final txId = payload['transactionId']?.toString();
+  final origTxId = payload['originalTransactionId']?.toString();
+
+  return _ParsedSk2Ids(transactionId: txId, originalTransactionId: origTxId);
 }

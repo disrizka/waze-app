@@ -64,25 +64,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   }
 
   DateTime _resolveCreatedAt(StoreOrder it) {
-    if (it.createTimeEpoch > 0) {
-      return DateTime.fromMillisecondsSinceEpoch(it.createTimeEpoch * 1000);
-    }
+    if (it.createTimeEpoch > 0) return it.createdAt;
 
     final s = it.createTimeLabel.trim();
     if (s.isNotEmpty) {
       try {
         return DateFormat('dd-MM-yyyy HH:mm', 'id_ID').parseStrict(s);
-      } catch (_) {
-        // ignore
-      }
+      } catch (_) {}
       final dt2 = DateTime.tryParse(s);
       if (dt2 != null) return dt2;
     }
-
     return DateTime.now();
   }
 
-  // Parse transaksi created_at ISO -> tampil ringkas
   String _formatTxDate(String raw) {
     final v = raw.trim();
     if (v.isEmpty) return '-';
@@ -90,11 +84,42 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       final dt = DateTime.parse(v).toLocal();
       return _time.format(dt);
     } catch (_) {
-      return v; // fallback
+      return v;
     }
   }
 
   bool _isTiktok(String platform) => platform.toLowerCase().contains('tiktok');
+
+  Future<void> _onAccept(
+    BuildContext context,
+    OrderProvider prov,
+    StoreOrder order,
+  ) async {
+    final ok = await prov.acceptStoreOrder(
+      context,
+      orderId: order.idStoreOrder,
+      refreshListOnSuccess: true,
+      refreshDetailOnSuccess: true,
+    );
+
+    if (!mounted) return;
+
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Order accepted successfully.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      final msg = prov.acceptError?.trim().isNotEmpty == true
+          ? prov.acceptError!.trim()
+          : 'Failed to accept order.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +152,113 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           const SizedBox(width: 6),
         ],
       ),
+
+      // Floating bottom accept bar
+      bottomNavigationBar: Consumer<OrderProvider>(
+        builder: (context, prov, _) {
+          final order = prov.orderDetail;
+          final canShow = order != null && order.processed == false;
+          if (!canShow) return const SizedBox.shrink();
+
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: _border),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x14111827),
+                      blurRadius: 18,
+                      offset: Offset(0, 10),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if ((prov.acceptError ?? '').trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              size: 18,
+                              color: Color(0xFF991B1B),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                prov.acceptError!.trim(),
+                                style: const TextStyle(
+                                  color: Color(0xFF991B1B),
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _blue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 13,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        onPressed: prov.accepting
+                            ? null
+                            : () => _onAccept(context, prov, order!),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (prov.accepting) ...[
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.2,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Accepting...',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ] else ...[
+                              const Icon(Icons.check_circle_rounded, size: 18),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Accept order',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+
       body: Consumer<OrderProvider>(
         builder: (context, prov, _) {
           final loading = prov.loadingDetail;
@@ -175,10 +307,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
           final totalText = 'Rp ${_money.format(order.totalAmount)}';
           final createdAt = _time.format(_resolveCreatedAt(order));
-          final statusLabel = _prettyStatus(order.status);
           final items = order.items;
 
-          // tx ringkas
           final txStatus = _safe(tx?['status']?.toString(), fallback: '');
           final txNumber = _safe(tx?['number']?.toString(), fallback: '');
           final txCreatedAtRaw = _safe(
@@ -197,6 +327,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   txAmount != null ||
                   txNote.isNotEmpty);
 
+          // extra bottom padding supaya list tidak ketutup floating bar
+          final extraBottomPad = order.processed ? 18.0 : 120.0;
+
           return RefreshIndicator(
             color: _blue,
             onRefresh: () => prov.fetchStoreOrderDetail(
@@ -205,9 +338,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             ),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+              padding: EdgeInsets.fromLTRB(16, 12, 16, extraBottomPad),
               children: [
-                // ===== Compact Summary
+                // ===== Header Summary (lebih clean)
                 _Card(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -222,7 +355,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // ID + status
+                            // ID + Order Status chip (1 chip saja)
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -239,20 +372,28 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 10),
-                                _StatusPill(status: order.status),
+                                _OrderStatusChip(status: order.status),
                               ],
                             ),
-                            Text(
-                              createdAt,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: _textMuted,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 8),
 
-                            // Platform + Total (lebih ringkas)
+                            // Processed + Date (tanpa chip, rapi)
+                            Row(
+                              children: [
+                                _ProcessedInlineBadge(
+                                  processed: order.processed,
+                                ),
+                                const Spacer(),
+                                _MetaLine(
+                                  icon: Icons.schedule_rounded,
+                                  text: createdAt,
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            // Platform + Total
                             Row(
                               children: [
                                 _PlatformMini(
@@ -293,7 +434,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
                 const SizedBox(height: 12),
 
-                // ===== Transaction (compact + optional expand)
+                // ===== Transaction
                 if (hasTx) ...[
                   _Card(
                     child: Column(
@@ -307,8 +448,6 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                           ),
                         ),
                         const SizedBox(height: 10),
-
-                        // baris ringkas 1
                         Row(
                           children: [
                             _TinyInfo(
@@ -327,14 +466,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                             ),
                           ],
                         ),
-
-                        // optional details (expand)
                         if (txCreatedAtRaw.isNotEmpty ||
                             txAmount != null ||
                             txNote.isNotEmpty) ...[
                           const SizedBox(height: 6),
                           Theme(
-                            // rapihin default padding expansion tile
                             data: Theme.of(context).copyWith(
                               dividerColor: Colors.transparent,
                               splashColor: Colors.transparent,
@@ -378,7 +514,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   const SizedBox(height: 12),
                 ],
 
-                // ===== Items (ringkas)
+                // ===== Items
                 _Card(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -408,8 +544,6 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                               const SizedBox(height: 12),
                           itemBuilder: (context, i) {
                             final it = items[i];
-
-                            // asumsi field sesuai response "items"
                             final name = _safe(
                               it.productName,
                               fallback: 'Item',
@@ -605,9 +739,147 @@ class _PlatformMini extends StatelessWidget {
   }
 }
 
-class _StatusPill extends StatelessWidget {
+class _MetaLine extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _MetaLine({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF9CA3AF)),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF6B7280),
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProcessedInlineBadge extends StatelessWidget {
+  final bool processed;
+  const _ProcessedInlineBadge({required this.processed});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = processed ? 'Processed' : 'Unprocessed';
+    final icon = processed
+        ? Icons.verified_rounded
+        : Icons.hourglass_bottom_rounded;
+
+    final Color fg = processed
+        ? const Color(0xFF1F3D99)
+        : const Color(0xFF9A3412);
+    final Color bg = processed
+        ? const Color(0xFFEFF6FF)
+        : const Color(0xFFFFF7ED);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: fg),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: fg,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderStatusChip extends StatelessWidget {
   final String status;
-  const _StatusPill({required this.status});
+  const _OrderStatusChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final key = status.trim().toLowerCase();
+
+    late Color bg;
+    late Color fg;
+    late Color bd;
+    late IconData icon;
+
+    switch (key) {
+      case 'completed':
+      case 'paid':
+      case 'success':
+      case 'delivered':
+        bg = const Color(0xFFE6F4EA);
+        fg = const Color(0xFF166534);
+        bd = const Color(0xFFBBF7D0);
+        icon = Icons.check_circle_rounded;
+        break;
+      case 'canceled':
+      case 'cancelled':
+      case 'void':
+      case 'failed':
+        bg = const Color(0xFFFEE2E2);
+        fg = const Color(0xFF991B1B);
+        bd = const Color(0xFFFECACA);
+        icon = Icons.cancel_rounded;
+        break;
+      case 'processing':
+      case 'in progress':
+        bg = const Color(0xFFEFF6FF);
+        fg = const Color(0xFF1F3D99);
+        bd = const Color(0xFFDBEAFE);
+        icon = Icons.autorenew_rounded;
+        break;
+      default:
+        bg = const Color(0xFFFEF3C7);
+        fg = const Color(0xFF92400E);
+        bd = const Color(0xFFFDE68A);
+        icon = Icons.local_shipping_rounded;
+        break;
+    }
+
+    final label = status.trim().isEmpty ? '-' : _pretty(status);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: bd),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: fg),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: fg,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   String _pretty(String s) {
     final cleaned = s.trim().replaceAll(RegExp(r'[_\-\s]+'), ' ');
@@ -618,80 +890,32 @@ class _StatusPill extends StatelessWidget {
         .map((w) => w[0].toUpperCase() + w.substring(1).toLowerCase())
         .join(' ');
   }
-
-  @override
-  Widget build(BuildContext context) {
-    final key = status.trim().toLowerCase();
-
-    Color bg;
-    Color fg;
-    Color bd;
-
-    switch (key) {
-      case 'completed':
-      case 'paid':
-      case 'success':
-        bg = const Color(0xFFE6F4EA);
-        fg = const Color(0xFF166534);
-        bd = const Color(0xFFBBF7D0);
-        break;
-      case 'canceled':
-      case 'cancelled':
-      case 'void':
-      case 'failed':
-        bg = const Color(0xFFFEE2E2);
-        fg = const Color(0xFF991B1B);
-        bd = const Color(0xFFFECACA);
-        break;
-      default:
-        bg = const Color(0xFFFEF3C7);
-        fg = const Color(0xFF92400E);
-        bd = const Color(0xFFFDE68A);
-        break;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: bd),
-      ),
-      child: Text(
-        _pretty(status),
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: fg),
-      ),
-    );
-  }
 }
 
 class _TinyInfo extends StatelessWidget {
   final IconData icon;
   final String text;
   final bool alignEnd;
-
-  /// Optional: batasi lebar maksimal agar tidak kepanjangan & overflow.
-  /// Kalau mau benar-benar mengikuti text tanpa batas, set null.
   final double? maxWidth;
 
   const _TinyInfo({
     required this.icon,
     required this.text,
     this.alignEnd = false,
-    this.maxWidth = 260, // bisa kamu ubah / null
+    this.maxWidth = 260,
   });
 
   @override
   Widget build(BuildContext context) {
     final content = Row(
-      mainAxisSize: MainAxisSize.min, // ✅ shrink-wrap
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 16, color: const Color(0xFF2F5FD0)),
         const SizedBox(width: 8),
         Text(
           text,
           maxLines: 1,
-          overflow: TextOverflow.ellipsis, // aman kalau kena maxWidth
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: Color(0xFF1F3D99),
             fontWeight: FontWeight.w900,
