@@ -2249,10 +2249,9 @@ class SubscriptionProvider with ChangeNotifier {
   MidtransConfig? _midtransConfigSnapshot;
 
   Future<void> _initMidtransIfNeeded(BuildContext context) async {
-    const midtransClientKey = "SB-Mid-client-OlAvtRicKKPMklc4";
-    // const midtransClientKey = "Mid-client-ej_BQW5VVp_G2hAy";
+    final midtransClientKey = dotenv.env['MIDTRANS_CLIENT_KEY'];
 
-    const merchantBaseUrl = "https://wave-api.eon.id";
+    final merchantBaseUrl = dotenv.env['MERCHANT_BASE_URL'];
     final cs = Theme.of(context).colorScheme;
 
     debugPrint("[Midtrans][init] Clearing previous instance/config...");
@@ -2268,8 +2267,8 @@ class SubscriptionProvider with ChangeNotifier {
 
     // 3) init baru
     final cfg = MidtransConfig(
-      merchantBaseUrl: merchantBaseUrl,
-      clientKey: midtransClientKey,
+      merchantBaseUrl: merchantBaseUrl!,
+      clientKey: midtransClientKey!,
       colorTheme: ColorTheme(
         colorPrimary: cs.primary,
         colorPrimaryDark: cs.primary,

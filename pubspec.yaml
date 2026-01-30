@@ -1,7 +1,7 @@
 name: wa_blast
 description: "WaveUp"
 publish_to: 'none'
-version: 0.2.1+8
+version: 0.2.3+9
 
 environment:
   sdk: ">=3.8.1 <4.0.0"
