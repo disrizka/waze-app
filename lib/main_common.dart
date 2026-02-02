@@ -15,6 +15,7 @@ import 'package:wa_blast/providers/adjustment_provider.dart';
 import 'package:wa_blast/providers/hr_provider.dart';
 import 'package:wa_blast/providers/order_provider.dart';
 import 'package:wa_blast/screens/adjustment/adjustment_list_screen.dart';
+import 'package:wa_blast/screens/inventory/initial_stock_detail_screen.dart';
 import 'package:wa_blast/screens/order/order_list_screen.dart';
 import 'package:wa_blast/screens/stock-opname/stock_opname_create_screen.dart';
 import 'package:wa_blast/screens/stock-opname/stock_opname_form_screen.dart';
@@ -488,6 +489,13 @@ class MyApp extends StatelessWidget {
           settings,
           const StockScreen(),
           android: AndroidTransition.slideRight,
+        );
+
+      case '/stock/initial-stock/detail':
+        return _platformRouteAnimated(
+          settings,
+          const InitialStockDetailScreen(),
+          android: AndroidTransition.slideUp,
         );
 
       case '/stock/initial-stock/add':

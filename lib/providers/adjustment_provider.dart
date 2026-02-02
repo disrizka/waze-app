@@ -36,6 +36,31 @@ List<Map<String, dynamic>> _asListOfMap(dynamic v) {
 /// MODELS - ADJUSTMENT
 /// =========================
 
+/// Payload edit adjustment (items)
+@immutable
+class EditAdjustmentItemPayload {
+  final String productId;
+  final String productSkuId;
+  final int qty;
+
+  /// mode: "set" | "add" | "sub" (sesuai backend kamu)
+  final String mode;
+
+  const EditAdjustmentItemPayload({
+    required this.productId,
+    required this.productSkuId,
+    required this.qty,
+    required this.mode,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'product_id': productId,
+    'product_sku_id': productSkuId,
+    'qty': qty,
+    'mode': mode,
+  };
+}
+
 @immutable
 class AdjustmentStoreLocationLite {
   final String idStoreLocation;
@@ -732,22 +757,66 @@ class AdjustmentProvider with ChangeNotifier {
   ///
   /// Response:
   /// { "status": 200 } atau { "status": 400, "message": "..." }
+  /// =========================
+  /// 5) EDIT: Adjustment
+  /// =========================
+  ///
+  /// POST /waveup/{bizId}/transaction/adjustment/:idtransaction
+  ///
+  /// Payload:
+  /// {
+  ///   "items": [
+  ///     { "product_id": "...", "product_sku_id": "...", "qty": 50, "mode": "set" },
+  ///     { "product_id": "...", "product_sku_id": "...", "qty": 5,  "mode": "add" }
+  ///   ],
+  ///   "note": "..."
+  /// }
+  ///
+  /// Response:
+  /// { "status": 200 } atau { "status": 400, "message": "..." }
   Future<bool> editAdjustment({
     required BuildContext context,
     required String idTransaction,
-    required int qty,
+    required List<EditAdjustmentItemPayload> items,
     required String note,
     bool refreshDetailAfter = true,
   }) async {
     final bizId = await BizIdCache.get();
+
+    if (kDebugMode) {
+      debugPrint('==============================');
+      debugPrint('[AdjustmentProvider] editAdjustment() START');
+      debugPrint('[AdjustmentProvider] bizId=$bizId');
+      debugPrint('[AdjustmentProvider] idTransaction=$idTransaction');
+      debugPrint('[AdjustmentProvider] itemsCount=${items.length}');
+      for (var i = 0; i < items.length; i++) {
+        final it = items[i];
+        debugPrint(
+          '[AdjustmentProvider] item[$i] product_id=${it.productId} '
+          'product_sku_id=${it.productSkuId} qty=${it.qty} mode=${it.mode}',
+        );
+      }
+      debugPrint('[AdjustmentProvider] note=$note');
+      debugPrint('==============================');
+    }
+
     if (bizId == null || bizId.isEmpty) {
       _lastError = 'Business ID is not available.';
       _editAdjustmentError = _lastError;
+
+      if (kDebugMode) {
+        debugPrint('[AdjustmentProvider] editAdjustment() ABORT: bizId empty');
+        debugPrint('[AdjustmentProvider] error=$_editAdjustmentError');
+      }
+
       notifyListeners();
       return false;
     }
 
-    final payload = <String, dynamic>{'qty': qty, 'note': note};
+    final payload = <String, dynamic>{
+      'items': items.map((e) => e.toJson()).toList(),
+      'note': note,
+    };
 
     _editingAdjustment = true;
     _editAdjustmentError = null;
@@ -761,16 +830,24 @@ class AdjustmentProvider with ChangeNotifier {
         debugPrint('[AdjustmentProvider] payload: ${jsonEncode(payload)}');
       }
 
+      final t0 = DateTime.now();
       final res = await ApiService.post(
         context,
         path,
         payload,
         withAccessToken: true,
       );
+      final t1 = DateTime.now();
 
-      if (kDebugMode && res != null) {
-        debugPrint('[AdjustmentProvider] EDIT status: ${res.statusCode}');
-        debugPrint('[AdjustmentProvider] EDIT body  : ${res.body}');
+      if (kDebugMode) {
+        debugPrint(
+          '[AdjustmentProvider] EDIT roundtrip ms=${t1.difference(t0).inMilliseconds}',
+        );
+        debugPrint('[AdjustmentProvider] EDIT res null? ${res == null}');
+        if (res != null) {
+          debugPrint('[AdjustmentProvider] EDIT statusCode=${res.statusCode}');
+          debugPrint('[AdjustmentProvider] EDIT body=${res.body}');
+        }
       }
 
       final ok = res != null && res.statusCode >= 200 && res.statusCode < 300;
@@ -778,14 +855,31 @@ class AdjustmentProvider with ChangeNotifier {
         _editAdjustmentError =
             'Failed to edit adjustment: ${res?.statusCode} ${res?.body}';
         _lastError = _editAdjustmentError;
+
+        if (kDebugMode) {
+          debugPrint('[AdjustmentProvider] editAdjustment() FAILED (http)');
+          debugPrint('[AdjustmentProvider] error=$_editAdjustmentError');
+        }
+
         notifyListeners();
         return false;
       }
 
-      // Pastikan status==2xx kalau body JSON
+      // Jika body JSON punya field status yang bukan 2xx -> anggap error
       try {
         final decoded = jsonDecode(res!.body);
         final map = (decoded is Map) ? decoded.cast<String, dynamic>() : null;
+
+        if (kDebugMode) {
+          debugPrint('[AdjustmentProvider] EDIT decodedIsMap=${map != null}');
+          if (map != null) {
+            debugPrint(
+              '[AdjustmentProvider] EDIT json.status=${map['status']} '
+              'json.message=${map['message']}',
+            );
+          }
+        }
+
         if (map != null) {
           final st = _asInt(map['status'], fallback: 200);
           if (st < 200 || st >= 300) {
@@ -794,12 +888,23 @@ class AdjustmentProvider with ChangeNotifier {
               fallback: 'Adjustment yang sudah diproses tidak dapat diubah',
             );
             _lastError = _editAdjustmentError;
+
+            if (kDebugMode) {
+              debugPrint('[AdjustmentProvider] editAdjustment() FAILED (json)');
+              debugPrint('[AdjustmentProvider] jsonStatus=$st');
+              debugPrint('[AdjustmentProvider] error=$_editAdjustmentError');
+            }
+
             notifyListeners();
             return false;
           }
         }
-      } catch (_) {
-        // ignore
+      } catch (e) {
+        // body bukan JSON, ignore karena http sudah 2xx
+        if (kDebugMode) {
+          debugPrint('[AdjustmentProvider] EDIT body is not JSON (ignored)');
+          debugPrint('[AdjustmentProvider] jsonDecode error: $e');
+        }
       }
 
       _editAdjustmentError = null;
@@ -807,19 +912,36 @@ class AdjustmentProvider with ChangeNotifier {
       notifyListeners();
 
       if (refreshDetailAfter) {
+        if (kDebugMode) {
+          debugPrint(
+            '[AdjustmentProvider] editAdjustment() refreshDetailAfter=true -> fetchAdjustmentDetail($idTransaction)',
+          );
+        }
         await fetchAdjustmentDetail(context, idTransaction);
+      }
+
+      if (kDebugMode) {
+        debugPrint('[AdjustmentProvider] editAdjustment() SUCCESS');
       }
 
       return true;
     } catch (e, st) {
       _editAdjustmentError = e.toString();
       _lastError = _editAdjustmentError;
-      debugPrint('[AdjustmentProvider] editAdjustment error: $e');
+
+      debugPrint('[AdjustmentProvider] editAdjustment() EXCEPTION: $e');
       debugPrint('$st');
+
       notifyListeners();
       return false;
     } finally {
       _editingAdjustment = false;
+
+      if (kDebugMode) {
+        debugPrint('[AdjustmentProvider] editAdjustment() END loading=false');
+        debugPrint('==============================');
+      }
+
       notifyListeners();
     }
   }

@@ -1,5 +1,8 @@
+// lib/screens/adjustment/adjustment_form_screen.dart
 import 'dart:async';
+import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -11,28 +14,61 @@ import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart' as st;
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 
-class AdjustmentCreateScreen extends StatefulWidget {
-  const AdjustmentCreateScreen({super.key});
+/// ===============================
+/// Adjustment Form Screen
+/// - reusable untuk CREATE & EDIT
+/// - mode ditentukan dari parameter:
+///   - create: initialTransaction == null
+///   - edit  : initialTransaction != null (atau idTransaction + fetch detail)
+/// ===============================
+
+class AdjustmentFormScreen extends StatefulWidget {
+  /// Jika di-pass, layar akan masuk mode EDIT dan prefill data.
+  /// Kamu bisa pass dari list/detail.
+  final AdjustmentTransaction? initialTransaction;
+
+  /// Alternatif: kalau kamu cuma punya idTransaction (mis. dari routing),
+  /// provider akan fetch detail untuk prefill.
+  final String? idTransaction;
+
+  /// Opsional: lock store saat edit (default true)
+  final bool lockStoreOnEdit;
+
+  const AdjustmentFormScreen({
+    super.key,
+    this.initialTransaction,
+    this.idTransaction,
+    this.lockStoreOnEdit = true,
+  });
+
+  bool get isEdit =>
+      initialTransaction != null || (idTransaction ?? '').isNotEmpty;
 
   @override
-  State<AdjustmentCreateScreen> createState() => _AdjustmentCreateScreenState();
+  State<AdjustmentFormScreen> createState() => _AdjustmentFormScreenState();
 }
 
-class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
+class _AdjustmentFormScreenState extends State<AdjustmentFormScreen> {
   final TextEditingController _notesC = TextEditingController();
 
   String? _storeLocationId;
   String? _storeLocationName;
 
   final List<_AdjSelectedItem> _items = [];
+
   bool _booted = false;
+  bool _prefilled = false;
+  bool _prefillLoading = false;
+
+  String? _editIdTransaction;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _autoSelectSingleStoreIfNeeded(),
-    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _boot();
+    });
   }
 
   @override
@@ -41,17 +77,34 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
     super.dispose();
   }
 
-  Future<void> _autoSelectSingleStoreIfNeeded() async {
+  Future<void> _boot() async {
     if (!mounted) return;
     if (_booted) return;
     _booted = true;
 
+    // 1) fetch store list jika perlu
+    await _ensureStoresLoaded();
+
+    // 2) prefill edit jika mode edit
+    if (widget.isEdit) {
+      await _prefillEditIfNeeded();
+    } else {
+      // 3) create mode: auto select store jika single store
+      await _autoSelectSingleStoreIfNeeded();
+    }
+  }
+
+  Future<void> _ensureStoresLoaded() async {
     final sp = context.read<st.StoreProvider>();
     if (sp.stores.isEmpty && !sp.loadingList) {
       await sp.fetchStoreLocations(context);
     }
+  }
+
+  Future<void> _autoSelectSingleStoreIfNeeded() async {
     if (!mounted) return;
 
+    final sp = context.read<st.StoreProvider>();
     if (sp.stores.length == 1) {
       final s = sp.stores.first;
       setState(() {
@@ -68,7 +121,105 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
     }
   }
 
+  Future<void> _prefillEditIfNeeded() async {
+    if (!mounted) return;
+    if (_prefilled) return;
+
+    _prefilled = true;
+    _prefillLoading = true;
+    setState(() {});
+
+    try {
+      AdjustmentTransaction? txn = widget.initialTransaction;
+      _editIdTransaction = txn?.idTransaction;
+
+      // kalau belum ada transaction lengkap, fetch detail dari provider
+      if (txn == null) {
+        final id = (widget.idTransaction ?? '').trim();
+        if (id.isNotEmpty) {
+          final res = await context
+              .read<AdjustmentProvider>()
+              .fetchAdjustmentDetail(context, id);
+          txn = res?.transaction;
+          _editIdTransaction = txn?.idTransaction ?? id;
+        }
+      }
+
+      if (!mounted) return;
+
+      if (txn == null) {
+        _showToastSheet(
+          title: 'Gagal memuat data',
+          message: 'Data adjustment untuk diedit tidak ditemukan.',
+          icon: Icons.error_outline_rounded,
+        );
+        return;
+      }
+
+      // prefill note
+      _notesC.text = txn.note;
+
+      // prefill store
+      _storeLocationId = txn.storeLocationId;
+      _storeLocationName = txn.storeLocation.name;
+
+      // prefill items:
+      // backend: items punya qtyIn & qtyOut -> kita jadikan signed qty (netQty)
+      _items
+        ..clear()
+        ..addAll(
+          txn.items.map((it) {
+            final skuId = it.productSkuId;
+            final productId = it.productId;
+
+            final productName = it.product?.name ?? '(Unknown Product)';
+            final imageUrl = it.product?.primaryImageUrl ?? '';
+            final skuCode = it.productSku?.code ?? '-';
+
+            return _AdjSelectedItem(
+              productId: productId,
+              productName: productName,
+              imageUrl: imageUrl,
+              skuId: skuId,
+              skuCode: skuCode,
+              qty: it.netQty, // signed
+            );
+          }),
+        );
+
+      // set store untuk infinite product picker
+      try {
+        await context.read<ProductProvider>().setInfiniteStoreAndRefresh(
+          context,
+          _storeLocationId!,
+        );
+      } catch (_) {}
+
+      setState(() {});
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[AdjustmentFormScreen] prefill edit error: $e');
+        debugPrint('$st');
+      }
+      if (!mounted) return;
+      _showToastSheet(
+        title: 'Gagal memuat data',
+        message: e.toString(),
+        icon: Icons.error_outline_rounded,
+      );
+    } finally {
+      if (!mounted) return;
+      _prefillLoading = false;
+      setState(() {});
+    }
+  }
+
+  bool get _isEdit => widget.isEdit;
+  bool get _storeLocked => _isEdit && widget.lockStoreOnEdit;
+
   Future<void> _pickStore() async {
+    if (_storeLocked) return;
+
     final picked = await showStorePickerSheet(
       context,
       autoSelectWhenSingle: true,
@@ -110,10 +261,9 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
       for (final picked in res) {
         final idx = _items.indexWhere((x) => x.skuId == picked.skuId);
         if (idx >= 0) {
-          // ✅ qty 0 boleh: jangan dihapus
+          // qty 0 boleh
           _items[idx] = _items[idx].copyWith(qty: _items[idx].qty + picked.qty);
         } else {
-          // ✅ qty 0 boleh: tetap add
           _items.add(picked);
         }
       }
@@ -129,10 +279,7 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
   void _setQty(String skuId, int qty) {
     setState(() {
       final i = _items.indexWhere((x) => x.skuId == skuId);
-      if (i >= 0) {
-        // ✅ qty 0 boleh: jangan remove
-        _items[i] = _items[i].copyWith(qty: qty);
-      }
+      if (i >= 0) _items[i] = _items[i].copyWith(qty: qty);
     });
   }
 
@@ -147,7 +294,6 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
       return;
     }
 
-    // ✅ qty 0 dianggap valid: asal item tidak kosong
     if (_items.isEmpty) {
       _showToastSheet(
         title: 'Item masih kosong',
@@ -162,24 +308,87 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
 
     final prov = context.read<AdjustmentProvider>();
 
-    final payloadItems = _items
-        .map(
-          (e) => CreateAdjustmentItemPayload(
+    // loading state (create vs edit)
+    final bool busy = _isEdit
+        ? prov.editingAdjustment
+        : prov.creatingAdjustment;
+    if (busy) return;
+
+    bool success = false;
+
+    if (_isEdit) {
+      final idTxn = (_editIdTransaction ?? widget.idTransaction ?? '').trim();
+      if (idTxn.isEmpty) {
+        _showToastSheet(
+          title: 'Tidak bisa edit',
+          message: 'ID transaction tidak ditemukan.',
+          icon: Icons.error_outline_rounded,
+        );
+        return;
+      }
+
+      // EDIT mode butuh mode set/add/sub.
+      // Supaya reusable dan predictable:
+      // - default kita kirim mode "set" untuk semua item,
+      //   artinya backend set qty menjadi qty signed (kalau backend support signed).
+      // Kalau backend kamu expect qty selalu positive + mode add/sub, kamu bisa map:
+      //  qty>0 => mode add, qty<0 => mode sub, qty==0 => mode set 0 (atau add 0)
+      final editItems = _items.map((e) {
+        // Strategi aman untuk banyak backend:
+        // - jika qty==0: set 0
+        // - jika qty>0: add qty
+        // - jika qty<0: sub abs(qty)
+        if (e.qty == 0) {
+          return EditAdjustmentItemPayload(
             productId: e.productId,
             productSkuId: e.skuId,
-            qty: e.qty, // ✅ 0 juga boleh dikirim
-          ),
-        )
-        .toList();
+            qty: 0,
+            mode: 'set',
+          );
+        } else if (e.qty > 0) {
+          return EditAdjustmentItemPayload(
+            productId: e.productId,
+            productSkuId: e.skuId,
+            qty: e.qty,
+            mode: 'add',
+          );
+        } else {
+          return EditAdjustmentItemPayload(
+            productId: e.productId,
+            productSkuId: e.skuId,
+            qty: e.qty.abs(),
+            mode: 'sub',
+          );
+        }
+      }).toList();
 
-    final success = await prov.createAdjustment(
-      context: context,
-      storeLocationId: storeId,
-      note: _notesC.text.trim(),
-      items: payloadItems,
-      refreshListAfter: true,
-      refreshLimit: 30,
-    );
+      success = await prov.editAdjustment(
+        context: context,
+        idTransaction: idTxn,
+        items: editItems,
+        note: _notesC.text.trim(),
+        refreshDetailAfter: true,
+      );
+    } else {
+      final payloadItems = _items
+          .map(
+            (e) => CreateAdjustmentItemPayload(
+              productId: e.productId,
+              productSkuId: e.skuId,
+              qty: e.qty, // 0 boleh
+            ),
+          )
+          .toList();
+
+      success = await prov.createAdjustment(
+        context: context,
+        storeLocationId: storeId,
+        note: _notesC.text.trim(),
+        items: payloadItems,
+        refreshListAfter: true,
+        refreshLimit: 30,
+      );
+    }
 
     if (!mounted) return;
 
@@ -188,42 +397,67 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
       return;
     }
 
+    final err = _isEdit
+        ? (prov.editAdjustmentError ?? prov.lastError)
+        : (prov.createAdjustmentError ?? prov.lastError);
+
     _showToastSheet(
-      title: 'Gagal membuat adjustment',
-      message:
-          prov.createAdjustmentError ?? prov.lastError ?? 'Terjadi kesalahan.',
+      title: _isEdit ? 'Gagal mengubah adjustment' : 'Gagal membuat adjustment',
+      message: err ?? 'Terjadi kesalahan.',
       icon: Icons.error_outline_rounded,
     );
   }
 
   Future<bool> _confirmSubmit() async {
-    return (await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) {
-            return AlertDialog(
-              title: const Text('Submit Adjustment?'),
-              content: const Text(
-                'Please double-check your items and quantities before submitting. This action will create a new adjustment transaction.',
+    final itemCount = _items.length;
+    final netQty = _netQtySum;
+    final storeName = (_storeLocationName ?? '').trim();
+    final notes = _notesC.text.trim();
+
+    final isEdit = _isEdit;
+
+    final res = await showGeneralDialog<bool>(
+      context: context,
+      barrierLabel: 'Confirm adjustment',
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.35),
+      transitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, anim, _, __) {
+        final curved = CurvedAnimation(
+          parent: anim,
+          curve: Curves.easeOutCubic,
+        );
+
+        return FadeTransition(
+          opacity: curved,
+          child: Stack(
+            children: [
+              BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(color: Colors.transparent),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
+              Center(
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.96, end: 1.0).animate(curved),
+                  child: _AdjustmentConfirmCard(
+                    isEdit: isEdit,
+                    storeName: storeName.isEmpty ? '-' : storeName,
+                    itemCount: itemCount,
+                    netQty: netQty,
+                    hasNotes: notes.isNotEmpty,
+                    onCancel: () => Navigator.of(ctx).pop(false),
+                    onConfirm: () => Navigator.of(ctx).pop(true),
                   ),
-                  child: const Text('Submit'),
                 ),
-              ],
-            );
-          },
-        )) ??
-        false;
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    return res ?? false;
   }
 
   void _showToastSheet({
@@ -318,11 +552,18 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final creating = context.watch<AdjustmentProvider>().creatingAdjustment;
+    final ap = context.watch<AdjustmentProvider>();
+    final creating = ap.creatingAdjustment;
+    final editing = ap.editingAdjustment;
+
+    final busy = _isEdit ? editing : creating;
 
     final storeNotSelected = (_storeLocationId ?? '').isEmpty;
     final itemCount = _items.length;
-    final canSubmit = !creating && !storeNotSelected && itemCount > 0;
+    final canSubmit =
+        !busy && !_prefillLoading && !storeNotSelected && itemCount > 0;
+
+    final suffix = _isEdit ? '/edit' : '/create';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
@@ -336,19 +577,17 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
         ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment:
-              CrossAxisAlignment.baseline, // ⬅️ ini pakai CrossAxisAlignment
-          textBaseline:
-              TextBaseline.alphabetic, // ⬅️ ini baru pakai TextBaseline
-          children: const [
-            Text(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            const Text(
               'Adjustment Stock',
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
-            SizedBox(width: 8),
+            const SizedBox(width: 8),
             Text(
-              '/create',
-              style: TextStyle(
+              suffix,
+              style: const TextStyle(
                 fontSize: 12,
                 color: Color(0xFF9CA3AF),
                 fontFamily: 'monospace',
@@ -357,7 +596,6 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
             ),
           ],
         ),
-
         centerTitle: false,
       ),
       body: Column(
@@ -366,6 +604,35 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
               children: [
+                if (_prefillLoading)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                    ),
+                    child: Row(
+                      children: const [
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Loading adjustment data...',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_prefillLoading) const SizedBox(height: 12),
                 _Section(
                   titleWidget: Row(
                     children: [
@@ -402,6 +669,27 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
                           ),
                         ),
                       ),
+                      const Spacer(),
+                      if (_storeLocked)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF3F4F6),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: const Color(0xFFE5E7EB)),
+                          ),
+                          child: const Text(
+                            'Locked',
+                            style: TextStyle(
+                              color: Color(0xFF6B7280),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                   child: _SelectFieldTile(
@@ -409,6 +697,7 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
                     valueText: _storeLocationName,
                     emptyHint: 'Select store…',
                     onTap: _pickStore,
+                    disabled: _storeLocked,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -476,16 +765,18 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
                           ),
                         )
                       : Column(
-                          children: _items.map((it) {
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _SelectedItemCard(
-                                item: it,
-                                onRemove: () => _removeItem(it.skuId),
-                                onQtyChanged: (q) => _setQty(it.skuId, q),
-                              ),
-                            );
-                          }).toList(),
+                          children: _items
+                              .map(
+                                (it) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: _SelectedItemCard(
+                                    item: it,
+                                    onRemove: () => _removeItem(it.skuId),
+                                    onQtyChanged: (q) => _setQty(it.skuId, q),
+                                  ),
+                                ),
+                              )
+                              .toList(),
                         ),
                 ),
                 const SizedBox(height: 12),
@@ -555,8 +846,8 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
                           ),
                         ),
                       ),
-                      if (creating) const SizedBox(width: 10),
-                      if (creating)
+                      if (busy) const SizedBox(width: 10),
+                      if (busy)
                         const SizedBox(
                           width: 18,
                           height: 18,
@@ -583,7 +874,11 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
                         ),
                       ),
                       child: Text(
-                        creating ? 'Submitting...' : 'Submit Adjustment',
+                        busy
+                            ? (_isEdit ? 'Updating...' : 'Submitting...')
+                            : (_isEdit
+                                  ? 'Update Adjustment'
+                                  : 'Submit Adjustment'),
                       ),
                     ),
                   ),
@@ -599,6 +894,7 @@ class _AdjustmentCreateScreenState extends State<AdjustmentCreateScreen> {
 
 /// ===============================
 /// Add Product Bottom Sheet (Infinite + Variant Picker + Multi-select)
+/// (dipertahankan sama seperti file kamu supaya gak merusak flow)
 /// ===============================
 
 Future<List<_AdjSelectedItem>?> openAdjustmentAddProductSheet(
@@ -634,9 +930,7 @@ class _AdjustmentAddProductSheetState
   bool _loadMoreArmed = false;
   bool _kicked = false;
 
-  // selected in sheet
   final Map<String, _AdjSelectedItem> _pickedBySkuId = {};
-
   ProductProvider? _pp;
 
   @override
@@ -713,9 +1007,7 @@ class _AdjustmentAddProductSheetState
     });
   }
 
-  // ✅ qty 0 ikut dihitung sebagai item terpilih
   int get _pickedSkuCount => _pickedBySkuId.length;
-
   int get _pickedNetQtySum =>
       _pickedBySkuId.values.fold<int>(0, (s, e) => s + e.qty);
 
@@ -883,12 +1175,10 @@ class _AdjustmentAddProductSheetState
                               setState(() {
                                 final exist = _pickedBySkuId[picked.skuId];
                                 if (exist != null) {
-                                  // ✅ qty 0 boleh: jangan remove
                                   _pickedBySkuId[picked.skuId] = exist.copyWith(
                                     qty: exist.qty + picked.qty,
                                   );
                                 } else {
-                                  // ✅ qty 0 boleh: tetap simpan
                                   _pickedBySkuId[picked.skuId] = picked;
                                 }
                               });
@@ -922,7 +1212,6 @@ class _AdjustmentAddProductSheetState
                     height: 50,
                     child: FilledButton.icon(
                       onPressed: () {
-                        // ✅ qty 0 ikut dikembalikan
                         final list = _pickedBySkuId.values.toList();
                         Navigator.pop<List<_AdjSelectedItem>>(context, list);
                       },
@@ -966,7 +1255,7 @@ class _VariantPickerSheet extends StatefulWidget {
 
 class _VariantPickerSheetState extends State<_VariantPickerSheet> {
   final Map<String, String> _selected = {}; // name -> value
-  int _qty = 1; // signed. minus => OUT, plus => IN (0 sekarang boleh)
+  int _qty = 1; // signed (0 boleh)
 
   @override
   void initState() {
@@ -992,8 +1281,6 @@ class _VariantPickerSheetState extends State<_VariantPickerSheet> {
 
     final skuCode = matched?.code ?? '-';
     final imageUrl = (p.primaryImageUrl ?? '').trim();
-
-    // ✅ qty 0 boleh
     final canConfirm = matched != null;
 
     return SafeArea(
@@ -1159,7 +1446,7 @@ class _VariantPickerSheetState extends State<_VariantPickerSheet> {
                                     imageUrl: p.primaryImageUrl ?? '',
                                     skuId: sku.idProductSku,
                                     skuCode: sku.code,
-                                    qty: _qty, // ✅ 0 boleh
+                                    qty: _qty,
                                   ),
                                 );
                               }
@@ -1236,8 +1523,285 @@ class _VariantPickerSheetState extends State<_VariantPickerSheet> {
   }
 }
 
+class _AdjustmentConfirmCard extends StatelessWidget {
+  final bool isEdit;
+  final String storeName;
+  final int itemCount;
+  final int netQty;
+  final bool hasNotes;
+
+  final VoidCallback onCancel;
+  final VoidCallback onConfirm;
+
+  const _AdjustmentConfirmCard({
+    required this.isEdit,
+    required this.storeName,
+    required this.itemCount,
+    required this.netQty,
+    required this.hasNotes,
+    required this.onCancel,
+    required this.onConfirm,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = isEdit ? 'Update Adjustment' : 'Submit Adjustment';
+    final primary = isEdit ? 'Confirm Update' : 'Confirm Submit';
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.92,
+        constraints: const BoxConstraints(maxWidth: 420),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.divider),
+          boxShadow: const [
+            BoxShadow(
+              blurRadius: 24,
+              color: Color(0x22000000),
+              offset: Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header (white + blue)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    AppColors.primary.withOpacity(0.12),
+                    AppColors.primary.withOpacity(0.04),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.fact_check_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                            color: Color(0xFF111827),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Please review the summary before continuing.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary.withOpacity(0.95),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Body
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+              child: Column(
+                children: [
+                  _ConfirmRow(
+                    icon: Icons.store_mall_directory_outlined,
+                    label: 'Store',
+                    value: storeName,
+                  ),
+                  const SizedBox(height: 10),
+                  _ConfirmRow(
+                    icon: Icons.inventory_2_outlined,
+                    label: 'Items',
+                    value: '$itemCount SKU',
+                  ),
+                  const SizedBox(height: 10),
+                  _ConfirmRow(
+                    icon: Icons.swap_vert_rounded,
+                    label: 'Net quantity',
+                    value: _fmtSigned(netQty),
+                    valueStyle: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: netQty < 0
+                          ? const Color(0xFFDC2626)
+                          : (netQty > 0
+                                ? const Color(0xFF059669)
+                                : const Color(0xFF111827)),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _ConfirmRow(
+                    icon: Icons.note_alt_outlined,
+                    label: 'Notes',
+                    value: hasNotes ? 'Included' : 'None',
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: AppColors.primary.withOpacity(0.95),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isEdit
+                              ? 'This will update the existing adjustment transaction.'
+                              : 'This will create a new adjustment transaction.',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: onCancel,
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            side: const BorderSide(color: AppColors.divider),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: onConfirm,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            primary,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfirmRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final TextStyle? valueStyle;
+
+  const _ConfirmRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.greyBackground,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.textSecondary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style:
+                  valueStyle ??
+                  const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF111827),
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// ===============================
-/// UI Widgets
+/// UI Widgets (same as sebelumnya, dengan tambahan `disabled` di SelectFieldTile)
 /// ===============================
 
 class _Section extends StatelessWidget {
@@ -1294,56 +1858,62 @@ class _SelectFieldTile extends StatelessWidget {
   final String? valueText;
   final String emptyHint;
   final VoidCallback onTap;
+  final bool disabled;
 
   const _SelectFieldTile({
     required this.label,
     required this.valueText,
     required this.emptyHint,
     required this.onTap,
+    this.disabled = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final hasValue = (valueText ?? '').trim().isNotEmpty;
+
     return InkWell(
-      onTap: onTap,
+      onTap: disabled ? null : onTap,
       borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF9FAFB),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: Color(0xFF6B7280),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
+      child: Opacity(
+        opacity: disabled ? 0.65 : 1,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF9FAFB),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    hasValue ? valueText! : emptyHint,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: hasValue
-                          ? const Color(0xFF111827)
-                          : const Color(0xFF9CA3AF),
+                    const SizedBox(height: 4),
+                    Text(
+                      hasValue ? valueText! : emptyHint,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: hasValue
+                            ? const Color(0xFF111827)
+                            : const Color(0xFF9CA3AF),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const Icon(Icons.expand_more_rounded, color: Color(0xFF9CA3AF)),
-          ],
+              const Icon(Icons.expand_more_rounded, color: Color(0xFF9CA3AF)),
+            ],
+          ),
         ),
       ),
     );
@@ -1967,5 +2537,4 @@ class _AdjSelectedItem {
   }
 }
 
-// ✅ 0 tampil "0" (bukan "+0")
 String _fmtSigned(int v) => v == 0 ? '0' : (v > 0 ? '+$v' : '$v');

@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/adjustment_provider.dart';
-import 'package:wa_blast/screens/adjustment/adjustment_create_screen.dart';
+import 'package:wa_blast/screens/adjustment/adjustment_form_screen.dart';
 import 'package:wa_blast/screens/adjustment/adjustment_detail_screen.dart';
 
 class AdjustmentListScreen extends StatefulWidget {
@@ -76,7 +76,7 @@ class _AdjustmentListScreenState extends State<AdjustmentListScreen> {
   Future<void> _goCreate() async {
     final ok = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => const AdjustmentCreateScreen()),
+      MaterialPageRoute(builder: (_) => const AdjustmentFormScreen()),
     );
 
     if (!mounted) return;

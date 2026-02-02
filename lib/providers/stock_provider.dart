@@ -895,10 +895,21 @@ class StockProvider with ChangeNotifier {
   }
 
   /// Clear detail dari memori (misal saat keluar dari halaman).
-  void clearInitialStockDetail() {
+  /// Clear detail dari memori (misal saat keluar dari halaman).
+  /// Aman dipanggil dari dispose / pop route karena notify di-delay.
+  void clearInitialStockDetail({bool notify = true}) {
     _initialStockDetail = null;
     _initialStockDetailError = null;
-    notifyListeners();
+
+    if (!notify) return;
+
+    // Hindari "widget tree locked" ketika dipanggil saat dispose/pop
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // kalau provider sudah di-dispose, ini akan aman karena kita guard
+      // (ChangeNotifier punya property "hasListeners" untuk cek ada listener)
+      if (!hasListeners) return;
+      notifyListeners();
+    });
   }
 
   // ============================================================

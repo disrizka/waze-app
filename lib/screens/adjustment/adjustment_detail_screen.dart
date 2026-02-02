@@ -5,16 +5,63 @@ import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/adjustment_provider.dart';
+import 'package:wa_blast/screens/adjustment/adjustment_form_screen.dart';
 
-// TODO: kalau sudah ada screen edit, ganti ke import yang benar
-// import 'package:wa_blast/screens/adjustment/adjustment_edit_screen.dart';
-
-class AdjustmentDetailScreen extends StatelessWidget {
+class AdjustmentDetailScreen extends StatefulWidget {
   final AdjustmentTransaction t;
   const AdjustmentDetailScreen({super.key, required this.t});
 
   @override
+  State<AdjustmentDetailScreen> createState() => _AdjustmentDetailScreenState();
+}
+
+class _AdjustmentDetailScreenState extends State<AdjustmentDetailScreen> {
+  late AdjustmentTransaction _txn;
+  bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _txn = widget.t;
+  }
+
+  Future<void> _refreshDetail({bool showSnack = false}) async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+
+    try {
+      final res = await context
+          .read<AdjustmentProvider>()
+          .fetchAdjustmentDetail(context, _txn.idTransaction);
+
+      // ✅ mengikuti pola di form kamu: res?.transaction
+      final latest = res?.transaction;
+
+      if (!mounted) return;
+
+      if (latest != null) {
+        setState(() => _txn = latest);
+        if (showSnack) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Refreshed')));
+        }
+      } else {
+        if (showSnack) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Gagal refresh detail')));
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final t = _txn; // ✅ gunakan data terbaru
+
     final money = NumberFormat.decimalPattern('id_ID');
 
     final number = t.number.trim().isNotEmpty ? t.number.trim() : 'ADJ-';
@@ -36,7 +83,6 @@ class AdjustmentDetailScreen extends StatelessWidget {
         : (netQty < 0 ? const Color(0xFFDC2626) : const Color(0xFF2563EB));
     final netText = netQty >= 0 ? '+$netQty' : '$netQty';
 
-    // provider state (buat disable tombol + loading)
     final ap = context.watch<AdjustmentProvider>();
     final busy = ap.deletingAdjustment || ap.editingAdjustment;
 
@@ -67,7 +113,6 @@ class AdjustmentDetailScreen extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Header (blue)
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
@@ -117,24 +162,20 @@ class AdjustmentDetailScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-
-                  // Body
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'You are about to permanently delete adjustment:',
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: Color(0xFF334155),
                             fontWeight: FontWeight.w800,
                             height: 1.25,
                           ),
                         ),
                         const SizedBox(height: 12),
-
-                        // Number pill
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(
@@ -168,10 +209,7 @@ class AdjustmentDetailScreen extends StatelessWidget {
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 12),
-
-                        // Info note
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),
@@ -205,10 +243,7 @@ class AdjustmentDetailScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 16),
-
-                  // Actions
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                     child: Row(
@@ -272,7 +307,7 @@ class AdjustmentDetailScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Adjustment deleted successfully')),
         );
-        Navigator.pop(context, true); // back to previous screen
+        Navigator.pop(context, true);
       } else {
         final msg =
             context.read<AdjustmentProvider>().deleteAdjustmentError ??
@@ -285,41 +320,27 @@ class AdjustmentDetailScreen extends StatelessWidget {
     }
 
     Future<void> onEdit() async {
-      await _showEditSheet(
+      final res = await Navigator.push<bool>(
         context,
-        initialQty: netQty,
-        initialNote: t.note,
-        onSubmit: (qty, note) async {
-          final success = await context
-              .read<AdjustmentProvider>()
-              .editAdjustment(
-                context: context,
-                idTransaction: t.idTransaction,
-                qty: qty,
-                note: note,
-                refreshDetailAfter: true,
-              );
-
-          if (!context.mounted) return;
-
-          if (success) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Adjustment berhasil diubah')),
-            );
-
-            // karena screen ini pakai `t` (bukan listen detail), paling aman balik & refresh list
-            Navigator.pop(context, true);
-          } else {
-            final msg =
-                context.read<AdjustmentProvider>().editAdjustmentError ??
-                context.read<AdjustmentProvider>().lastError ??
-                'Gagal mengubah adjustment';
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(msg)));
-          }
-        },
+        MaterialPageRoute(
+          builder: (_) => AdjustmentFormScreen(
+            initialTransaction: t,
+            lockStoreOnEdit: true,
+          ),
+        ),
       );
+
+      if (!context.mounted) return;
+
+      // ✅ balik dari edit => langsung refresh detail
+      if (res == true) {
+        await _refreshDetail(showSnack: false);
+
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Adjustment berhasil diubah')),
+        );
+      }
     }
 
     return Scaffold(
@@ -333,6 +354,17 @@ class AdjustmentDetailScreen extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          if (_refreshing)
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
           IconButton(
             tooltip: 'Copy number',
             onPressed: () async {
@@ -347,141 +379,135 @@ class AdjustmentDetailScreen extends StatelessWidget {
           const SizedBox(width: 4),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-        children: [
-          const SizedBox(height: 10),
 
-          // big number center
-          Center(
-            child: Text(
-              number,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w900,
-                fontSize: 28,
-                letterSpacing: 0.2,
-                color: Color(0xFF0F172A),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // info card (putih + biru)
-          _BlueCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _InfoRow(
-                  icon: Icons.schedule_rounded,
-                  label: 'Date & Time',
-                  value: dtText,
-                ),
-                const SizedBox(height: 12),
-
-                // ✅ Store: address sejajar tepat di bawah nama store (kolom kanan)
-                _InfoRow(
-                  icon: Icons.store_mall_directory_outlined,
-                  label: 'Store',
-                  value: store,
-                  subValue: (storeSub ?? '').trim().isEmpty ? null : storeSub,
-                ),
-
-                if (note.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _NoteBox(note: note),
-                ],
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _StatBox(
-                        icon: Icons.list_alt_rounded,
-                        label: 'Items',
-                        value: '$itemCount',
-                        valueColor: const Color(0xFF0F172A),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _StatBox(
-                        icon: Icons.swap_vert_rounded,
-                        label: 'Net Qty',
-                        value: netText,
-                        valueColor: netColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Items header + badge count
-          Row(
-            children: [
-              const Text(
-                'Items',
-                style: TextStyle(
+      // ✅ Pull-to-refresh
+      body: RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: () => _refreshDetail(showSnack: true),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
+          children: [
+            const SizedBox(height: 10),
+            Center(
+              child: Text(
+                number,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
                   fontWeight: FontWeight.w900,
-                  fontSize: 16,
+                  fontSize: 28,
+                  letterSpacing: 0.2,
                   color: Color(0xFF0F172A),
                 ),
               ),
-              const SizedBox(width: 10),
-              _CountBadge(count: itemCount),
-            ],
-          ),
-          const SizedBox(height: 10),
-
-          // item list
-          if (t.items.isEmpty)
-            const _EmptyItems()
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: t.items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, i) {
-                final it = t.items[i];
-                final pName = it.product?.name ?? '-';
-                final sku = it.productSku?.code ?? '-';
-
-                final qIn = it.qtyIn;
-                final qOut = it.qtyOut;
-
-                String qtyText;
-                if (qIn > 0 && qOut == 0) {
-                  qtyText = '+$qIn';
-                } else if (qOut > 0 && qIn == 0) {
-                  qtyText = '-$qOut';
-                } else {
-                  qtyText =
-                      '${qIn > 0 ? "+$qIn" : ""} ${qOut > 0 ? "-$qOut" : ""}'
-                          .trim();
-                }
-
-                final qtyColor = (it.netQty >= 0)
-                    ? const Color(0xFF16A34A)
-                    : const Color(0xFFDC2626);
-
-                return _ItemCard(
-                  name: pName,
-                  sku: sku,
-                  qtyText: qtyText,
-                  qtyColor: qtyColor,
-                );
-              },
             ),
-        ],
+            const SizedBox(height: 12),
+            _BlueCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _InfoRow(
+                    icon: Icons.schedule_rounded,
+                    label: 'Date & Time',
+                    value: dtText,
+                  ),
+                  const SizedBox(height: 12),
+                  _InfoRow(
+                    icon: Icons.store_mall_directory_outlined,
+                    label: 'Store',
+                    value: store,
+                    subValue: (storeSub ?? '').trim().isEmpty ? null : storeSub,
+                  ),
+                  if (note.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _NoteBox(note: note),
+                  ],
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _StatBox(
+                          icon: Icons.list_alt_rounded,
+                          label: 'Items',
+                          value: '$itemCount',
+                          valueColor: const Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _StatBox(
+                          icon: Icons.swap_vert_rounded,
+                          label: 'Net Qty',
+                          value: netText,
+                          valueColor: netColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Text(
+                  'Items',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _CountBadge(count: itemCount),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (t.items.isEmpty)
+              const _EmptyItems()
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: t.items.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, i) {
+                  final it = t.items[i];
+                  final pName = it.product?.name ?? '-';
+                  final sku = it.productSku?.code ?? '-';
+
+                  final qIn = it.qtyIn;
+                  final qOut = it.qtyOut;
+
+                  String qtyText;
+                  if (qIn > 0 && qOut == 0) {
+                    qtyText = '+$qIn';
+                  } else if (qOut > 0 && qIn == 0) {
+                    qtyText = '-$qOut';
+                  } else {
+                    qtyText =
+                        '${qIn > 0 ? "+$qIn" : ""} ${qOut > 0 ? "-$qOut" : ""}'
+                            .trim();
+                  }
+
+                  final qtyColor = (it.netQty >= 0)
+                      ? const Color(0xFF16A34A)
+                      : const Color(0xFFDC2626);
+
+                  return _ItemCard(
+                    name: pName,
+                    sku: sku,
+                    qtyText: qtyText,
+                    qtyColor: qtyColor,
+                  );
+                },
+              ),
+          ],
+        ),
       ),
 
-      // tombol edit + delete di bawah
       bottomNavigationBar: SafeArea(
         top: false,
         child: Container(
@@ -494,7 +520,6 @@ class AdjustmentDetailScreen extends StatelessWidget {
             height: 52,
             child: Row(
               children: [
-                // DELETE
                 Expanded(
                   child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
@@ -522,8 +547,6 @@ class AdjustmentDetailScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-
-                // EDIT
                 Expanded(
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
@@ -556,166 +579,6 @@ class AdjustmentDetailScreen extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static Future<void> _showEditSheet(
-    BuildContext context, {
-    required int initialQty,
-    required String initialNote,
-    required Future<void> Function(int qty, String note) onSubmit,
-  }) async {
-    final qtyCtrl = TextEditingController(text: initialQty.toString());
-    final noteCtrl = TextEditingController(text: initialNote);
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (sheetCtx) {
-        bool submitting = false;
-
-        // formatter: boleh minus di depan + angka
-        final qtyFormatter = TextInputFormatter.withFunction((
-          oldValue,
-          newValue,
-        ) {
-          final text = newValue.text;
-          if (text.isEmpty) return newValue;
-          final ok = RegExp(r'^-?\d*$').hasMatch(text);
-          return ok ? newValue : oldValue;
-        });
-
-        return StatefulBuilder(
-          builder: (ctx, setState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 8,
-                bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Edit Adjustment',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  const Text(
-                    'Qty',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF334155),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: qtyCtrl,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [qtyFormatter],
-                    decoration: InputDecoration(
-                      hintText: 'Contoh: 10 atau -5',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Note',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF334155),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: noteCtrl,
-                    minLines: 2,
-                    maxLines: 4,
-                    decoration: InputDecoration(
-                      hintText: 'Correction note',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 52,
-                    width: double.infinity,
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      onPressed: submitting
-                          ? null
-                          : () async {
-                              final qty = int.tryParse(qtyCtrl.text.trim());
-                              if (qty == null) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Qty tidak valid'),
-                                  ),
-                                );
-                                return;
-                              }
-
-                              setState(() => submitting = true);
-                              try {
-                                await onSubmit(qty, noteCtrl.text.trim());
-                                if (Navigator.canPop(sheetCtx)) {
-                                  Navigator.pop(sheetCtx);
-                                }
-                              } finally {
-                                // kalau sheet masih terbuka
-                                if (ctx.mounted) {
-                                  setState(() => submitting = false);
-                                }
-                              }
-                            },
-                      child: submitting
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text(
-                              'Save',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 16,
-                              ),
-                            ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    qtyCtrl.dispose();
-    noteCtrl.dispose();
   }
 
   static String _fmtFullDate(int unixSeconds) {

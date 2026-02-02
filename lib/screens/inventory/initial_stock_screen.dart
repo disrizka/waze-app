@@ -16,7 +16,6 @@ class _StockScreenState extends State<StockScreen> {
   @override
   void initState() {
     super.initState();
-    // fetch initial stock list setelah frame pertama
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<StockProvider>().fetchInitialStocks(context);
@@ -57,8 +56,6 @@ class _StockScreenState extends State<StockScreen> {
         scrolledUnderElevation: 0,
       ),
       body: const _StockList(),
-
-      // Tombol Add Initial Stock di bawah (mirip Purchase)
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(16, 8, 16, 20),
         child: SizedBox(
@@ -70,7 +67,7 @@ class _StockScreenState extends State<StockScreen> {
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
             style: FilledButton.styleFrom(
-              backgroundColor: Color(0xFF426FD4),
+              backgroundColor: const Color(0xFF426FD4),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
@@ -78,7 +75,6 @@ class _StockScreenState extends State<StockScreen> {
               minimumSize: const Size.fromHeight(50),
             ),
             onPressed: () {
-              // nanti kamu bisa arahkan ke screen form initial stock
               Navigator.pushNamed(context, '/stock/initial-stock/add');
             },
           ),
@@ -107,7 +103,6 @@ class _StockList extends StatelessWidget {
           color: const Color(0xFF426FD4),
           child: Builder(
             builder: (context) {
-              // loading awal
               if (isLoading && items.isEmpty) {
                 return ListView(
                   padding: const EdgeInsets.fromLTRB(16, 24, 16, 24 + 72),
@@ -115,7 +110,6 @@ class _StockList extends StatelessWidget {
                 );
               }
 
-              // error
               if (error != null && items.isEmpty) {
                 return ListView(
                   padding: const EdgeInsets.fromLTRB(16, 24, 16, 24 + 72),
@@ -130,7 +124,6 @@ class _StockList extends StatelessWidget {
                 );
               }
 
-              // empty
               if (items.isEmpty) {
                 return ListView(
                   padding: const EdgeInsets.fromLTRB(16, 24, 16, 24 + 72),
@@ -138,7 +131,6 @@ class _StockList extends StatelessWidget {
                 );
               }
 
-              // list data
               return ListView.builder(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24 + 72),
                 itemCount: items.length + 1,
@@ -202,7 +194,6 @@ class _StockList extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // ===== Baris atas: Store + badge + nilai stok =====
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -302,10 +293,7 @@ class _StockList extends StatelessWidget {
                               ),
                             ],
                           ),
-
                           const SizedBox(height: 8),
-
-                          // ===== Produk + SKU =====
                           Text(
                             row.product.name,
                             style: const TextStyle(
@@ -353,8 +341,6 @@ class _StockList extends StatelessWidget {
                               ],
                             ],
                           ),
-
-                          // ===== Note (kalau ada) =====
                           if (row.note.isNotEmpty) ...[
                             const SizedBox(height: 6),
                             Container(
@@ -389,10 +375,7 @@ class _StockList extends StatelessWidget {
                               ),
                             ),
                           ],
-
                           const SizedBox(height: 8),
-
-                          // ===== Qty ringkas =====
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -432,12 +415,12 @@ class _StockList extends StatelessWidget {
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
                       onTap: () {
                         Navigator.pushNamed(
                           context,
-                          '/stock/detail',
+                          '/stock/initial-stock/detail',
                           arguments: {'id': row.id},
                         );
                       },
@@ -453,10 +436,6 @@ class _StockList extends StatelessWidget {
     );
   }
 }
-
-/// =======================
-///  Empty & Error States
-/// =======================
 
 class _StockErrorBox extends StatelessWidget {
   final String message;
