@@ -12,6 +12,7 @@ import 'package:wa_blast/core/provider_helper.dart';
 import 'package:wa_blast/providers/product_provider.dart' as catalog;
 import 'package:wa_blast/models/product_model.dart' as model;
 import 'package:wa_blast/providers/store_provider.dart';
+import 'package:wa_blast/services/api_service.dart';
 import 'package:wa_blast/utils/safe_change_notifier.dart';
 
 // =========================
@@ -2618,5 +2619,111 @@ class SalesProvider extends SafeChangeNotifier {
     _itemDiscount.clear();
 
     notifyListeners();
+  }
+
+  /// Force PROD:
+  /// POST /waveup/{idBusiness}/transaction/sales/{idTransaction}/receipt/send-to-whatsapp
+  /// Payload: { "number": "0812..." }
+  /// POST /waveup/{idBusiness}/transaction/sales/{idTransaction}/receipt/send-to-whatsapp
+  /// Payload: { "number": "0812..." }
+  Future<bool> sendSalesReceiptToWhatsapp(
+    BuildContext context, {
+    required String idTransaction,
+    required String number,
+  }) async {
+    final sw = Stopwatch()..start();
+
+    final bizId = await _requireBizId();
+    if (bizId == null) {
+      if (kDebugMode) {
+        debugPrint(
+          '[SalesProvider] ❌ sendSalesReceiptToWhatsapp: bizId is null/empty',
+        );
+      }
+      return false;
+    }
+
+    final cleaned = number.trim();
+    if (cleaned.isEmpty) {
+      _lastError = 'WhatsApp number is required.';
+      if (kDebugMode) {
+        debugPrint(
+          '[SalesProvider] ❌ sendSalesReceiptToWhatsapp: number is empty',
+        );
+      }
+      notifyListeners();
+      return false;
+    }
+
+    final endpoint =
+        '/waveup/$bizId/transaction/sales/$idTransaction/receipt/send-to-whatsapp';
+
+    final payload = <String, dynamic>{'number': cleaned};
+
+    if (kDebugMode) {
+      debugPrint('════════════════════════════════════════════════');
+      debugPrint(
+        '[SalesProvider] 📤 sendSalesReceiptToWhatsapp (ApiJson.postMap)',
+      );
+      debugPrint('[SalesProvider]  bizId        : $bizId');
+      debugPrint('[SalesProvider]  idTransaction: $idTransaction');
+      debugPrint('[SalesProvider]  endpoint     : $endpoint');
+      debugPrint('[SalesProvider]  payload(json): ${jsonEncode(payload)}');
+      debugPrint('════════════════════════════════════════════════');
+    }
+
+    try {
+      final j = await ApiJson.postMap(
+        context,
+        endpoint,
+        payload,
+        withAccessToken: true,
+      );
+
+      if (kDebugMode) {
+        _debugBig('[SalesProvider] ◀︎ RESP map', j);
+      }
+
+      final ok = j != null && _asInt(j['status']) == 200;
+      if (!ok) {
+        _lastError =
+            j?['message']?.toString() ??
+            j?['msg']?.toString() ??
+            'Failed to send receipt to WhatsApp';
+        if (kDebugMode) {
+          debugPrint('[SalesProvider] ❌ FAIL: $_lastError');
+        }
+        notifyListeners();
+        return false;
+      }
+
+      _lastError = null;
+      notifyListeners();
+
+      if (kDebugMode) {
+        sw.stop();
+        debugPrint(
+          '[SalesProvider] ✅ SUCCESS sendSalesReceiptToWhatsapp '
+          'in ${sw.elapsedMilliseconds}ms',
+        );
+      }
+      return true;
+    } catch (e, st) {
+      _lastError = e.toString();
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] ❌ EXCEPTION: $e');
+        debugPrint('$st');
+      }
+      notifyListeners();
+      return false;
+    } finally {
+      if (kDebugMode && sw.isRunning) {
+        sw.stop();
+        debugPrint(
+          '[SalesProvider] ⏱️ sendSalesReceiptToWhatsapp done '
+          'in ${sw.elapsedMilliseconds}ms',
+        );
+      }
+    }
   }
 }

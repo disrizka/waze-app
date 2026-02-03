@@ -90,7 +90,262 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   bool _isTiktok(String platform) => platform.toLowerCase().contains('tiktok');
 
-  Future<void> _onAccept(
+  // =========================
+  // CONFIRMATION DIALOG
+  // =========================
+  Future<bool> _showAcceptConfirmationDialog({
+    required BuildContext context,
+    required StoreOrder order,
+  }) async {
+    final idText = _safe(order.externalId, fallback: order.idStoreOrder);
+    final totalText = 'Rp ${_money.format(order.totalAmount)}';
+
+    final res = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: const Color(0xB3000000), // clean dark overlay
+      builder: (ctx) {
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Dialog(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.white,
+              elevation: 0,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 18),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: Consumer<OrderProvider>(
+                builder: (context, prov, _) {
+                  final disabled = prov.accepting;
+
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // top handle / accent
+                        Container(
+                          width: 44,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE5E7EB),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // icon badge
+                        Container(
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: _border),
+                          ),
+                          child: const Icon(
+                            Icons.check_circle_rounded,
+                            color: _blue,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        const Text(
+                          'Accept this order?',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: _textMain,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+
+                        Text(
+                          'Pastikan order ini benar. Setelah di-accept, status akan diperbarui.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            height: 1.35,
+                            fontWeight: FontWeight.w800,
+                            color: _textSub,
+                          ),
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        // info box (blue-white)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF7FAFF),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: _border),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _InfoLine(
+                                icon: Icons.receipt_long_rounded,
+                                label: 'Order ID',
+                                value: idText,
+                              ),
+                              const SizedBox(height: 8),
+                              _InfoLine(
+                                icon: Icons.payments_rounded,
+                                label: 'Total',
+                                value: totalText,
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // error in dialog (if any)
+                        if ((prov.acceptError ?? '').trim().isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEE2E2),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFFECACA),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  Icons.error_outline_rounded,
+                                  color: Color(0xFF991B1B),
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    prov.acceptError!.trim(),
+                                    style: const TextStyle(
+                                      color: Color(0xFF991B1B),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 12,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+
+                        const SizedBox(height: 14),
+
+                        // actions
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: disabled
+                                    ? null
+                                    : () => Navigator.of(ctx).pop(false),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _blue,
+                                  side: const BorderSide(color: _blue),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Cancel',
+                                  style: TextStyle(fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: disabled
+                                    ? null
+                                    : () => Navigator.of(ctx).pop(true),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _blue,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    if (disabled) ...[
+                                      const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.2,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      const Text(
+                                        'Processing...',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ] else ...[
+                                      const Icon(Icons.check_rounded, size: 18),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'Yes, accept',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 6),
+
+                        Text(
+                          'Tip: kamu bisa refresh detail setelah accept.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: _textMuted,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    return res == true;
+  }
+
+  Future<void> _doAccept(
     BuildContext context,
     OrderProvider prov,
     StoreOrder order,
@@ -119,6 +374,25 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
       );
     }
+  }
+
+  Future<void> _onAcceptPressed(
+    BuildContext context,
+    OrderProvider prov,
+    StoreOrder order,
+  ) async {
+    // prevent double tap
+    if (prov.accepting) return;
+
+    final confirmed = await _showAcceptConfirmationDialog(
+      context: context,
+      order: order,
+    );
+
+    if (!mounted) return;
+    if (!confirmed) return;
+
+    await _doAccept(context, prov, order);
   }
 
   @override
@@ -221,7 +495,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                         ),
                         onPressed: prov.accepting
                             ? null
-                            : () => _onAccept(context, prov, order!),
+                            : () => _onAcceptPressed(context, prov, order!),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -650,6 +924,63 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           );
         },
       ),
+    );
+  }
+}
+
+class _InfoLine extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _InfoLine({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Icon(icon, size: 16, color: const Color(0xFF2F5FD0)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: Color(0xFF6B7280),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF111827),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

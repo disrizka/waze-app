@@ -88,7 +88,7 @@ class SubscriptionHistoryItem {
       }
     }
 
-    String _pickTxFeeId(Map<String, dynamic> j) {
+    String pickTxFeeId(Map<String, dynamic> j) {
       final candidates = [
         'idTransactionFee',
         'id_transaction_fee',
@@ -130,7 +130,7 @@ class SubscriptionHistoryItem {
       type: json['type']?.toString() ?? '',
       paymentLink: json['payment_link']?.toString() ?? '',
       paymentToken: json['payment_token']?.toString() ?? '',
-      transactionFeeId: _pickTxFeeId(json),
+      transactionFeeId: pickTxFeeId(json),
     );
   }
 }
@@ -227,7 +227,7 @@ class TransactionFeeHistoryEntry {
   });
 
   factory TransactionFeeHistoryEntry.fromJson(Map<String, dynamic> json) {
-    DateTime? _parseDate(String? raw) {
+    DateTime? parseDate(String? raw) {
       if (raw == null || raw.isEmpty) return null;
       try {
         return DateTime.parse(raw);
@@ -258,7 +258,7 @@ class TransactionFeeHistoryEntry {
       number: json['number']?.toString() ?? '',
       amount: (json['amount'] as num?)?.toInt() ?? 0,
       status: json['status']?.toString() ?? '',
-      createdAt: _parseDate(json['created_at']?.toString()),
+      createdAt: parseDate(json['created_at']?.toString()),
       storeLocationName: (store?['name'])?.toString() ?? '-',
       cityName: (city?['name'])?.toString() ?? '',
       items: items,
@@ -531,7 +531,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[IAP][AppleVerify] ◀︎ ${res.statusCode} '
-        '${raw.length > 500 ? raw.substring(0, 500) + "…" : raw}',
+        '${raw.length > 500 ? "${raw.substring(0, 500)}…" : raw}',
       );
 
       // Anggap berhasil kalau HTTP 2xx dan/atau JSON status==200
@@ -829,6 +829,15 @@ class SubscriptionProvider with ChangeNotifier {
         String? transactionId = p.purchaseID;
         String? originalTransactionId;
 
+        var purchaseID = p.purchaseID;
+        if (p is AppStorePurchaseDetails) {
+          final originalTransaction =
+              p.skPaymentTransaction.originalTransaction;
+          if (originalTransaction != null) {
+            purchaseID = originalTransaction.transactionIdentifier;
+          }
+        }
+
         // 2) Kalau SK2, coba parse transactionId & originalTransactionId dari JWS payload
         if (p is SK2PurchaseDetails) {
           final parts = receiptToken.split('.');
@@ -854,12 +863,12 @@ class SubscriptionProvider with ChangeNotifier {
           "platform": "ios",
           "store": "apple",
           "product_id": p.productID,
-          "transaction_id": transactionId,
+          "transaction_id": purchaseID,
           "original_transaction_id": originalTransactionId,
           "receipt_token": receiptToken, // JWS (SK2) biasanya panjang
         };
 
-        void _printLong(String label, String text, {int chunkSize = 800}) {
+        void printLong(String label, String text, {int chunkSize = 800}) {
           debugPrint('----- $label (len=${text.length}) -----');
           for (var i = 0; i < text.length; i += chunkSize) {
             final end = (i + chunkSize < text.length)
@@ -870,7 +879,7 @@ class SubscriptionProvider with ChangeNotifier {
           debugPrint('----- end $label -----');
         }
 
-        _printLong('receipt_token', receiptToken);
+        printLong('receipt_token', receiptToken);
 
         // ===== Print payload (rapi) =====
         debugPrint(
@@ -997,7 +1006,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? "${raw.substring(0, 400)}…" : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -1106,7 +1115,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? "${raw.substring(0, 400)}…" : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -1322,7 +1331,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] POST $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? raw.substring(0, 400) : raw}',
       );
 
       Map<String, dynamic>? json;
@@ -1396,7 +1405,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? raw.substring(0, 400) : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -1490,7 +1499,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? "${raw.substring(0, 400)}…" : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -1575,7 +1584,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] POST $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? "${raw.substring(0, 400)}…" : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -1688,7 +1697,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] POST $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? "${raw.substring(0, 400)}…" : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -1995,7 +2004,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] POST $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? "${raw.substring(0, 400)}…" : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -2156,7 +2165,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] POST $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? "${raw.substring(0, 400)}…" : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -3040,7 +3049,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? "${raw.substring(0, 400)}…" : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -3147,7 +3156,7 @@ class SubscriptionProvider with ChangeNotifier {
       final raw = res.body;
       debugPrint(
         '[SubscriptionProvider] GET $path ◀︎ ${res.statusCode} '
-        '${raw.length > 400 ? raw.substring(0, 400) + "…" : raw}',
+        '${raw.length > 400 ? "${raw.substring(0, 400)}…" : raw}',
       );
 
       if (res.statusCode < 200 || res.statusCode >= 300) {

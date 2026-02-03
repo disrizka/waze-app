@@ -17,6 +17,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'package:wa_blast/providers/sales_provider.dart';
 import 'package:wa_blast/services/ios_ble_printer_services.dart';
+import 'package:wa_blast/widgets/app_snackbar.dart';
 
 class SalesReportDetailScreen extends StatefulWidget {
   final String idTransaction;
@@ -31,6 +32,7 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
   bool _working = false;
   bool _busyRetryPay = false;
   bool _busyChange = false;
+  bool _busySendWa = false;
 
   // ===== platform flags & regex MAC Android =====
   bool get _isAndroid => Platform.isAndroid;
@@ -95,23 +97,24 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                         ),
                       );
                       if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('PDF saved: $filePath'),
-                          behavior: SnackBarBehavior.floating,
-                          action: SnackBarAction(
-                            label: 'Open',
-                            onPressed: () => Printing.sharePdf(
-                              bytes: bytes,
-                              filename: filePath.split('/').last,
-                            ),
-                          ),
+                      AppSnackbar.show(
+                        context,
+                        title: 'Saved',
+                        message: 'PDF saved: $filePath',
+                        type: AppSnackType.success,
+                        actionLabel: 'Open',
+                        onAction: () => Printing.sharePdf(
+                          bytes: bytes,
+                          filename: filePath.split('/').last,
                         ),
                       );
                     } catch (e) {
                       if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Failed to save PDF: $e')),
+                      AppSnackbar.show(
+                        context,
+                        title: 'Failed',
+                        message: 'Failed to save PDF: $e',
+                        type: AppSnackType.error,
                       );
                     } finally {
                       if (mounted) setState(() => _working = false);
@@ -132,16 +135,19 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                     try {
                       await _printThermal(d); // ⬅️ pakai setting yang tersimpan
                       if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Thermal print sent'),
-                          behavior: SnackBarBehavior.floating,
-                        ),
+                      AppSnackbar.show(
+                        context,
+                        title: 'Sent',
+                        message: 'Thermal print sent',
+                        type: AppSnackType.success,
                       );
                     } catch (e) {
                       if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Print failed: $e')),
+                      AppSnackbar.show(
+                        context,
+                        title: 'Print failed',
+                        message: '$e',
+                        type: AppSnackType.error,
                       );
                     } finally {
                       if (mounted) setState(() => _working = false);
@@ -434,13 +440,11 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                               final prov = context.read<SalesProvider>();
                               final token = d.paymentToken ?? '';
                               if (token.isEmpty) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Token pembayaran tidak ditemukan.',
-                                    ),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
+                                AppSnackbar.show(
+                                  context,
+                                  title: 'Missing token',
+                                  message: 'Token pembayaran tidak ditemukan.',
+                                  type: AppSnackType.warning,
                                 );
                                 return;
                               }
@@ -454,24 +458,22 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                                   token: token,
                                 );
                                 if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
+                                AppSnackbar.show(
+                                  context,
+                                  title: 'Payment',
+                                  message:
                                       'Status pembayaran: ${res?.status ?? 'unknown'}',
-                                    ),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
+                                  type: AppSnackType.info,
                                 );
+
                                 await _refreshDetail();
                               } catch (e) {
                                 if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Gagal membuka pembayaran: $e',
-                                    ),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
+                                AppSnackbar.show(
+                                  context,
+                                  title: 'Failed',
+                                  message: 'Gagal membuka pembayaran: $e',
+                                  type: AppSnackType.error,
                                 );
                               } finally {
                                 if (mounted) {
@@ -504,32 +506,30 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
                                   // ✅ refresh halaman detail setelah berhasil
                                   await _refreshDetail();
 
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Metode pembayaran diperbarui.',
-                                      ),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
+                                  AppSnackbar.show(
+                                    context,
+                                    title: 'Updated',
+                                    message: 'Metode pembayaran diperbarui.',
+                                    type: AppSnackType.success,
                                   );
                                 } else {
                                   final msg =
                                       prov.lastError ??
                                       'Gagal mengubah metode pembayaran';
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(msg),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
+                                  AppSnackbar.show(
+                                    context,
+                                    title: 'Failed',
+                                    message: msg,
+                                    type: AppSnackType.error,
                                   );
                                 }
                               } catch (e) {
                                 if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Gagal mengubah metode: $e'),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
+                                AppSnackbar.show(
+                                  context,
+                                  title: 'Failed',
+                                  message: 'Gagal mengubah metode',
+                                  type: AppSnackType.error,
                                 );
                               } finally {
                                 if (mounted) {
@@ -548,6 +548,226 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
           );
         },
       ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: FilledButton.icon(
+              onPressed: (_working || _busySendWa)
+                  ? null
+                  : () async {
+                      final prov = context.read<SalesProvider>();
+                      final d = prov.salesDetail;
+
+                      if (d == null) {
+                        AppSnackbar.show(
+                          context,
+                          title: 'Not ready',
+                          message: 'Sales detail is not loaded yet.',
+                          type: AppSnackType.info,
+                        );
+                        return;
+                      }
+
+                      await _showSendWhatsappSheet(
+                        context,
+                        initialNumber: d.customer?.phone ?? '',
+                      );
+                    },
+              icon: const Icon(Icons.send, size: 20),
+              label: const Text(
+                'Send Receipt to WhatsApp',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(
+                  0xFF426FD4,
+                ), // sama kayak Add Sales
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+    );
+  }
+
+  Future<void> _showSendWhatsappSheet(
+    BuildContext context, {
+    String initialNumber = '',
+  }) async {
+    final controller = TextEditingController(text: initialNumber.trim());
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+
+        return StatefulBuilder(
+          builder: (ctx, setSt) {
+            Future<void> doSend() async {
+              final prov = context
+                  .read<SalesProvider>(); // pakai context parent
+              final d = prov.salesDetail;
+              if (d == null) return;
+
+              final number = controller.text.trim();
+              if (number.isEmpty) {
+                AppSnackbar.show(
+                  context,
+                  title: 'Required',
+                  message: 'Please input a WhatsApp number.',
+                  type: AppSnackType.warning,
+                );
+
+                return;
+              }
+
+              // close keyboard
+              FocusScope.of(ctx).unfocus();
+
+              setState(() => _busySendWa = true);
+              setSt(() {}); // refresh UI sheet (optional)
+
+              try {
+                HapticFeedback.lightImpact();
+
+                final ok = await prov.sendSalesReceiptToWhatsapp(
+                  context,
+                  idTransaction: d.idTransaction,
+                  number: number,
+                );
+
+                if (!mounted) return;
+
+                if (ok) {
+                  Navigator.pop(ctx); // close sheet on success
+                  AppSnackbar.show(
+                    context,
+                    title: 'Sent',
+                    message: 'Receipt sent to WhatsApp',
+                    type: AppSnackType.success,
+                  );
+                } else {
+                  final msg =
+                      prov.lastError ?? 'Failed to send receipt to WhatsApp';
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(msg),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (!mounted) return;
+                AppSnackbar.show(
+                  context,
+                  title: 'Failed',
+                  message: 'Failed to send receipt',
+                  type: AppSnackType.error,
+                );
+              } finally {
+                if (mounted) setState(() => _busySendWa = false);
+                setSt(() {});
+              }
+            }
+
+            final sending = _busySendWa; // gunakan busy state global
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: bottomInset + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 5,
+                    margin: const EdgeInsets.only(bottom: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Send receipt to WhatsApp',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => sending ? null : doSend(),
+                    decoration: InputDecoration(
+                      labelText: 'WhatsApp Number',
+                      hintText: '0812xxxxxxx',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: sending ? null : doSend,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        disabledBackgroundColor: const Color(0xFF93C5FD),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: sending
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text(
+                              'Send',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -908,6 +1128,64 @@ class _SalesReportDetailScreenState extends State<SalesReportDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<String?> _showSendWhatsappDialog(
+    BuildContext context, {
+    String initialNumber = '',
+  }) async {
+    final c = TextEditingController(text: initialNumber);
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'Send to WhatsApp',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          content: TextField(
+            controller: c,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'WhatsApp Number',
+              hintText: '0812xxxxxxx',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () {
+                final v = c.text.trim();
+                if (v.isEmpty) return;
+                Navigator.pop(ctx, v);
+              },
+              child: const Text(
+                'Send',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
