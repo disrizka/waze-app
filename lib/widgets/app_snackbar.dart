@@ -24,7 +24,7 @@ class AppSnackbar {
         SnackBar(
           duration: duration,
           behavior: SnackBarBehavior.floating,
-          elevation: 0, // flatter
+          elevation: 0,
           backgroundColor: Colors.transparent,
           padding: EdgeInsets.zero,
           content: _SnackContent(

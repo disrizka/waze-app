@@ -20,7 +20,6 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
   @override
   void initState() {
     super.initState();
-    // fetch setelah frame pertama biar aman dari initState context
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ProductProvider>().fetchProductCategories(context);
     });
@@ -34,6 +33,10 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
   void dispose() {
     _searchC.dispose();
     super.dispose();
+  }
+
+  Future<void> _onRefresh() async {
+    await context.read<ProductProvider>().fetchProductCategories(context);
   }
 
   @override
@@ -62,71 +65,130 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
       body: SafeArea(
         child: Consumer<ProductProvider>(
           builder: (context, provider, _) {
-            if (provider.loadingCategories) {
-              return const Center(child: CircularProgressIndicator());
-            }
+            return RefreshIndicator(
+              onRefresh: _onRefresh,
+              child: _buildBody(provider),
+            );
+          },
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        child: SizedBox(
+          height: 48,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryDark,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              minimumSize: const Size.fromHeight(48),
+            ),
+            onPressed: () async {
+              await showAddCategorySheet(context);
+              if (!mounted) return;
+              await context.read<ProductProvider>().fetchProductCategories(
+                context,
+              );
+            },
+            child: const Text(
+              'Add new category',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-            final all = provider.categories;
-            final lowerQ = _query.toLowerCase();
-            final filtered = (lowerQ.isEmpty)
-                ? all
-                : all
-                      .where((c) => (c.name).toLowerCase().contains(lowerQ))
-                      .toList();
+  Widget _buildBody(ProductProvider provider) {
+    final all = provider.categories;
+    final q = _query.trim();
+    final lowerQ = q.toLowerCase();
 
-            // Jika belum ada category sama sekali dan tidak sedang mencari
-            if (all.isEmpty && _query.isEmpty) {
-              return RefreshIndicator(
-                onRefresh: () =>
-                    context.read<ProductProvider>().refresh(context),
-                child: ListView(
-                  padding: EdgeInsets.zero,
+    final filtered = (lowerQ.isEmpty)
+        ? all
+        : all.where((c) => (c.name).toLowerCase().contains(lowerQ)).toList();
+
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: _SearchHeader(
+              controller: _searchC,
+              onClear: () => _searchC.clear(),
+            ),
+          ),
+        ),
+
+        // ===== Loading =====
+        if (provider.loadingCategories)
+          SliverToBoxAdapter(child: _buildSkeletonList())
+        else ...[
+          // ===== Empty: no category at all =====
+          if (all.isEmpty && q.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                child: Column(
                   children: const [
-                    _SearchHeader(),
                     SizedBox(height: 8),
-                    EmptyState(
-                      title: 'No Category',
-                      description: 'Please add new category',
+                    Expanded(
+                      child: Center(
+                        child: EmptyState(
+                          title: 'No Category',
+                          description: 'Please add new category',
+                        ),
+                      ),
                     ),
-                    SizedBox(height: 200),
+                    SizedBox(height: 80),
                   ],
                 ),
-              );
-            }
-
-            // Tampilkan list dengan header search sebagai item pertama
-            return RefreshIndicator(
-              onRefresh: () => context.read<ProductProvider>().refresh(context),
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24 + 56),
-                itemCount: filtered.length + 1, // +1 header search
+              ),
+            )
+          // ===== Empty: no result search =====
+          else if (filtered.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    _NoResultTile(query: q),
+                    const SizedBox(height: 12),
+                    const Spacer(),
+                    const SizedBox(height: 80),
+                  ],
+                ),
+              ),
+            )
+          // ===== List =====
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 24 + 56),
+              sliver: SliverList.separated(
+                itemCount: filtered.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (_, index) {
-                  if (index == 0) {
-                    return _SearchHeader(
-                      controller: _searchC,
-                      onClear: () => _searchC.clear(),
-                    );
-                  }
-
-                  // Tidak ada hasil pencarian
-                  if (filtered.isEmpty) {
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 32),
-                      child: _NoResultTile(query: _query),
-                    );
-                  }
-
-                  final cat = filtered[index - 1];
+                  final cat = filtered[index];
                   return _CategoryTile(
                     id: cat.id,
                     title: cat.name,
-                    onEdit: () {
-                      showEditCategorySheet(
+                    onEdit: () async {
+                      await showEditCategorySheet(
                         context,
                         categoryId: cat.id,
                         initialName: cat.name,
                       );
+                      if (!context.mounted) return;
+                      await context
+                          .read<ProductProvider>()
+                          .fetchProductCategories(context);
                     },
                     onDelete: () async {
                       final confirmed = await _confirmDelete(
@@ -150,6 +212,9 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
                           title: 'Deleted',
                           message: 'Category has been deleted.',
                         );
+                        await context
+                            .read<ProductProvider>()
+                            .fetchProductCategories(context);
                       } else {
                         AppSnackbar.show(
                           context,
@@ -164,32 +229,69 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
                   );
                 },
               ),
-            );
-          },
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-        child: SizedBox(
-          height: 48,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryDark,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSkeletonList() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Column(
+        children: List.generate(6, (i) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Container(
+              height: 64,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
               ),
-              minimumSize: const Size.fromHeight(48),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 12,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 10,
+                          width: 160,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-            onPressed: () async {
-              await showAddCategorySheet(context);
-            },
-            child: const Text(
-              'Add new category',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ),
+          );
+        }),
       ),
     );
   }
@@ -203,37 +305,37 @@ class _SearchHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasText = controller?.text.isNotEmpty == true;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            hintText: 'Search category name…',
-            filled: true,
-            fillColor: const Color(0xFFF3F4F6),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 12,
-            ),
-            border: const OutlineInputBorder(
-              borderSide: BorderSide.none,
-              borderRadius: BorderRadius.all(Radius.circular(12)),
-            ),
-            prefixIcon: const Icon(Icons.search_rounded),
-            suffixIcon: hasText
-                ? IconButton(
-                    tooltip: 'Clear',
-                    onPressed: onClear,
-                    icon: const Icon(Icons.close_rounded),
-                  )
-                : null,
-          ),
+    final hasText = controller != null && controller!.text.trim().isNotEmpty;
+
+    return TextField(
+      controller: controller,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'Search category name…',
+        isDense: true,
+        filled: true,
+        fillColor: const Color(0xFFF3F4F6),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
         ),
-      ],
+        enabledBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+        suffixIcon: hasText
+            ? IconButton(
+                tooltip: 'Clear',
+                onPressed: onClear,
+                icon: const Icon(Icons.close_rounded, size: 18),
+              )
+            : null,
+      ),
     );
   }
 }
@@ -285,66 +387,80 @@ class _CategoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Icon(Icons.category, size: 40, color: Color(0xFF4C6EF5)),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF111827),
-                ),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.category_rounded,
+              size: 20,
+              color: Color(0xFF4C6EF5),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF111827),
               ),
             ),
-            const SizedBox(width: 12),
-            // Edit
-            SizedBox(
-              height: 36,
-              child: OutlinedButton(
-                onPressed: onEdit,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF4C6EF5),
-                  side: const BorderSide(color: Color(0xFFE5E7EB)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            height: 36,
+            child: OutlinedButton(
+              onPressed: onEdit,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF4C6EF5),
+                side: const BorderSide(color: Color(0xFFE5E7EB)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Text(
-                  'Edit',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              child: const Text(
+                'Edit',
+                style: TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
-            const SizedBox(width: 8),
-            // Delete
-            SizedBox(
-              height: 36,
-              child: OutlinedButton.icon(
-                onPressed: onDelete,
-                label: const Text(
-                  'Delete',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 36,
+            child: OutlinedButton.icon(
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_rounded, size: 18),
+              label: const Text(
+                'Delete',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFEF4444),
+                side: const BorderSide(color: Color(0xFFF3F4F6)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFEF4444),
-                  side: const BorderSide(color: Color(0xFFF3F4F6)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -523,7 +639,6 @@ class _CategorySheetState extends State<_CategorySheet> {
             ],
           ),
           const SizedBox(height: 8),
-
           Form(
             key: _formKey,
             child: Column(

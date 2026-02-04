@@ -20,6 +20,7 @@ import 'package:wa_blast/widgets/app_snackbar.dart';
 
 // ✅ NEW: import VariantsEditorScreen
 import 'package:wa_blast/screens/variants_editor_screen.dart';
+import 'package:wa_blast/widgets/empty_state.dart';
 
 class ProductFormScreen extends StatefulWidget {
   const ProductFormScreen({super.key, this.idProduct});
@@ -2224,6 +2225,8 @@ Future<String?> pickBrandId(BuildContext context, {String? selectedId}) async {
     options: opts,
     selectedId: selectedId,
     enableCreate: true,
+    emptyStateTitle: 'No brand',
+    emptyStateSubtitle: 'Type to add one',
     createRowLabel: (kw) => '"$kw" doesn\'t exist — add new brand',
     onCreate: (kw) async {
       final created = await prov.createBrandNoFetch(context, kw);
@@ -2248,6 +2251,8 @@ Future<String?> pickCategoryId(
     options: opts,
     selectedId: selectedId,
     enableCreate: true,
+    emptyStateTitle: 'No category',
+    emptyStateSubtitle: 'Type to add one',
     createRowLabel: (kw) => '"$kw" doesn\'t exist — add new category',
     onCreate: (kw) async {
       final created = await prov.createCategoryNoFetch(context, kw);
@@ -2263,6 +2268,8 @@ Future<String?> showListPicker({
   required List<PickerOption> options,
   String? selectedId,
   bool enableCreate = false,
+  String? emptyStateTitle,
+  String? emptyStateSubtitle,
   String Function(String keyword)? createRowLabel,
   Future<PickerOption?> Function(String keyword)? onCreate,
 }) async {
@@ -2270,9 +2277,68 @@ Future<String?> showListPicker({
   List<PickerOption> filtered = List.of(options);
   String lastQuery = '';
 
-  bool containsLabel(String q) {
+  bool containsExactLabel(String q) {
     final low = q.toLowerCase();
-    return filtered.any((o) => o.label.toLowerCase() == low);
+    // cek exact match ke SOURCE options, bukan filtered
+    return options.any((o) => o.label.toLowerCase() == low);
+  }
+
+  Widget _EmptyState({
+    required IconData icon,
+    required String heading,
+    required String caption,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9FAFB),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE0ECFF),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: const Color(0xFF4C6EF5), size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    heading,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    caption,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.35,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   return showModalBottomSheet<String>(
@@ -2328,8 +2394,98 @@ Future<String?> showListPicker({
                           final canShowCreate =
                               enableCreate &&
                               lastQuery.isNotEmpty &&
-                              !containsLabel(lastQuery) &&
+                              !containsExactLabel(lastQuery) &&
                               onCreate != null;
+
+                          final effectiveEmptyTitle =
+                              (emptyStateTitle ?? 'No results').trim();
+                          final effectiveEmptySubtitle =
+                              (emptyStateSubtitle ?? 'Type to add one').trim();
+
+                          final bool showEmptyState =
+                              !canShowCreate && filtered.isEmpty;
+                          final bool isTrulyEmptySource =
+                              options.isEmpty && lastQuery.isEmpty;
+
+                          Widget buildEmptyBrandListStyle({
+                            required String title,
+                            required String desc,
+                          }) {
+                            final bottomPad = MediaQuery.of(
+                              context,
+                            ).padding.bottom;
+
+                            return Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                16,
+                                16,
+                                16,
+                                16 + bottomPad,
+                              ),
+                              child: Center(
+                                child: SingleChildScrollView(
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  child: EmptyState(
+                                    title: title,
+                                    description: desc,
+                                    illustrationSize:
+                                        140, // ✅ lebih kecil (coba 120-150)
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+
+                          Widget buildNoResultTile(String query) {
+                            return Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                16,
+                                16,
+                                24,
+                              ),
+                              child: Column(
+                                children: [
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 18,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF9FAFB),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFFE5E7EB),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.search_off_rounded),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            'No results for “$query”.',
+                                            style: const TextStyle(
+                                              color: Color(0xFF6B7280),
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  const SizedBox(height: 80),
+                                ],
+                              ),
+                            );
+                          }
+
+                          final IconData emptyIcon =
+                              title.toLowerCase().contains('brand')
+                              ? LucideIcons.badgeCheck
+                              : LucideIcons.layers;
 
                           return Column(
                             children: [
@@ -2354,7 +2510,7 @@ Future<String?> showListPicker({
                                         title,
                                         style: const TextStyle(
                                           fontSize: 18,
-                                          fontWeight: FontWeight.w700,
+                                          fontWeight: FontWeight.w800,
                                           color: Color(0xFF111827),
                                         ),
                                       ),
@@ -2367,6 +2523,8 @@ Future<String?> showListPicker({
                                 ),
                               ),
                               const SizedBox(height: 8),
+
+                              // Search
                               Padding(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 20,
@@ -2375,7 +2533,9 @@ Future<String?> showListPicker({
                                   controller: controller,
                                   onChanged: _doFilter,
                                   decoration: InputDecoration(
-                                    hintText: 'Search…',
+                                    hintText: enableCreate
+                                        ? 'Search or type to add…'
+                                        : 'Search…',
                                     isDense: true,
                                     filled: true,
                                     fillColor: const Color(0xFFF3F4F6),
@@ -2407,6 +2567,8 @@ Future<String?> showListPicker({
                                 height: 1,
                                 color: Color(0xFFE5E7EB),
                               ),
+
+                              // Create row
                               if (canShowCreate)
                                 Material(
                                   color: Colors.transparent,
@@ -2421,7 +2583,6 @@ Future<String?> showListPicker({
                                           filtered.insert(0, created);
                                           selectedId = created.id;
                                         });
-                                        // ignore: use_build_context_synchronously
                                         Navigator.pop(ctx, created.id);
                                       }
                                     },
@@ -2433,58 +2594,170 @@ Future<String?> showListPicker({
                                       createRowLabel?.call(lastQuery) ??
                                           '"$lastQuery" not found — + Add New',
                                       style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
+                                        fontWeight: FontWeight.w700,
                                         color: Color(0xFF111827),
                                       ),
                                     ),
                                   ),
                                 ),
-                              Expanded(
-                                child: ListView.separated(
-                                  controller: sheetCtrl,
-                                  padding: const EdgeInsets.fromLTRB(
-                                    8,
-                                    8,
-                                    8,
-                                    16,
-                                  ),
-                                  itemCount: filtered.length,
-                                  separatorBuilder: (_, __) => const Divider(
-                                    height: 1,
-                                    color: Color(0xFFF3F4F6),
-                                  ),
-                                  itemBuilder: (_, i) {
-                                    final o = filtered[i];
-                                    final isSel = o.id == selectedId;
-                                    return ListTile(
-                                      onTap: () => Navigator.pop(ctx, o.id),
-                                      leading: Radio<String>(
-                                        value: o.id,
-                                        groupValue: selectedId,
-                                        onChanged: (_) =>
-                                            Navigator.pop(ctx, o.id),
-                                      ),
-                                      title: Text(
-                                        o.label,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF111827),
+
+                              if (showEmptyState)
+                                Expanded(
+                                  child: LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final bottomPad = MediaQuery.of(
+                                        context,
+                                      ).padding.bottom;
+
+                                      final bool isTrulyEmptySource =
+                                          options.isEmpty && lastQuery.isEmpty;
+                                      final String t = isTrulyEmptySource
+                                          ? (emptyStateTitle ?? 'No data')
+                                          : 'No results';
+                                      final String d = isTrulyEmptySource
+                                          ? (emptyStateSubtitle ??
+                                                'Type to add one')
+                                          : 'No results for “$lastQuery”.';
+
+                                      return SingleChildScrollView(
+                                        physics:
+                                            const AlwaysScrollableScrollPhysics(),
+                                        child: ConstrainedBox(
+                                          constraints: BoxConstraints(
+                                            minHeight: constraints.maxHeight,
+                                          ),
+                                          child: Center(
+                                            child: Padding(
+                                              padding: EdgeInsets.fromLTRB(
+                                                16,
+                                                18,
+                                                16,
+                                                18 + bottomPad,
+                                              ),
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  EmptyState(
+                                                    title: t,
+                                                    description: d,
+                                                    illustrationSize:
+                                                        120, // ✅ kecil biar aman di sheet
+                                                    tight:
+                                                        true, // ✅ jarak vertikal lebih rapat
+                                                  ),
+
+                                                  // ✅ Optional CTA hint (only when list empty OR no results)
+                                                  if (enableCreate &&
+                                                      lastQuery
+                                                          .trim()
+                                                          .isNotEmpty) ...[
+                                                    const SizedBox(height: 10),
+                                                    Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 12,
+                                                            vertical: 12,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(
+                                                          0xFFF9FAFB,
+                                                        ),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              12,
+                                                            ),
+                                                        border: Border.all(
+                                                          color: const Color(
+                                                            0xFFE5E7EB,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      child: Row(
+                                                        children: [
+                                                          const Icon(
+                                                            Icons
+                                                                .info_outline_rounded,
+                                                            size: 18,
+                                                            color: Color(
+                                                              0xFF6B7280,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                            width: 10,
+                                                          ),
+                                                          Expanded(
+                                                            child: Text(
+                                                              'Type “$lastQuery” to add one.',
+                                                              style: const TextStyle(
+                                                                color: Color(
+                                                                  0xFF6B7280,
+                                                                ),
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w600,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                          ),
                                         ),
-                                      ),
-                                      subtitle:
-                                          (o.subtitle?.isNotEmpty ?? false)
-                                          ? Text(o.subtitle!)
-                                          : null,
-                                      trailing: isSel
-                                          ? const Icon(
-                                              Icons.check_circle,
-                                              color: Color(0xFF4C6EF5),
-                                            )
-                                          : null,
-                                    );
-                                  },
+                                      );
+                                    },
+                                  ),
+                                )
+                              else
+                                Expanded(
+                                  child: ListView.separated(
+                                    controller: sheetCtrl,
+                                    padding: const EdgeInsets.fromLTRB(
+                                      8,
+                                      8,
+                                      8,
+                                      16,
+                                    ),
+                                    itemCount: filtered.length,
+                                    separatorBuilder: (_, __) => const Divider(
+                                      height: 1,
+                                      color: Color(0xFFF3F4F6),
+                                    ),
+                                    itemBuilder: (_, i) {
+                                      final o = filtered[i];
+                                      final isSel = o.id == selectedId;
+                                      return ListTile(
+                                        onTap: () => Navigator.pop(ctx, o.id),
+                                        leading: Radio<String>(
+                                          value: o.id,
+                                          groupValue: selectedId,
+                                          onChanged: (_) =>
+                                              Navigator.pop(ctx, o.id),
+                                        ),
+                                        title: Text(
+                                          o.label,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF111827),
+                                          ),
+                                        ),
+                                        subtitle:
+                                            (o.subtitle?.isNotEmpty ?? false)
+                                            ? Text(o.subtitle!)
+                                            : null,
+                                        trailing: isSel
+                                            ? const Icon(
+                                                Icons.check_circle,
+                                                color: Color(0xFF4C6EF5),
+                                              )
+                                            : null,
+                                      );
+                                    },
+                                  ),
                                 ),
-                              ),
                             ],
                           );
                         },

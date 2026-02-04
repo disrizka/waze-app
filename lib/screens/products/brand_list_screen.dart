@@ -20,9 +20,11 @@ class _BrandListScreenState extends State<BrandListScreen> {
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ProductProvider>().fetchProductBrands(context);
     });
+
     _searchC.addListener(() {
       final next = _searchC.text.trim();
       if (next != _query) {
@@ -35,6 +37,11 @@ class _BrandListScreenState extends State<BrandListScreen> {
   void dispose() {
     _searchC.dispose();
     super.dispose();
+  }
+
+  Future<void> _onRefresh() async {
+    // Lebih aman: refresh brand list langsung
+    await context.read<ProductProvider>().fetchProductBrands(context);
   }
 
   @override
@@ -64,7 +71,7 @@ class _BrandListScreenState extends State<BrandListScreen> {
         child: Consumer<ProductProvider>(
           builder: (context, provider, _) {
             return RefreshIndicator(
-              onRefresh: () => context.read<ProductProvider>().refresh(context),
+              onRefresh: _onRefresh,
               child: _buildBody(provider),
             );
           },
@@ -85,6 +92,9 @@ class _BrandListScreenState extends State<BrandListScreen> {
             ),
             onPressed: () async {
               await showAddBrandSheet(context);
+              if (!mounted) return;
+              // biar langsung update list setelah add
+              await context.read<ProductProvider>().fetchProductBrands(context);
             },
             child: const Text(
               'Add new brand',
@@ -97,87 +107,191 @@ class _BrandListScreenState extends State<BrandListScreen> {
   }
 
   Widget _buildBody(ProductProvider provider) {
-    if (provider.loadingBrands) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     final all = provider.brands;
-    final lowerQ = _query.toLowerCase();
+    final q = _query.trim();
+    final lowerQ = q.toLowerCase();
+
     final filtered = (lowerQ.isEmpty)
         ? all
         : all.where((b) => (b.name).toLowerCase().contains(lowerQ)).toList();
 
-    // Jika belum ada brand sama sekali dan tidak sedang mencari
-    if (all.isEmpty && _query.isEmpty) {
-      return ListView(
-        padding: EdgeInsets.zero,
-        children: const [
-          _SearchHeader(),
-          SizedBox(height: 8),
-          EmptyState(title: 'No Brand', description: 'Please add new brand'),
-          SizedBox(height: 200), // biar bisa pull to refresh
+    // =========================
+    // Build sliver layout (mirip ProductScreen)
+    // =========================
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: _SearchHeader(
+              controller: _searchC,
+              onClear: () => _searchC.clear(),
+            ),
+          ),
+        ),
+
+        // ===== Loading =====
+        if (provider.loadingBrands)
+          SliverToBoxAdapter(child: _buildSkeletonList())
+        else ...[
+          // ===== Empty: no brand at all (mirip product empty) =====
+          if (all.isEmpty && q.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                child: Column(
+                  children: const [
+                    SizedBox(height: 8),
+                    Expanded(
+                      child: Center(
+                        child: EmptyState(
+                          title: 'No Brand',
+                          description: 'Please add new brand',
+                        ),
+                      ),
+                    ),
+                    // spacer biar ga mepet bottom
+                    SizedBox(height: 80),
+                  ],
+                ),
+              ),
+            )
+          // ===== Empty: no result search =====
+          else if (filtered.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    _NoResultTile(query: q),
+                    const SizedBox(height: 12),
+                    const Spacer(),
+                    const SizedBox(height: 80),
+                  ],
+                ),
+              ),
+            )
+          // ===== List =====
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 24 + 56),
+              sliver: SliverList.separated(
+                itemCount: filtered.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (_, index) {
+                  final brand = filtered[index];
+                  return _BrandTile(
+                    id: brand.id,
+                    title: brand.name,
+                    onEdit: () async {
+                      await showEditBrandSheet(
+                        context,
+                        brandId: brand.id,
+                        initialName: brand.name,
+                      );
+                      if (!context.mounted) return;
+                      await context.read<ProductProvider>().fetchProductBrands(
+                        context,
+                      );
+                    },
+                    onDelete: () async {
+                      final confirmed = await _confirmDelete(
+                        context,
+                        title: 'Delete Brand',
+                        message:
+                            'Are you sure you want to delete "${brand.name}"? This action cannot be undone.',
+                      );
+                      if (confirmed != true) return;
+
+                      await context.read<ProductProvider>().deleteProductBrand(
+                        context,
+                        brand.id,
+                      );
+
+                      if (!context.mounted) return;
+                      AppSnackbar.show(
+                        context,
+                        type: AppSnackType.success,
+                        title: 'Deleted',
+                        message: 'Brand has been deleted.',
+                      );
+
+                      await context.read<ProductProvider>().fetchProductBrands(
+                        context,
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
         ],
-      );
-    }
+      ],
+    );
+  }
 
-    // Tampilkan list dengan header search sebagai item pertama
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24 + 56),
-      itemCount: filtered.length + 1, // +1 untuk header search
-      separatorBuilder: (_, __) => const SizedBox(height: 16),
-      itemBuilder: (_, index) {
-        if (index == 0) {
-          return _SearchHeader(
-            controller: _searchC,
-            onClear: () {
-              _searchC.clear();
-            },
-          );
-        }
-
-        // Jika tidak ada hasil pencarian
-        if (filtered.isEmpty) {
+  Widget _buildSkeletonList() {
+    // Skeleton sederhana biar “feel” mirip ProductScreen
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Column(
+        children: List.generate(6, (i) {
           return Padding(
-            padding: const EdgeInsets.only(top: 32),
-            child: _NoResultTile(query: _query),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Container(
+              height: 64,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 12,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 10,
+                          width: 140,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           );
-        }
-
-        final brand = filtered[index - 1];
-        return _BrandTile(
-          id: brand.id,
-          title: brand.name,
-          onEdit: () {
-            showEditBrandSheet(
-              context,
-              brandId: brand.id,
-              initialName: brand.name,
-            );
-          },
-          onDelete: () async {
-            final confirmed = await _confirmDelete(
-              context,
-              title: 'Delete Brand',
-              message:
-                  'Are you sure you want to delete "${brand.name}"? This action cannot be undone.',
-            );
-            if (confirmed != true) return;
-
-            await context.read<ProductProvider>().deleteProductBrand(
-              context,
-              brand.id,
-            );
-
-            if (!context.mounted) return;
-            AppSnackbar.show(
-              context,
-              type: AppSnackType.success,
-              title: 'Deleted',
-              message: 'Brand has been deleted.',
-            );
-          },
-        );
-      },
+        }),
+      ),
     );
   }
 }
@@ -190,36 +304,37 @@ class _SearchHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            hintText: 'Search brand name…',
-            filled: true,
-            fillColor: const Color(0xFFF3F4F6),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 12,
-            ),
-            border: const OutlineInputBorder(
-              borderSide: BorderSide.none,
-              borderRadius: BorderRadius.all(Radius.circular(12)),
-            ),
-            prefixIcon: const Icon(Icons.search_rounded),
-            suffixIcon: (controller != null && controller!.text.isNotEmpty)
-                ? IconButton(
-                    tooltip: 'Clear',
-                    onPressed: onClear,
-                    icon: const Icon(Icons.close_rounded),
-                  )
-                : null,
-          ),
+    final hasText = controller != null && controller!.text.trim().isNotEmpty;
+
+    return TextField(
+      controller: controller,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'Search brand name…',
+        isDense: true,
+        filled: true,
+        fillColor: const Color(0xFFF3F4F6),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
         ),
-      ],
+        enabledBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+        suffixIcon: hasText
+            ? IconButton(
+                tooltip: 'Clear',
+                onPressed: onClear,
+                icon: const Icon(Icons.close_rounded, size: 18),
+              )
+            : null,
+      ),
     );
   }
 }
@@ -271,61 +386,85 @@ class _BrandTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        const Icon(Icons.sell, size: 40, color: Color(0xFF4C6EF5)),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF111827),
-            ),
-          ),
+    return InkWell(
+      onTap: null,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
         ),
-        const SizedBox(width: 12),
-        // Edit
-        SizedBox(
-          height: 36,
-          child: OutlinedButton(
-            onPressed: onEdit,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF4C6EF5),
-              side: const BorderSide(color: Color(0xFFE5E7EB)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(12),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-            ),
-            child: const Text(
-              'Edit',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        // Delete
-        SizedBox(
-          height: 36,
-          child: OutlinedButton.icon(
-            onPressed: onDelete,
-            label: const Text(
-              'Delete',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFFEF4444),
-              side: const BorderSide(color: Color(0xFFF3F4F6)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+              child: const Icon(
+                Icons.sell_rounded,
+                size: 20,
+                color: Color(0xFF4C6EF5),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
             ),
-          ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF111827),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              height: 36,
+              child: OutlinedButton(
+                onPressed: onEdit,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF4C6EF5),
+                  side: const BorderSide(color: Color(0xFFE5E7EB)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
+                child: const Text(
+                  'Edit',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 36,
+              child: OutlinedButton.icon(
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_rounded, size: 18),
+                label: const Text(
+                  'Delete',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFEF4444),
+                  side: const BorderSide(color: Color(0xFFF3F4F6)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -482,7 +621,6 @@ class _BrandSheetState extends State<_BrandSheet> {
             ],
           ),
           const SizedBox(height: 8),
-
           Form(
             key: _formKey,
             child: Column(

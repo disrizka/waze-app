@@ -335,4 +335,23 @@ class ApiService {
     debugPrint('[ApiService.uploadFile] failed: ${res.statusCode} ${res.body}');
     return null;
   }
+
+  /// POST JSON langsung ke baseUrl PROD (override flavor).
+  /// Tidak butuh BuildContext & tidak auto-logout saat 401 (mirip postJson).
+  static Future<http.Response> postJsonProd(
+    String endpoint,
+    Map<String, dynamic> body, {
+    bool withAccessToken = false,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final headers = await _buildHeaders(withAccessToken: withAccessToken);
+
+    final prodBase = "https://api.wave.id/";
+    final url = Uri.parse('$prodBase$endpoint');
+
+    debugPrint('[API] POST(PROD) $url (forcd)');
+    return http
+        .post(url, headers: headers, body: jsonEncode(body))
+        .timeout(timeout);
+  }
 }

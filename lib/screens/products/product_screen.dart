@@ -64,6 +64,50 @@ class _ProductScreenState extends State<ProductScreen> {
 
   DateTimeRange? _dateRange;
 
+  Widget _buildShimmerBoxList() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+      child: Column(
+        children: List.generate(6, (i) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Shimmer.fromColors(
+              baseColor: Colors.grey.shade300,
+              highlightColor: Colors.grey.shade100,
+              child: Row(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 14,
+                          width: double.infinity,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(height: 6),
+                        Container(height: 12, width: 120, color: Colors.white),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
     final first = DateTime(now.year - 2, 1, 1);
@@ -449,6 +493,8 @@ class _ProductScreenState extends State<ProductScreen> {
         child: Consumer<ProductProvider>(
           builder: (context, provider, _) {
             final controller = provider.pagingController;
+
+            // Kalau controller null → tampilkan state kosong (punya kamu)
             if (controller == null) {
               return Center(
                 child: Container(
@@ -477,7 +523,7 @@ class _ProductScreenState extends State<ProductScreen> {
               );
             }
 
-            // ambil state terbaru dari controller
+            // ambil state terbaru
             final state = controller.value;
 
             // fungsi ambil halaman berikutnya (patuh meta backend)
@@ -485,14 +531,15 @@ class _ProductScreenState extends State<ProductScreen> {
               final pm = provider.pageProducts;
               final cur = pm?.currentPage;
               final tot = pm?.totalPages;
-              if (cur != null && tot != null && cur >= tot) {
-                // sudah di halaman terakhir
-                return;
-              }
+              if (cur != null && tot != null && cur >= tot) return;
+
+              // Optional guard kalau package/state kamu ada flag loading:
+              // if (state.isLoading) return;
+
               controller.fetchNextPage();
             }
 
-            // header: search + tombol advanced filter
+            // header: search + tombol advanced filter (punya kamu)
             final topControls = Padding(
               padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
               child: Row(
@@ -561,6 +608,9 @@ class _ProductScreenState extends State<ProductScreen> {
                             rawQuery: _searchC.text.trim(),
                           );
                           await prov.setInfiniteSearch(context, composed);
+                          await prov.refreshInfinite(
+                            context,
+                          ); // ✅ penting biar langsung update
                         },
                         icon: const Icon(Icons.close_rounded, size: 18),
                         style: IconButton.styleFrom(
@@ -575,205 +625,180 @@ class _ProductScreenState extends State<ProductScreen> {
               ),
             );
 
-            // saat first page selesai dan kosong → tampilkan empty
-            final firstPageDoneEmpty = provider.isFirstPageDoneEmpty;
+            // ✅ INI INTI FIX-NYA:
+            // Pakai RefreshIndicator + CustomScrollView (slivers) + PagedSliverList
+            return RefreshIndicator(
+              onRefresh: _onPullRefresh,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  // header atas list
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: topControls,
+                    ),
+                  ),
 
-            return Column(
-              children: [
-                // header di atas list
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: topControls,
-                ),
+                  // list paging versi sliver
+                  PagedSliverList<int, Product>(
+                    state: state,
+                    fetchNextPage: next,
+                    builderDelegate: PagedChildBuilderDelegate<Product>(
+                      itemBuilder: (_, p, __) {
+                        final priceLabel = _formatRp(_priceOf(p));
+                        final img = p.primaryImageUrl ?? 'assets/empty_box.png';
 
-                // LIST
-                Expanded(
-                  child: firstPageDoneEmpty
-                      ? _buildShimmerList()
-                      : RefreshIndicator(
-                          onRefresh: _onPullRefresh,
-                          child: PagedListView<int, Product>(
-                            state: state,
-                            fetchNextPage: next,
-                            padding: const EdgeInsets.fromLTRB(
-                              16,
-                              0,
-                              16,
-                              24 + 56,
-                            ),
-                            builderDelegate: PagedChildBuilderDelegate<Product>(
-                              // item
-                              itemBuilder: (_, p, __) {
-                                final priceLabel = _formatRp(_priceOf(p));
-                                final img =
-                                    p.primaryImageUrl ?? 'assets/empty_box.png';
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+                          child: _ProductTile(
+                            title: p.name,
+                            priceLabel: priceLabel,
+                            image: img,
+                            onTap: () {
+                              Navigator.pushNamed(
+                                context,
+                                '/product/list/detail',
+                                arguments: p.idProduct,
+                              );
+                            },
+                            onEdit: () async {
+                              final ok = await Navigator.push<bool>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      ProductFormScreen(idProduct: p.idProduct),
+                                ),
+                              );
 
-                                final int stockQty = p.totalStockQty;
-                                final bool isOut = stockQty <= 0;
-
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 6,
-                                  ),
-                                  child: _ProductTile(
-                                    title: p.name,
-                                    priceLabel: priceLabel,
-                                    image: img,
-                                    onTap: () {
-                                      Navigator.pushNamed(
-                                        context,
-                                        '/product/list/detail',
-                                        arguments: p.idProduct,
-                                      );
-                                    },
-                                    onEdit: () async {
-                                      final ok = await Navigator.push<bool>(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => ProductFormScreen(
-                                            idProduct: p.idProduct,
+                              if (!context.mounted) return;
+                              if (ok == true) {
+                                await context
+                                    .read<ProductProvider>()
+                                    .refreshInfinite(context);
+                              }
+                            },
+                            onDelete: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (context) {
+                                  return AlertDialog(
+                                    backgroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    title: Row(
+                                      children: const [
+                                        Icon(
+                                          Icons.warning_amber_rounded,
+                                          color: Colors.red,
+                                          size: 28,
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Delete Product',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black,
                                           ),
                                         ),
-                                      );
-
-                                      if (!context.mounted) return;
-                                      if (ok == true) {
-                                        // refresh list produk
-                                        await context
-                                            .read<ProductProvider>()
-                                            .refreshInfinite(context);
-                                      }
-                                    },
-
-                                    onDelete: () async {
-                                      final confirm = await showDialog<bool>(
-                                        context: context,
-                                        builder: (context) {
-                                          return AlertDialog(
-                                            backgroundColor: Colors.white,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                            ),
-                                            title: Row(
-                                              children: const [
-                                                Icon(
-                                                  Icons.warning_amber_rounded,
-                                                  color: Colors.red,
-                                                  size: 28,
-                                                ),
-                                                SizedBox(width: 8),
-                                                Text(
-                                                  'Delete Product',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    color: Colors.black,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            content: Text(
-                                              'Are you sure you want to permanently delete "${p.name}"?',
-                                              style: const TextStyle(
-                                                fontSize: 15,
-                                                color: Colors.black87,
-                                              ),
-                                            ),
-                                            actionsPadding:
-                                                const EdgeInsets.symmetric(
-                                                  horizontal: 16,
-                                                  vertical: 8,
-                                                ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () => Navigator.pop(
-                                                  context,
-                                                  false,
-                                                ),
-                                                child: const Text('Cancel'),
-                                              ),
-                                              ElevatedButton(
-                                                onPressed: () => Navigator.pop(
-                                                  context,
-                                                  true,
-                                                ),
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor: Colors.red,
-                                                  foregroundColor: Colors.white,
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          8,
-                                                        ),
-                                                  ),
-                                                ),
-                                                child: const Text('Delete'),
-                                              ),
-                                            ],
-                                          );
-                                        },
-                                      );
-
-                                      if (confirm == true) {
-                                        final ok = await context
-                                            .read<ProductProvider>()
-                                            .deleteProduct(
-                                              context,
-                                              p.idProduct,
-                                            );
-                                        if (ok && context.mounted) {
-                                          AppSnackbar.show(
-                                            context,
-                                            type: AppSnackType.success,
-                                            message:
-                                                'Product successfully deleted',
-                                          );
-                                          await provider.refreshInfinite(
-                                            context,
-                                          );
-                                        }
-                                      }
-                                    },
-                                  ),
-                                );
-                              },
-
-                              // indikator
-                              firstPageProgressIndicatorBuilder: (_) => Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(24),
-                                  child: Center(
-                                    child: const Text(
-                                      'No more products',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.black54,
-                                        fontWeight: FontWeight.w500,
+                                      ],
+                                    ),
+                                    content: Text(
+                                      'Are you sure you want to permanently delete "${p.name}"?',
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        color: Colors.black87,
                                       ),
                                     ),
-                                  ),
-                                ),
-                              ),
-                              newPageProgressIndicatorBuilder: (_) =>
-                                  const SizedBox.shrink(),
+                                    actionsPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.red,
+                                          foregroundColor: Colors.white,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                        ),
+                                        child: const Text('Delete'),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
 
-                              // error
-                              firstPageErrorIndicatorBuilder: (_) =>
-                                  _ErrorRetry(
-                                    onRetry: () =>
-                                        provider.refreshInfinite(context),
-                                  ),
-                              newPageErrorIndicatorBuilder: (_) =>
-                                  _ErrorRetry(onRetry: next),
+                              if (confirm == true) {
+                                final ok = await context
+                                    .read<ProductProvider>()
+                                    .deleteProduct(context, p.idProduct);
 
-                              // “no more items” → biar bersih (pakai footer sendiri kalau mau)
-                              noMoreItemsIndicatorBuilder: (_) =>
-                                  const SizedBox.shrink(),
-                            ),
+                                if (ok && context.mounted) {
+                                  AppSnackbar.show(
+                                    context,
+                                    type: AppSnackType.success,
+                                    message: 'Product successfully deleted',
+                                  );
+                                  await provider.refreshInfinite(context);
+                                }
+                              }
+                            },
+                          ),
+                        );
+                      },
+
+                      // ✅ INI SEMUA HARUS BOX WIDGET (BUKAN SLIVER)
+                      firstPageProgressIndicatorBuilder: (_) =>
+                          _buildShimmerBoxList(),
+
+                      newPageProgressIndicatorBuilder: (_) => const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 14),
+                        child: Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         ),
-                ),
-              ],
+                      ),
+
+                      noItemsFoundIndicatorBuilder: (_) => const Padding(
+                        padding: EdgeInsets.only(top: 56),
+                        child: EmptyState(
+                          title: 'No products',
+                          description:
+                              'Try changing your search or filter, or add a new product.',
+                        ),
+                      ),
+
+                      firstPageErrorIndicatorBuilder: (_) => _ErrorRetry(
+                        onRetry: () => provider.refreshInfinite(context),
+                      ),
+
+                      newPageErrorIndicatorBuilder: (_) =>
+                          _ErrorRetry(onRetry: next),
+
+                      noMoreItemsIndicatorBuilder: (_) =>
+                          const SizedBox.shrink(),
+                    ),
+                  ),
+
+                  // spacer bawah supaya ga ketutup bottomNavigationBar
+                  const SliverToBoxAdapter(child: SizedBox(height: 24 + 56)),
+                ],
+              ),
             );
           },
         ),

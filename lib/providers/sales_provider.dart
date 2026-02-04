@@ -2371,11 +2371,21 @@ class SalesProvider extends SafeChangeNotifier {
     if (bizId == null) return null;
 
     final path = '/waveup/$bizId/customer/$idCustomer';
-    if (kDebugMode) debugPrint('[SalesProvider] GET $path');
+    if (kDebugMode) {
+      debugPrint('════════════════════════════════════════════════');
+      debugPrint('[SalesProvider] 🔎 fetchCustomerDetail (ApiJson.getMap)');
+      debugPrint('[SalesProvider]  bizId      : $bizId');
+      debugPrint('[SalesProvider]  idCustomer : $idCustomer');
+      debugPrint('[SalesProvider]  endpoint   : $path');
+      debugPrint('════════════════════════════════════════════════');
+    }
 
     try {
       final j = await ApiJson.getMap(context, path, withAccessToken: true);
-      if (kDebugMode) debugPrint('[SalesProvider] detail resp: $j');
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] 📥 fetchCustomerDetail response raw:');
+        _debugBig('[SalesProvider] fetchCustomerDetail body', j);
+      }
 
       if (j == null || (j['status'] as num?)?.toInt() != 200) {
         _lastError =
@@ -2479,8 +2489,13 @@ class SalesProvider extends SafeChangeNotifier {
     };
 
     if (kDebugMode) {
-      debugPrint('[SalesProvider] 🌐 POST $path');
-      debugPrint('[SalesProvider] payload: $payload');
+      debugPrint('════════════════════════════════════════════════');
+      debugPrint('[SalesProvider] 🛠️ updateCustomer (ApiJson.postMap)');
+      debugPrint('[SalesProvider]  bizId      : $bizId');
+      debugPrint('[SalesProvider]  idCustomer : $idCustomer');
+      debugPrint('[SalesProvider]  endpoint   : $path');
+      debugPrint('[SalesProvider]  payload    : ${jsonEncode(payload)}');
+      debugPrint('════════════════════════════════════════════════');
     }
 
     try {
@@ -2490,7 +2505,10 @@ class SalesProvider extends SafeChangeNotifier {
         payload,
         withAccessToken: true,
       );
-      if (kDebugMode) debugPrint('[SalesProvider] update resp: $j');
+      if (kDebugMode) {
+        debugPrint('[SalesProvider] 📥 updateCustomer response raw:');
+        _debugBig('[SalesProvider] updateCustomer body', j);
+      }
 
       if (j == null || (j['status'] as num?)?.toInt() != 200) {
         _lastError = j?['message']?.toString() ?? 'Failed to update customer';
