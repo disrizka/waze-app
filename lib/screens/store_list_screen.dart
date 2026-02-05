@@ -98,6 +98,8 @@ class _StoreListScreenState extends State<StoreListScreen> {
               );
             }
 
+            final canDeleteAny = all.length > 1;
+
             return RefreshIndicator(
               onRefresh: () => context.read<StoreProvider>().refresh(context),
               child: ListView.separated(
@@ -139,14 +141,16 @@ class _StoreListScreenState extends State<StoreListScreen> {
                         initialProvinceName: s.city?.province?.name,
                       );
                     },
-                    onDelete: () async {
-                      final confirmed = await _confirmDelete(
-                        context,
-                        title: 'Delete Store',
-                        message:
-                            'Are you sure you want to delete "${s.name}"? This action cannot be undone.',
-                      );
-                      if (confirmed != true) return;
+                    onDelete: !canDeleteAny
+                        ? null
+                        : () async {
+                          final confirmed = await _confirmDelete(
+                            context,
+                            title: 'Delete Store',
+                            message:
+                                'Are you sure you want to delete "${s.name}"? This action cannot be undone.',
+                          );
+                          if (confirmed != true) return;
 
                       final ok = await context
                           .read<StoreProvider>()

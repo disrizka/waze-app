@@ -317,6 +317,11 @@ class StoreProvider with ChangeNotifier {
     BuildContext context,
     String idStoreLocation,
   ) async {
+    if (_stores.length <= 1) {
+      _lastError = 'At least one store location is required.';
+      return false;
+    }
+
     final bizId = await _requireBizId();
     if (bizId == null) return false;
 

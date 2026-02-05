@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:intl/intl.dart';
 
@@ -50,7 +49,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
   final TextEditingController _searchC = TextEditingController();
   final ScrollController _listCtrl =
       ScrollController(); // ⬅️ for infinite scroll
-  Timer? _debounce;
 
   _ProductFilters _filters = const _ProductFilters();
 
@@ -120,7 +118,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
   void dispose() {
     _prov.disposeInfinitePaging();
     _listCtrl.dispose();
-    _debounce?.cancel();
     _searchC.dispose();
     super.dispose();
   }
@@ -130,19 +127,15 @@ class _InventoryScreenState extends State<InventoryScreen> {
     await prov.refreshInfinite(context);
   }
 
-  void _onSearchChanged(String _) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () async {
-      if (!mounted) return;
+  Future<void> _onSearchSubmitted(String _) async {
+    if (!mounted) return;
 
-      final prov = context.read<ProductProvider>();
-      final composed = _filters
-          .copyWith(query: _searchC.text.trim())
-          .toSearchString(rawQuery: _searchC.text.trim());
+    final prov = context.read<ProductProvider>();
+    final q = _searchC.text.trim();
+    final composed = _filters.copyWith(query: q).toSearchString(rawQuery: q);
 
-      await prov.setInfiniteSearch(context, composed);
-      await prov.refreshInfinite(context);
-    });
+    await prov.setInfiniteSearch(context, composed);
+    await prov.refreshInfinite(context);
   }
 
   void _openAdvancedFilter(ProductProvider prov) async {
@@ -284,7 +277,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   Expanded(
                     child: TextField(
                       controller: _searchC,
-                      onChanged: _onSearchChanged,
+                      onSubmitted: _onSearchSubmitted,
                       textInputAction: TextInputAction.search,
                       decoration: InputDecoration(
                         hintText: 'Search by name or SKU',

@@ -1,6 +1,4 @@
 // lib/screens/orders/store_order_list_screen.dart
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -25,7 +23,6 @@ class _StoreOrderListScreenState extends State<StoreOrderListScreen> {
 
   // Search + debounce
   final TextEditingController _searchC = TextEditingController();
-  Timer? _searchDebounce;
 
   // Advanced filter (state)
   _OrderFilters _filters = const _OrderFilters();
@@ -51,7 +48,6 @@ class _StoreOrderListScreenState extends State<StoreOrderListScreen> {
 
   @override
   void dispose() {
-    _searchDebounce?.cancel();
     _searchC.dispose();
 
     _scrollC.removeListener(_onScroll);
@@ -115,13 +111,10 @@ class _StoreOrderListScreenState extends State<StoreOrderListScreen> {
     }
   }
 
-  void _onSearchChanged(String _) {
-    _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
-      if (!mounted) return;
-      final prov = context.read<OrderProvider>();
-      _applyFilters(prov: prov, scrollToTop: true);
-    });
+  void _onSearchSubmitted(String _) {
+    if (!mounted) return;
+    final prov = context.read<OrderProvider>();
+    _applyFilters(prov: prov, scrollToTop: true);
   }
 
   Future<DateTime?> _pickDateLocal({
@@ -332,7 +325,7 @@ class _StoreOrderListScreenState extends State<StoreOrderListScreen> {
                                         Expanded(
                                           child: TextField(
                                             controller: _searchC,
-                                            onChanged: _onSearchChanged,
+                                            onSubmitted: _onSearchSubmitted,
                                             textInputAction:
                                                 TextInputAction.search,
                                             decoration: InputDecoration(

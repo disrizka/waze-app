@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/providers/hr_provider.dart';
@@ -19,7 +17,6 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
 
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
-  Timer? _debounce;
 
   @override
   void initState() {
@@ -47,12 +44,9 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
     }
   }
 
-  void _onSearchChanged(String value) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 400), () {
-      final hr = context.read<HrProvider>();
-      hr.employeeList(context, refresh: true, search: value.trim());
-    });
+  void _onSearchSubmitted(String value) {
+    final hr = context.read<HrProvider>();
+    hr.employeeList(context, refresh: true, search: value.trim());
   }
 
   @override
@@ -60,7 +54,6 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchController.dispose();
-    _debounce?.cancel();
     super.dispose();
   }
 
@@ -171,7 +164,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
       height: 44,
       child: TextField(
         controller: _searchController,
-        onChanged: _onSearchChanged,
+        onSubmitted: _onSearchSubmitted,
         textInputAction: TextInputAction.search,
         decoration: InputDecoration(
           hintText: 'Search name, email, or phone',

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:intl/intl.dart';
@@ -55,7 +54,6 @@ class _ProductScreenState extends State<ProductScreen> {
   final TextEditingController _searchC = TextEditingController();
   final ScrollController _listCtrl =
       ScrollController(); // ⬅️ for infinite scroll
-  Timer? _debounce;
 
   _ProductFilters _filters = const _ProductFilters();
 
@@ -176,7 +174,6 @@ class _ProductScreenState extends State<ProductScreen> {
     // kalau kamu buat ScrollController sendiri, jangan lupa dispose:
     _listCtrl.dispose();
 
-    _debounce?.cancel();
     _searchC.dispose();
     super.dispose();
   }
@@ -226,33 +223,15 @@ class _ProductScreenState extends State<ProductScreen> {
     if (mounted) setState(() {});
   }
 
-  void _onSearchChanged(String _) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () async {
-      if (!mounted) return;
+  Future<void> _onSearchSubmitted(String _) async {
+    if (!mounted) return;
 
-      final prov = context.read<ProductProvider>();
-      final composed = _filters
-          .copyWith(query: _searchC.text.trim())
-          .toSearchString(rawQuery: _searchC.text.trim());
+    final prov = context.read<ProductProvider>();
+    final q = _searchC.text.trim();
+    final composed = _filters.copyWith(query: q).toSearchString(rawQuery: q);
 
-      // // 🔧 Pastikan paging sudah ada; kalau belum, init dulu supaya refresh punya efek
-      // if (prov.pagingController == null) {
-      //   prov.initInfinitePaging(context, initialSearch: composed);
-      //   // siapkan store tanpa nge-block lama
-      //   try {
-      //     await prov
-      //         .ensureDefaultStoreLocation(context)
-      //         .timeout(const Duration(seconds: 6));
-      //   } catch (_) {}
-      //   await prov.refreshInfinite(context); // langsung fetch page-1
-      // } else {
-      //   await prov.setInfiniteSearch(context, composed); // trigger fetch
-      // }
-
-      await prov.setInfiniteSearch(context, composed);
-      await prov.refreshInfinite(context);
-    });
+    await prov.setInfiniteSearch(context, composed);
+    await prov.refreshInfinite(context);
   }
 
   void _openAdvancedFilter(ProductProvider prov) async {
@@ -528,6 +507,9 @@ class _ProductScreenState extends State<ProductScreen> {
 
             // fungsi ambil halaman berikutnya (patuh meta backend)
             void next() {
+              if (state.isLoading) return;
+              if (!state.hasNextPage) return;
+              if (provider.reachedEnd) return;
               final pm = provider.pageProducts;
               final cur = pm?.currentPage;
               final tot = pm?.totalPages;
@@ -547,7 +529,7 @@ class _ProductScreenState extends State<ProductScreen> {
                   Expanded(
                     child: TextField(
                       controller: _searchC,
-                      onChanged: _onSearchChanged,
+                      onSubmitted: _onSearchSubmitted,
                       textInputAction: TextInputAction.search,
                       decoration: InputDecoration(
                         hintText: 'Search by name or SKU',

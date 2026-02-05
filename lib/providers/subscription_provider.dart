@@ -12,6 +12,7 @@ import 'package:in_app_purchase_storekit/store_kit_wrappers.dart';
 import 'package:intl/intl.dart';
 import 'package:midtrans_sdk/midtrans_sdk.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart' as p;
 import 'package:pdf/widgets.dart' as pw;
@@ -658,6 +659,11 @@ class SubscriptionProvider with ChangeNotifier {
           .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
       await _iosAddition!.setDelegate(_queueDelegate);
 
+      final info = await PackageInfo.fromPlatform();
+      _iapLog(
+        'runtime bundleId=${info.packageName} app=${info.appName} version=${info.version}+${info.buildNumber}',
+      );
+
       await Future.delayed(const Duration(milliseconds: 350));
 
       final available = await _iap.isAvailable();
@@ -825,36 +831,29 @@ class SubscriptionProvider with ChangeNotifier {
         // ===== StoreKit 2 JWS =====
         final receiptToken = p.verificationData.serverVerificationData;
 
-        // 1) purchaseID sering sudah berisi transactionId (bergantung platform wrapper)
+        // 1) Default: purchaseID sering berisi transactionId (tergantung wrapper)
         String? transactionId = p.purchaseID;
         String? originalTransactionId;
 
-        var purchaseID = p.purchaseID;
+        // 2) StoreKit 1 (AppStorePurchaseDetails)
+        //    - transactionIdentifier = transaksi saat ini
+        //    - originalTransaction.transactionIdentifier = transaksi awal
         if (p is AppStorePurchaseDetails) {
+          transactionId = p.skPaymentTransaction.transactionIdentifier;
           final originalTransaction =
               p.skPaymentTransaction.originalTransaction;
           if (originalTransaction != null) {
-            purchaseID = originalTransaction.transactionIdentifier;
+            originalTransactionId = originalTransaction.transactionIdentifier;
           }
         }
 
-        // 2) Kalau SK2, coba parse transactionId & originalTransactionId dari JWS payload
+        // 3) StoreKit 2: ambil dari JWS payload (lebih akurat, p.purchaseID bisa "0")
         if (p is SK2PurchaseDetails) {
-          final parts = receiptToken.split('.');
-          if (parts.length == 3) {
-            try {
-              final payloadJson = utf8.decode(
-                base64Url.decode(base64Url.normalize(parts[1])),
-              );
-              final payloadMap =
-                  jsonDecode(payloadJson) as Map<String, dynamic>;
-
-              transactionId ??= payloadMap['transactionId']?.toString();
-              originalTransactionId ??= payloadMap['originalTransactionId']
-                  ?.toString();
-            } catch (_) {
-              // ignore parse error, still print payload with what we have
-            }
+          final parsed = _tryParseSk2IdsFromJws(receiptToken);
+          if (parsed != null) {
+            transactionId = parsed.transactionId ?? transactionId;
+            originalTransactionId =
+                parsed.originalTransactionId ?? originalTransactionId;
           }
         }
 
@@ -863,7 +862,7 @@ class SubscriptionProvider with ChangeNotifier {
           "platform": "ios",
           "store": "apple",
           "product_id": p.productID,
-          "transaction_id": purchaseID,
+          "transaction_id": transactionId,
           "original_transaction_id": originalTransactionId,
           "receipt_token": receiptToken, // JWS (SK2) biasanya panjang
         };

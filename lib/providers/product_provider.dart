@@ -311,6 +311,13 @@ class ProductProvider with ChangeNotifier {
 
   PagingController<int, Product>? get pagingController => _pagingController;
 
+  void _syncHasNextPage(bool value) {
+    final pc = _pagingController;
+    if (pc == null) return;
+    if (pc.value.hasNextPage == value) return;
+    pc.value = pc.value.copyWith(hasNextPage: value);
+  }
+
   void _setLoading({
     bool? products,
     bool? brands,
@@ -390,6 +397,7 @@ class ProductProvider with ChangeNotifier {
             _pageProducts = null;
             // ❗ batch 0 = akhir
             _reachedEnd = true;
+            _syncHasNextPage(false);
             notifyListeners();
             return const <Product>[];
           }
@@ -410,6 +418,7 @@ class ProductProvider with ChangeNotifier {
           } else {
             _reachedEnd = items.length < _pageSize;
           }
+          _syncHasNextPage(!_reachedEnd);
 
           if (pageKey == 1) {
             _products
@@ -428,6 +437,7 @@ class ProductProvider with ChangeNotifier {
           _pageProducts = null;
           _productError = e.toString();
           _reachedEnd = true; // anggap stop agar UI tidak nyoba terus
+          _syncHasNextPage(false);
           notifyListeners();
           rethrow;
         }

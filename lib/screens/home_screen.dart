@@ -116,6 +116,10 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _maybeShowSubscriptionModal() async {
     final prefs = await SharedPreferences.getInstance();
 
+    // ✅ Jangan tampilkan modal kalau sudah premium
+    final bool isPremium = _readActiveBizIsPremium(prefs);
+    if (isPremium) return;
+
     // baca waktu terakhir modal muncul
     final lastStr = prefs.getString(kLastSubscriptionShownAtKey);
     if (lastStr != null) {
@@ -146,6 +150,37 @@ class _HomeScreenState extends State<HomeScreen>
       kLastSubscriptionShownAtKey,
       DateTime.now().toIso8601String(),
     );
+  }
+
+  bool _readActiveBizIsPremium(SharedPreferences prefs) {
+    bool parsePremium(dynamic v) {
+      if (v is bool) return v;
+      if (v is num) return v != 0;
+      final s = v?.toString().trim().toLowerCase() ?? '';
+      if (s.isEmpty) return false;
+      return s == '1' ||
+          s == 'true' ||
+          s == 'yes' ||
+          s == 'premium';
+    }
+
+    final activeId = (prefs.getString('activeBizId') ?? '').trim();
+    final rawBusiness = prefs.getString('business');
+    if (rawBusiness != null && rawBusiness.isNotEmpty) {
+      try {
+        final list = (jsonDecode(rawBusiness) as List)
+            .cast<Map<String, dynamic>>();
+        final match = list.firstWhere(
+          (e) => (e['idBusiness'] ?? '').toString() == activeId,
+          orElse: () => <String, dynamic>{},
+        );
+        if (match.isNotEmpty) {
+          return parsePremium(match['isPremium'] ?? match['is_premium']);
+        }
+      } catch (_) {}
+    }
+
+    return prefs.getBool('activeBizIsPremium') ?? false;
   }
 
   @override
@@ -844,6 +879,14 @@ class _HeaderGradientState extends State<_HeaderGradient> {
     _loadPrefs();
   }
 
+  bool _parsePremiumFlag(dynamic v) {
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    final s = v?.toString().trim().toLowerCase() ?? '';
+    if (s.isEmpty) return false;
+    return s == '1' || s == 'true' || s == 'yes' || s == 'premium';
+  }
+
   // Public wrapper supaya bisa dipanggil dari RefreshIndicator
   Future<void> reloadFromPrefs() => _loadPrefs();
 
@@ -953,7 +996,9 @@ class _HeaderGradientState extends State<_HeaderGradient> {
           businessUsername = (match['username'] ?? '').toString();
           businessLogoPath = (match['logoPath'] ?? match['logo'] ?? '')
               .toString();
-          isPremium = (match['isPremium'] ?? false) == true;
+          isPremium = _parsePremiumFlag(
+            match['isPremium'] ?? match['is_premium'],
+          );
 
           // ✅ NEW
           bannedStatus = (match['banned'] as String?)?.trim() ?? '';
@@ -961,7 +1006,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
           businessName = prefs.getString('activeBizName') ?? '';
           businessUsername = prefs.getString('activeBizUsername') ?? '';
           businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
-          isPremium = (prefs.getBool('activeBizIsPremium') ?? false);
+          isPremium = prefs.getBool('activeBizIsPremium') ?? false;
 
           // ✅ NEW
           bannedStatus = (prefs.getString('activeBizBanned') ?? '').trim();
@@ -976,7 +1021,7 @@ class _HeaderGradientState extends State<_HeaderGradient> {
       businessName = prefs.getString('activeBizName') ?? '';
       businessUsername = prefs.getString('activeBizUsername') ?? '';
       businessLogoPath = prefs.getString('activeBizLogoPath') ?? '';
-      isPremium = (prefs.getBool('activeBizIsPremium') ?? false);
+      isPremium = prefs.getBool('activeBizIsPremium') ?? false;
     }
 
     _photoPath = prefs.getString('photoPath') ?? '';
