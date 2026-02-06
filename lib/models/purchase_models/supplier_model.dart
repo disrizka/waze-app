@@ -1,4 +1,4 @@
-import 'package:wa_blast/models/city_model.dart';
+import 'package:wa_blast/models/purchase_models/city_model.dart';
 
 class Supplier {
   final String idSupplier;
