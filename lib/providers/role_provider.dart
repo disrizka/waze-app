@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wa_blast/config/role_route_mapping.dart';
 import 'package:wa_blast/core/provider_helper.dart';
-import 'package:wa_blast/models/role_models.dart';
+import 'package:wa_blast/models/auth_models/role_models.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 
 /// Provider untuk mengelola izin berbasis role:

@@ -909,6 +909,11 @@ class AuthProvider with ChangeNotifier {
         await _setActiveRoleIfPresent(prefs, activeRole);
       }
 
+      // Reset guard & deeplink supaya /splash bisa navigate lagi saat switch akun
+      final sp = appNavigatorKey.currentContext?.read<SplashProvider>();
+      sp?.resetNavigationGuards();
+      sp?.abortDeepLink();
+
       _error = null;
       notifyListeners();
       return true;

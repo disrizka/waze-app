@@ -4,39 +4,30 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:wa_blast/providers/adjustment_provider.dart';
-import 'package:wa_blast/providers/hr_provider.dart';
-import 'package:wa_blast/providers/order_provider.dart';
-import 'package:wa_blast/screens/adjustment/adjustment_list_screen.dart';
-import 'package:wa_blast/screens/inventory/initial_stock_detail_screen.dart';
-import 'package:wa_blast/screens/order/order_list_screen.dart';
-import 'package:wa_blast/screens/stock-opname/stock_opname_create_screen.dart';
-import 'package:wa_blast/screens/stock-opname/stock_opname_form_screen.dart';
-import 'package:wa_blast/screens/stock_opname_list_screen.dart';
-import 'package:wa_blast/screens/transaction_fee_detail_screen.dart';
 
 // App
-import 'firebase_options.dart';
 import 'package:wa_blast/app_nav.dart';
 import 'package:wa_blast/env.dart';
+import 'package:wa_blast/firebase_options.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
-import 'package:wa_blast/models/product_model.dart';
-import 'package:wa_blast/services/deep_link_service.dart';
-
-// Providers (third-party + app)
+import 'package:wa_blast/models/product_models/product_model.dart';
+import 'package:wa_blast/providers/adjustment_provider.dart';
 import 'package:wa_blast/providers/auth_provider.dart';
 import 'package:wa_blast/providers/change_password_provider.dart';
-import 'package:wa_blast/providers/chat_provider.dart';
 import 'package:wa_blast/providers/chat_detail_provider.dart';
+import 'package:wa_blast/providers/chat_provider.dart';
 import 'package:wa_blast/providers/edit_profile_provider.dart';
+import 'package:wa_blast/providers/hr_provider.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
+import 'package:wa_blast/providers/notification_provider.dart';
+import 'package:wa_blast/providers/order_provider.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/purchase_provider.dart';
 import 'package:wa_blast/providers/report_provider.dart';
@@ -46,55 +37,60 @@ import 'package:wa_blast/providers/splash_provider.dart';
 import 'package:wa_blast/providers/stock_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/providers/subscription_provider.dart';
-import 'package:wa_blast/providers/notification_provider.dart';
-
-// Screens
-import 'package:wa_blast/screens/splash_screen.dart';
-import 'package:wa_blast/screens/login_screen.dart';
-import 'package:wa_blast/screens/register/register_screen_wrapper.dart';
-import 'package:wa_blast/screens/register/business_register_screen.dart';
-import 'package:wa_blast/screens/main_wrapper.dart';
-import 'package:wa_blast/screens/products/manage_product.dart';
-import 'package:wa_blast/screens/products/product_screen.dart';
-import 'package:wa_blast/screens/products/product_detail_screen.dart';
-import 'package:wa_blast/screens/products/create_edit_screen/add_product_screen.dart';
-import 'package:wa_blast/screens/products/product_stock_inventory.dart';
-import 'package:wa_blast/screens/products/category_list_screen.dart';
-import 'package:wa_blast/screens/products/brand_list_screen.dart';
-import 'package:wa_blast/screens/inventory/manage_stock_screen.dart';
-import 'package:wa_blast/screens/inventory/inventory_screen.dart';
-import 'package:wa_blast/screens/inventory/initial_stock_screen.dart';
-import 'package:wa_blast/screens/inventory/add_initial_stock_screen.dart';
-import 'package:wa_blast/screens/inventory/product_stock_history.dart';
-import 'package:wa_blast/screens/purchase/manage_purchase_screen.dart';
-import 'package:wa_blast/screens/purchase/purchase_screen.dart';
-import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
-import 'package:wa_blast/screens/purchase/supplier_list_screen.dart';
-import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
-import 'package:wa_blast/screens/detail_purchase_screen.dart';
-import 'package:wa_blast/screens/store_list_screen.dart';
-import 'package:wa_blast/screens/settings/business/business_settings_screen.dart';
-import 'package:wa_blast/screens/settings/business/business_edit_screen.dart';
-import 'package:wa_blast/screens/settings/thermal_printer_setting.dart';
+import 'package:wa_blast/screens/adjustment/adjustment_list_screen.dart';
 import 'package:wa_blast/screens/change_password_screen.dart';
+import 'package:wa_blast/screens/detail_purchase_screen.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.dart';
-import 'package:wa_blast/screens/report/manage_report_screen.dart';
-import 'package:wa_blast/screens/report/report_sales_screen.dart';
-import 'package:wa_blast/screens/report/report_purchase_screen.dart';
-import 'package:wa_blast/screens/payment_history_base_screen.dart';
-import 'package:wa_blast/screens/subscription/subscription_screen.dart';
-import 'package:wa_blast/screens/subscription/subscription_checkout_history_screen.dart';
-import 'package:wa_blast/screens/notification_detail_list.dart';
-import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
-import 'package:wa_blast/screens/hr/hr_screen.dart';
-import 'package:wa_blast/screens/hr/role_screen.dart';
 import 'package:wa_blast/screens/hr/employee_list_screen.dart';
+import 'package:wa_blast/screens/hr/hr_screen.dart';
+import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
+import 'package:wa_blast/screens/hr/role_screen.dart';
+import 'package:wa_blast/screens/inventory/add_initial_stock_screen.dart';
+import 'package:wa_blast/screens/inventory/initial_stock_detail_screen.dart';
+import 'package:wa_blast/screens/inventory/initial_stock_screen.dart';
+import 'package:wa_blast/screens/inventory/inventory_screen.dart';
+import 'package:wa_blast/screens/inventory/manage_stock_screen.dart';
+import 'package:wa_blast/screens/inventory/product_stock_history.dart';
+import 'package:wa_blast/screens/login_screen.dart';
+import 'package:wa_blast/screens/main_wrapper.dart';
+import 'package:wa_blast/screens/notification_detail_list.dart';
+import 'package:wa_blast/screens/notification_list_screen.dart';
+import 'package:wa_blast/screens/order/order_list_screen.dart';
+import 'package:wa_blast/screens/payment_history_base_screen.dart';
+import 'package:wa_blast/screens/products/brand_list_screen.dart';
+import 'package:wa_blast/screens/products/category_list_screen.dart';
+import 'package:wa_blast/screens/products/create_edit_screen/add_product_screen.dart';
+import 'package:wa_blast/screens/products/manage_product.dart';
+import 'package:wa_blast/screens/products/product_detail_screen.dart';
+import 'package:wa_blast/screens/products/product_screen.dart';
+import 'package:wa_blast/screens/products/product_stock_inventory.dart';
+import 'package:wa_blast/screens/purchase/add_purchase_screen.dart';
+import 'package:wa_blast/screens/purchase/manage_purchase_screen.dart';
+import 'package:wa_blast/screens/purchase/purchase_screen.dart';
+import 'package:wa_blast/screens/purchase/supplier_detail_screen.dart';
+import 'package:wa_blast/screens/purchase/supplier_list_screen.dart';
+import 'package:wa_blast/screens/register/business_register_screen.dart';
+import 'package:wa_blast/screens/register/register_screen_wrapper.dart';
+import 'package:wa_blast/screens/report/manage_report_screen.dart';
+import 'package:wa_blast/screens/report/report_purchase_screen.dart';
+import 'package:wa_blast/screens/report/report_sales_screen.dart';
+import 'package:wa_blast/screens/sales/costumer_screen.dart';
 import 'package:wa_blast/screens/sales/manage_sales_screen.dart';
 import 'package:wa_blast/screens/sales/sales_stepper_wrapper.dart';
-import 'package:wa_blast/screens/sales/costumer_screen.dart';
-import 'package:wa_blast/screens/sales_report_screen.dart';
 import 'package:wa_blast/screens/sales_report_detail_screen.dart';
+import 'package:wa_blast/screens/sales_report_screen.dart';
+import 'package:wa_blast/screens/settings/business/business_edit_screen.dart';
+import 'package:wa_blast/screens/settings/business/business_settings_screen.dart';
+import 'package:wa_blast/screens/settings/thermal_printer_setting.dart';
+import 'package:wa_blast/screens/splash_screen.dart';
+import 'package:wa_blast/screens/stock-opname/stock_opname_create_screen.dart';
+import 'package:wa_blast/screens/stock_opname_list_screen.dart';
+import 'package:wa_blast/screens/store_list_screen.dart';
+import 'package:wa_blast/screens/subscription/subscription_checkout_history_screen.dart';
+import 'package:wa_blast/screens/subscription/subscription_screen.dart';
+import 'package:wa_blast/screens/transaction_fee_detail_screen.dart';
+import 'package:wa_blast/services/deep_link_service.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
@@ -107,11 +103,24 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void startApp() {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Env.isDev) {
+    HttpOverrides.global = _DevHttpOverrides();
+  }
   _initEnvSafe().then((_) {
     Env.debugPrintEnv(' @startApp');
     BuildDiag.printSummary(' @startApp');
     runApp(const _AppShell());
   });
+}
+
+class _DevHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    final client = super.createHttpClient(context);
+    client.badCertificateCallback =
+        (X509Certificate cert, String host, int port) => true;
+    return client;
+  }
 }
 
 Future<void> _initEnvSafe() async {
@@ -840,6 +849,12 @@ class MyApp extends StatelessWidget {
             android: AndroidTransition.slideUp,
           );
         }
+      case '/notification':
+        return _platformRouteAnimated(
+          settings,
+          const NotificationListScreen(),
+          android: AndroidTransition.slideUp,
+        );
 
       case '/adjustment':
         return _platformRouteAnimated(

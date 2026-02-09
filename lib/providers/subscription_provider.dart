@@ -20,252 +20,25 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/screens/subscription/subscription_payment_success_screen.dart';
 
 import '../core/provider_helper.dart';
-import '../models/premium_plan_model.dart';
+import '../env.dart';
+import '../models/subscription_models/premium_plan_model.dart';
 import '../services/api_service.dart';
 import '../widgets/payment_webview_screen.dart';
+
+part '../models/subscription_models/payment_result.dart';
+part '../models/subscription_models/subscription_history_item.dart';
+part '../models/subscription_models/transaction_fee_history_entry.dart';
+part '../models/subscription_models/transaction_fee_history_line_item.dart';
+part '../models/subscription_models/transaction_fee_info.dart';
+part '../models/subscription_models/transaction_fee_item.dart';
+part '../models/subscription_models/voucher_check_result.dart';
 
 // -------------------------------------------------------------
 // ENUM: BillingCycle
 // -------------------------------------------------------------
 enum BillingCycle { monthly, yearly }
 
-// -------------------------------------------------------------
-// Result cek voucher
-// -------------------------------------------------------------
-
-class SubscriptionHistoryItem {
-  final String id;
-  final String number;
-  final int amount;
-  final DateTime? createdAt;
-  final int paid; // 0 / 1
-  final DateTime? paidAt;
-  final String paidStatus;
-
-  final int paymentMethod;
-  final String paymentMethodName;
-
-  final String planId;
-  final String planName;
-  final String pricingId;
-
-  final String description;
-  final String period;
-  final String type;
-
-  final String paymentLink;
-  final String paymentToken;
-
-  final String transactionFeeId;
-
-  SubscriptionHistoryItem({
-    required this.id,
-    required this.number,
-    required this.amount,
-    required this.createdAt,
-    required this.paid,
-    required this.paidAt,
-    required this.paidStatus,
-    required this.paymentMethod,
-    required this.paymentMethodName,
-    required this.planId,
-    required this.planName,
-    required this.pricingId,
-    required this.description,
-    required this.period,
-    required this.type,
-    required this.paymentLink,
-    required this.paymentToken,
-    required this.transactionFeeId,
-  });
-
-  factory SubscriptionHistoryItem.fromJson(Map<String, dynamic> json) {
-    DateTime? _parseDate(String? raw) {
-      if (raw == null || raw.isEmpty) return null;
-      try {
-        return DateTime.parse(raw);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    String pickTxFeeId(Map<String, dynamic> j) {
-      final candidates = [
-        'idTransactionFee',
-        'id_transaction_fee',
-        'transaction_fee_id',
-        'transactionFeeId',
-        'transaction_fee',
-      ];
-
-      for (final k in candidates) {
-        final v = j[k];
-        if (v == null) continue;
-
-        if (v is Map && v['id'] != null) {
-          final s = v['id'].toString().trim();
-          if (s.isNotEmpty) return s;
-        }
-
-        final s = v.toString().trim();
-        if (s.isNotEmpty && s.toLowerCase() != 'null') return s;
-      }
-      return '';
-    }
-
-    return SubscriptionHistoryItem(
-      id: json['id']?.toString() ?? '',
-      number: json['number']?.toString() ?? '',
-      amount: (json['amount'] as num?)?.toInt() ?? 0,
-      createdAt: _parseDate(json['created_at']?.toString()),
-      paid: (json['paid'] as num?)?.toInt() ?? 0,
-      paidAt: _parseDate(json['paid_at']?.toString()),
-      paidStatus: json['paid_status']?.toString() ?? '',
-      paymentMethod: (json['payment_method'] as num?)?.toInt() ?? 0,
-      paymentMethodName: json['payment_method_name']?.toString() ?? '',
-      planId: json['plan_id']?.toString() ?? '',
-      planName: json['plan_name']?.toString() ?? '',
-      pricingId: json['pricing_id']?.toString() ?? '',
-      description: json['description']?.toString() ?? '',
-      period: json['period']?.toString() ?? '',
-      type: json['type']?.toString() ?? '',
-      paymentLink: json['payment_link']?.toString() ?? '',
-      paymentToken: json['payment_token']?.toString() ?? '',
-      transactionFeeId: pickTxFeeId(json),
-    );
-  }
-}
-
-class TransactionFeeInfo {
-  final String id;
-  final int month;
-  final int year;
-  final String period;
-  final String status; // pending / paid / etc
-  final int totalFee;
-  final int transactionCount;
-
-  const TransactionFeeInfo({
-    required this.id,
-    required this.month,
-    required this.year,
-    required this.period,
-    required this.status,
-    required this.totalFee,
-    required this.transactionCount,
-  });
-
-  factory TransactionFeeInfo.fromJson(Map<String, dynamic> json) {
-    return TransactionFeeInfo(
-      id: json['id']?.toString() ?? '',
-      month: (json['month'] as num?)?.toInt() ?? 0,
-      year: (json['year'] as num?)?.toInt() ?? 0,
-      period: json['period']?.toString() ?? '',
-      status: json['status']?.toString() ?? '',
-      totalFee: (json['total_fee'] as num?)?.toInt() ?? 0,
-      transactionCount: (json['transaction_count'] as num?)?.toInt() ?? 0,
-    );
-  }
-}
-
-class TransactionFeeHistoryLineItem {
-  final String transactionReference;
-  final int qtyIn;
-  final int qtyOut;
-  final int price;
-  final int discount;
-
-  final String productId;
-  final String productName;
-
-  const TransactionFeeHistoryLineItem({
-    required this.transactionReference,
-    required this.qtyIn,
-    required this.qtyOut,
-    required this.price,
-    required this.discount,
-    required this.productId,
-    required this.productName,
-  });
-
-  factory TransactionFeeHistoryLineItem.fromJson(Map<String, dynamic> json) {
-    final product = (json['product'] is Map) ? (json['product'] as Map) : null;
-
-    return TransactionFeeHistoryLineItem(
-      transactionReference: json['transaction_reference']?.toString() ?? '',
-      qtyIn: (json['qty_in'] as num?)?.toInt() ?? 0,
-      qtyOut: (json['qty_out'] as num?)?.toInt() ?? 0,
-      price: (json['price'] as num?)?.toInt() ?? 0,
-      discount: (json['discount'] as num?)?.toInt() ?? 0,
-      productId:
-          (product?['idProduct'] ?? json['product_id'])?.toString() ?? '',
-      productName: (product?['name'])?.toString() ?? '-',
-    );
-  }
-}
-
-class TransactionFeeHistoryEntry {
-  final String id;
-  final String number;
-  final int amount;
-  final String status; // paid / etc
-  final DateTime? createdAt;
-
-  final String storeLocationName;
-  final String cityName;
-
-  final List<TransactionFeeHistoryLineItem> items;
-
-  const TransactionFeeHistoryEntry({
-    required this.id,
-    required this.number,
-    required this.amount,
-    required this.status,
-    required this.createdAt,
-    required this.storeLocationName,
-    required this.cityName,
-    required this.items,
-  });
-
-  factory TransactionFeeHistoryEntry.fromJson(Map<String, dynamic> json) {
-    DateTime? parseDate(String? raw) {
-      if (raw == null || raw.isEmpty) return null;
-      try {
-        return DateTime.parse(raw);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    final store = (json['store_location'] is Map)
-        ? (json['store_location'] as Map)
-        : null;
-
-    final city = (store?['city'] is Map) ? (store?['city'] as Map) : null;
-
-    final rawItems = (json['items'] is List)
-        ? (json['items'] as List)
-        : const [];
-    final items = rawItems
-        .whereType<Map>()
-        .map(
-          (e) =>
-              TransactionFeeHistoryLineItem.fromJson(e.cast<String, dynamic>()),
-        )
-        .toList();
-
-    return TransactionFeeHistoryEntry(
-      id: json['id']?.toString() ?? '',
-      number: json['number']?.toString() ?? '',
-      amount: (json['amount'] as num?)?.toInt() ?? 0,
-      status: json['status']?.toString() ?? '',
-      createdAt: parseDate(json['created_at']?.toString()),
-      storeLocationName: (store?['name'])?.toString() ?? '-',
-      cityName: (city?['name'])?.toString() ?? '',
-      items: items,
-    );
-  }
-}
+enum _AppleVerifyOutcome { verified, backendRejected, clientError }
 
 class _TransactionFeeDetailPagingState {
   TransactionFeeInfo? info;
@@ -285,74 +58,6 @@ class _TransactionFeeDetailPagingState {
   bool hasMore = true;
 
   int limit = 10;
-}
-
-class VoucherCheckResult {
-  final bool isValid;
-  final int originalPrice;
-  final int finalPrice;
-  final int discount;
-  final String? voucherName;
-  final String? voucherDesc;
-  final String? message;
-
-  const VoucherCheckResult({
-    required this.isValid,
-    required this.originalPrice,
-    required this.finalPrice,
-    required this.discount,
-    this.voucherName,
-    this.voucherDesc,
-    this.message,
-  });
-}
-
-class PaymentResult {
-  final String status;
-  final String? transactionId;
-  final String? paymentType;
-  final String? message;
-  final String? raw;
-
-  PaymentResult(
-    this.status, {
-    this.transactionId,
-    this.paymentType,
-    this.message,
-    this.raw,
-  });
-}
-
-class TransactionFeeItem {
-  final String idTransactionFee;
-  final String idBusiness;
-  final int month;
-  final int year;
-  final int transactionCount;
-  final int totalFee;
-  final String status; // pending / paid / etc
-
-  const TransactionFeeItem({
-    required this.idTransactionFee,
-    required this.idBusiness,
-    required this.month,
-    required this.year,
-    required this.transactionCount,
-    required this.totalFee,
-    required this.status,
-  });
-
-  factory TransactionFeeItem.fromJson(Map<String, dynamic> json) {
-    return TransactionFeeItem(
-      idTransactionFee: json['idTransactionFee']?.toString() ?? '',
-      idBusiness: json['idBusiness']?.toString() ?? '',
-      month: (json['month'] as num?)?.toInt() ?? 0,
-      year: (json['year'] as num?)?.toInt() ?? 0,
-      transactionCount: (json['transaction_count'] as num?)?.toInt() ?? 0,
-      totalFee: (json['total_fee'] as num?)?.toInt() ?? 0,
-      status: json['status']?.toString() ?? '',
-    );
-  }
 }
 
 class _HistoryPagingState {
@@ -438,34 +143,33 @@ class SubscriptionProvider with ChangeNotifier {
   // ---------------------------------------------------------------------------
   BuildContext? _iosLastContext;
   final Set<String> _verifiedAppleTransactionIds = <String>{};
+  bool _iosAppleVerifyDialogShown = false;
 
-  Future<int> _getUserIdForAppleVerify() async {
-    // Ambil user_id dari SharedPreferences (coba beberapa key umum).
-    // Kalau di project kamu user id disimpan di key lain, tinggal tambahin di candidates.
+  Future<String> _getBusinessIdForAppleVerify() async {
+    final id = await BizIdCache.get();
+    final safe = (id ?? '').trim();
+    if (safe.isEmpty) {
+      debugPrint(
+        '[IAP][AppleVerify] ⚠️ business_id not found in SharedPreferences. Using empty string.',
+      );
+    }
+    return safe;
+  }
+
+  Future<String> _getUserIdForAppleVerify() async {
+    // Ambil user_id dari SharedPreferences (sesuai AuthProvider).
     final prefs = await SharedPreferences.getInstance();
 
-    final candidates = <String>[
-      'user_id',
-      'userId',
-      'id_user',
-      'idUser',
-      'uid',
-    ];
-
-    for (final k in candidates) {
-      final v = prefs.get(k);
-      if (v == null) continue;
-
-      if (v is int) return v;
-      final parsed = int.tryParse(v.toString());
-      if (parsed != null && parsed > 0) return parsed;
+    final v = prefs.get('idUser');
+    if (v != null) {
+      final s = v.toString().trim();
+      if (s.isNotEmpty) return s;
     }
 
-    // fallback
     debugPrint(
       '[IAP][AppleVerify] ⚠️ user_id not found in SharedPreferences. Using 0.',
     );
-    return 0;
+    return '0';
   }
 
   Map<String, dynamic>? _safeJsonMap(String raw) {
@@ -479,49 +183,175 @@ class SubscriptionProvider with ChangeNotifier {
     }
   }
 
-  Future<void> _postAppleVerify({
+  void _showIosAppleVerifyLoading(BuildContext context) {
+    if (_iosAppleVerifyDialogShown) return;
+    if (!context.mounted) return;
+    _iosAppleVerifyDialogShown = true;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(
+          child: SizedBox(
+            height: 48,
+            width: 48,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _hideIosAppleVerifyLoading(BuildContext context) {
+    if (!_iosAppleVerifyDialogShown) return;
+    if (!context.mounted) return;
+    final nav = Navigator.of(context, rootNavigator: true);
+    if (nav.canPop()) {
+      nav.pop();
+    }
+    _iosAppleVerifyDialogShown = false;
+  }
+
+  Future<void> _showIosSubscriptionFailedDialog(
+    BuildContext context, {
+    required String message,
+  }) async {
+    if (_iosFailureDialogShown) return;
+    if (!context.mounted) return;
+    _iosFailureDialogShown = true;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFEEF0),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(
+                    Icons.error_outline_rounded,
+                    color: Color(0xFFDC2626),
+                    size: 34,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Subscription gagal',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    height: 1.35,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Tutup',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Silakan coba lagi beberapa saat.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    _iosFailureDialogShown = false;
+  }
+
+  Future<_AppleVerifyOutcome> _postAppleVerify({
     required String transactionId,
     required String receiptToken,
   }) async {
     final ctx = _iosLastContext;
     if (ctx == null) {
       debugPrint('[IAP][AppleVerify] ❌ No context available to call API.');
-      return;
+      return _AppleVerifyOutcome.clientError;
     }
 
     if (!ctx.mounted) {
       debugPrint('[IAP][AppleVerify] ❌ Context not mounted.');
-      return;
+      return _AppleVerifyOutcome.clientError;
     }
 
     if (transactionId.trim().isEmpty) {
       debugPrint('[IAP][AppleVerify] ❌ Missing transaction_id.');
-      return;
+      return _AppleVerifyOutcome.clientError;
     }
 
     if (_verifiedAppleTransactionIds.contains(transactionId)) {
       debugPrint(
         '[IAP][AppleVerify] ⏭️ Already verified tx=$transactionId, skip.',
       );
-      return;
+      return _AppleVerifyOutcome.verified;
     }
 
+    final businessId = await _getBusinessIdForAppleVerify();
     final userId = await _getUserIdForAppleVerify();
 
     const path = '/premium/apple/verify';
     final payload = <String, dynamic>{
       "transaction_id": transactionId,
       "receipt_token": receiptToken,
+      "business_id": businessId,
       "user_id": userId,
     };
 
     // Debug payload (receipt token panjang, jadi kita chunk)
     debugPrint(
       '📤 [IAP][AppleVerify] POST $path payload:\n'
-      '${const JsonEncoder.withIndent("  ").convert({"transaction_id": transactionId, "user_id": userId, "receipt_token_len": receiptToken.length})}',
+      '${const JsonEncoder.withIndent("  ").convert({"transaction_id": transactionId, "business_id": businessId, "user_id": userId, "receipt_token_len": receiptToken.length})}',
     );
 
     try {
+      _showIosAppleVerifyLoading(ctx);
       final res = await ApiService.post(
         ctx,
         path,
@@ -538,27 +368,44 @@ class SubscriptionProvider with ChangeNotifier {
       // Anggap berhasil kalau HTTP 2xx dan/atau JSON status==200
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final m = _safeJsonMap(raw);
-        final apiStatus = (m?['status'] as num?)?.toInt();
-        if (apiStatus == null || apiStatus == 200) {
+        final statusVal = m?['status'];
+        final statusStr = statusVal?.toString().toLowerCase().trim() ?? '';
+        final apiStatus = (statusVal is num) ? statusVal.toInt() : null;
+
+        final isOk =
+            apiStatus == 200 ||
+            statusStr == 'success' ||
+            statusStr == 'ok' ||
+            statusStr == '200' ||
+            statusVal == true;
+
+        if (isOk) {
           _verifiedAppleTransactionIds.add(transactionId);
           debugPrint('[IAP][AppleVerify] ✅ Verified OK tx=$transactionId');
-          return;
+          _hideIosAppleVerifyLoading(ctx);
+          return _AppleVerifyOutcome.verified;
         }
 
         debugPrint(
           '[IAP][AppleVerify] ⚠️ API status != 200 (status=$apiStatus)',
         );
-        return;
+        _hideIosAppleVerifyLoading(ctx);
+        return _AppleVerifyOutcome.backendRejected;
       }
 
       debugPrint('[IAP][AppleVerify] ❌ HTTP error ${res.statusCode}');
+      _hideIosAppleVerifyLoading(ctx);
+      return _AppleVerifyOutcome.backendRejected;
     } catch (e, st) {
       debugPrint('[IAP][AppleVerify] ❌ error: $e\n$st');
+      _hideIosAppleVerifyLoading(ctx);
+      return _AppleVerifyOutcome.clientError;
     }
   }
 
   /// Dipakai UI untuk show snackbar sekali (screen akan clear).
   String? _iosLastMessage;
+  bool _iosFailureDialogShown = false;
 
   /// Cache product details
   final Map<String, ProductDetails> _iosProductsById = {};
@@ -650,7 +497,6 @@ class SubscriptionProvider with ChangeNotifier {
         onError: (e) {
           _iapLog('purchaseStream onError: $e');
           _iosIapError = e.toString();
-          _iosLastMessage = _iosIapError;
           notifyListeners();
         },
       );
@@ -688,7 +534,6 @@ class SubscriptionProvider with ChangeNotifier {
       _iosIapInitDone = true;
       _iosIapInitLoading = false;
       _iosIapError = e.toString();
-      _iosLastMessage = _iosIapError;
       notifyListeners();
     }
   }
@@ -769,15 +614,22 @@ class SubscriptionProvider with ChangeNotifier {
     }
 
     if (!_iosIapAvailable) {
-      _iosLastMessage =
-          'App Store payment is unavailable on this device. Check StoreKit config / restrictions.';
+      await _showIosSubscriptionFailedDialog(
+        context,
+        message:
+            'We could not start your subscription because App Store payments are unavailable on this device. Please try again.',
+      );
       notifyListeners();
       return;
     }
 
     final productId = iosProductIdForPricing(pricing);
     if (productId == null || productId.isEmpty) {
-      _iosLastMessage = 'iOS Product ID mapping is not set.';
+      await _showIosSubscriptionFailedDialog(
+        context,
+        message:
+            'We could not start your subscription because the product is not available. Please try again.',
+      );
       notifyListeners();
       return;
     }
@@ -797,13 +649,19 @@ class SubscriptionProvider with ChangeNotifier {
       final ok = await _iap.buyNonConsumable(purchaseParam: purchaseParam);
       if (!ok) {
         _iosPurchasing = false;
-        _iosLastMessage = 'Failed to start purchase.';
+        await _showIosSubscriptionFailedDialog(
+          context,
+          message: 'We could not start your subscription. Please try again.',
+        );
         notifyListeners();
       }
     } catch (e) {
       _iosPurchasing = false;
       _iosIapError = e.toString();
-      _iosLastMessage = 'Purchase error: $e';
+      await _showIosSubscriptionFailedDialog(
+        context,
+        message: 'We could not complete your subscription. Please try again.',
+      );
       notifyListeners();
     }
   }
@@ -819,7 +677,14 @@ class SubscriptionProvider with ChangeNotifier {
       if (p.status == PurchaseStatus.error) {
         _iosPurchasing = false;
         _iosIapError = p.error?.message ?? 'Unknown purchase error';
-        _iosLastMessage = _iosIapError;
+        final ctx = _iosLastContext;
+        if (ctx != null) {
+          await _showIosSubscriptionFailedDialog(
+            ctx,
+            message:
+                'We could not complete your subscription. Please try again.',
+          );
+        }
         notifyListeners();
         continue;
       }
@@ -885,7 +750,34 @@ class SubscriptionProvider with ChangeNotifier {
           '✅ [IAP][SK2] PURCHASE SUCCESS PAYLOAD:\n${const JsonEncoder.withIndent("  ").convert(payload)}',
         );
 
-        _iosLastMessage = 'Subscription purchased successfully.';
+        final verifyOutcome = await _postAppleVerify(
+          transactionId: (transactionId ?? '').trim(),
+          receiptToken: receiptToken,
+        );
+        final isVerified = verifyOutcome == _AppleVerifyOutcome.verified;
+        final shouldGoSuccess = Env.isDev ? true : isVerified;
+        if (shouldGoSuccess && _iosLastContext != null) {
+          await _goToSuccessStep(_iosLastContext!);
+        }
+
+        if (shouldGoSuccess) {
+          _iosLastMessage = 'Subscription purchased successfully.';
+        }
+        if (!shouldGoSuccess && _iosLastContext != null) {
+          if (verifyOutcome == _AppleVerifyOutcome.backendRejected) {
+            await _showIosSubscriptionFailedDialog(
+              _iosLastContext!,
+              message:
+                  'We could not verify your subscription. Please contact our technician at waveup@maill.com for assistance.',
+            );
+          } else {
+            await _showIosSubscriptionFailedDialog(
+              _iosLastContext!,
+              message:
+                  'We could not complete your subscription. Please try again.',
+            );
+          }
+        }
         notifyListeners();
       }
 

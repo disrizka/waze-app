@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:wa_blast/core/provider_helper.dart';
-import 'package:wa_blast/models/store_order_model.dart';
+import 'package:wa_blast/models/store_models/store_order_model.dart';
 import 'package:wa_blast/services/api_service.dart';
 
 class OrderProvider extends ChangeNotifier {

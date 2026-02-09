@@ -6,209 +6,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/core/provider_helper.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/services/api_service.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
-/// =========================
-/// MODELS (CREATE PAYLOAD)
-/// =========================
-
-@immutable
-class NewSkuAttribute {
-  final String name;
-  final String value;
-  const NewSkuAttribute({required this.name, required this.value});
-
-  Map<String, dynamic> toJson() => {'name': name, 'value': value};
-}
-
-@immutable
-class NewSku {
-  final String code;
-  final int price;
-  final List<NewSkuAttribute> attributes;
-  const NewSku({
-    required this.code,
-    required this.price,
-    this.attributes = const [],
-  });
-
-  Map<String, dynamic> toJson() => {
-    'code': code,
-    'price': price,
-    'attributes': attributes.map((e) => e.toJson()).toList(),
-  };
-}
-
-@immutable
-class NewPrice {
-  final int minQty;
-  final int price;
-  const NewPrice({required this.minQty, required this.price});
-
-  Map<String, dynamic> toJson() => {'min_qty': minQty, 'price': price};
-}
-
-@immutable
-class NewImage {
-  final String filename; // value from /file/upload -> data.filename
-  final int position;
-  const NewImage({required this.filename, required this.position});
-
-  Map<String, dynamic> toJson() => {'image': filename, 'position': position};
-}
-
-// ====== Tambahkan di area MODELS (mis. setelah NewImage) ======
-
-@immutable
-class InventoryAttr {
-  final String name;
-  final String value;
-  const InventoryAttr({required this.name, required this.value});
-
-  factory InventoryAttr.fromJson(Map<String, dynamic> j) => InventoryAttr(
-    name: j['name']?.toString() ?? '',
-    value: j['value']?.toString() ?? '',
-  );
-}
-
-@immutable
-class InventoryProductSku {
-  final String idProductSku;
-  final String code;
-  final int price;
-  final List<InventoryAttr> attributes;
-
-  const InventoryProductSku({
-    required this.idProductSku,
-    required this.code,
-    required this.price,
-    required this.attributes,
-  });
-
-  factory InventoryProductSku.fromJson(Map<String, dynamic> j) =>
-      InventoryProductSku(
-        idProductSku: j['idProductSku']?.toString() ?? '',
-        code: j['code']?.toString() ?? '',
-        price: (j['price'] is num)
-            ? (j['price'] as num).toInt()
-            : int.tryParse('${j['price']}') ?? 0,
-        attributes: (j['attributes'] as List<dynamic>? ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(InventoryAttr.fromJson)
-            .toList(),
-      );
-}
-
-@immutable
-class InventoryStoreLocationLite {
-  final String idStoreLocation;
-  final String name;
-
-  const InventoryStoreLocationLite({
-    required this.idStoreLocation,
-    required this.name,
-  });
-
-  factory InventoryStoreLocationLite.fromJson(Map<String, dynamic> j) =>
-      InventoryStoreLocationLite(
-        idStoreLocation: j['idStoreLocation']?.toString() ?? '',
-        name: j['name']?.toString() ?? '',
-      );
-}
-
-@immutable
-class SkuInventoryBuckets {
-  final List<InventoryHistoryItem> currentStock;
-  final List<InventoryHistoryItem> purchases;
-  final List<InventoryHistoryItem> sales;
-
-  const SkuInventoryBuckets({
-    required this.currentStock,
-    required this.purchases,
-    required this.sales,
-  });
-
-  factory SkuInventoryBuckets.fromJson(Map<String, dynamic> j) {
-    List<InventoryHistoryItem> _parseList(dynamic raw) {
-      final list = (raw as List?) ?? const [];
-      return list
-          .whereType<Map>()
-          .map(
-            (e) => InventoryHistoryItem.fromJson(
-              Map<String, dynamic>.from(e.cast<String, dynamic>()),
-            ),
-          )
-          .toList();
-    }
-
-    return SkuInventoryBuckets(
-      currentStock: _parseList(j['current_stock']),
-      purchases: _parseList(j['purchases']),
-      sales: _parseList(j['sales']),
-    );
-  }
-}
-
-/// Item riwayat per transaksi inventory.
-@immutable
-class InventoryHistoryItem {
-  final DateTime createdAt;
-  final DateTime updatedAt;
-  final String note;
-  final int qty;
-  final String referenceId;
-  final String referenceType; // e.g. "purchase"
-  final String source; // e.g. "transaction"
-  final String type; // e.g. "purchase"
-  final Product product; // pakai model Product yang sudah ada
-  final InventoryProductSku productSku;
-  final InventoryStoreLocationLite storeLocation;
-
-  const InventoryHistoryItem({
-    required this.createdAt,
-    required this.updatedAt,
-    required this.note,
-    required this.qty,
-    required this.referenceId,
-    required this.referenceType,
-    required this.source,
-    required this.type,
-    required this.product,
-    required this.productSku,
-    required this.storeLocation,
-  });
-
-  factory InventoryHistoryItem.fromJson(Map<String, dynamic> j) =>
-      InventoryHistoryItem(
-        createdAt:
-            DateTime.tryParse(j['createdAt']?.toString() ?? '') ??
-            DateTime.fromMillisecondsSinceEpoch(0),
-        updatedAt:
-            DateTime.tryParse(j['updatedAt']?.toString() ?? '') ??
-            DateTime.fromMillisecondsSinceEpoch(0),
-        note: j['note']?.toString() ?? '',
-        qty: (j['qty'] is num)
-            ? (j['qty'] as num).toInt()
-            : int.tryParse('${j['qty']}') ?? 0,
-        referenceId: j['referenceId']?.toString() ?? '',
-        referenceType: j['referenceType']?.toString() ?? '',
-        source: j['source']?.toString() ?? '',
-        type: j['type']?.toString() ?? '',
-        product: Product.fromJson(
-          (j['product'] as Map?)?.cast<String, dynamic>() ?? const {},
-        ),
-        productSku: InventoryProductSku.fromJson(
-          (j['productSku'] as Map?)?.cast<String, dynamic>() ?? const {},
-        ),
-        storeLocation: InventoryStoreLocationLite.fromJson(
-          (j['storeLocation'] as Map?)?.cast<String, dynamic>() ?? const {},
-        ),
-      );
-}
+part '../models/product_models/inventory_attr.dart';
+part '../models/product_models/inventory_history_item.dart';
+part '../models/product_models/inventory_product_sku.dart';
+part '../models/product_models/inventory_store_location_lite.dart';
+part '../models/product_models/new_image.dart';
+part '../models/product_models/new_price.dart';
+part '../models/product_models/new_sku.dart';
+part '../models/product_models/new_sku_attribute.dart';
+part '../models/product_models/sku_inventory_buckets.dart';
 
 /// =========================
 /// PROVIDER
@@ -305,6 +117,125 @@ class ProductProvider with ChangeNotifier {
   final int _pageSize = 40;
   PagingController<int, Product>? _pagingController;
   int _lastFetchedPage = 0;
+
+  InventoryProductSku _inventorySkuFromProduct(
+    Product product,
+    String idProductSKU,
+  ) {
+    ProductSku? src;
+    for (final s in product.productSkus) {
+      if (s.idProductSku == idProductSKU) {
+        src = s;
+        break;
+      }
+    }
+    src ??= ProductSku(
+      uuid: '',
+      idProductSku: idProductSKU,
+      code: '',
+      price: 0,
+      attributes: const [],
+    );
+
+    return InventoryProductSku(
+      idProductSku: src.idProductSku,
+      code: src.code,
+      price: src.price,
+      attributes: src.attributes
+          .map((a) => InventoryAttr(name: a.name, value: a.value))
+          .toList(growable: false),
+    );
+  }
+
+  DateTime _parseTxDate(dynamic raw) {
+    if (raw == null) return DateTime.fromMillisecondsSinceEpoch(0);
+    if (raw is DateTime) return raw;
+    if (raw is num) {
+      final v = raw.toInt();
+      final ms = v > 1000000000000 ? v : v * 1000;
+      return DateTime.fromMillisecondsSinceEpoch(ms);
+    }
+    final s = raw.toString().trim();
+    if (s.isEmpty) return DateTime.fromMillisecondsSinceEpoch(0);
+    try {
+      return DateTime.parse(s);
+    } catch (_) {}
+    final m = RegExp(r'^(\d{2})-(\d{2})-(\d{4})$').firstMatch(s);
+    if (m != null) {
+      final d = int.parse(m.group(1)!);
+      final mo = int.parse(m.group(2)!);
+      final y = int.parse(m.group(3)!);
+      return DateTime(y, mo, d);
+    }
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  String _txTypeLabel(String type) {
+    final t = type.toLowerCase();
+    if (t == 'sale') return 'Sales transaction';
+    if (t == 'purchase') return 'Purchase transaction';
+    if (t == 'manual_adjustment') return 'Manual adjustment';
+    if (t.isEmpty) return 'Transaction';
+    return t.replaceAll('_', ' ');
+  }
+
+  List<InventoryHistoryItem> _mapTransactionsToHistory(
+    List raw,
+    Product product,
+    InventoryProductSku invSku,
+  ) {
+    final items = <InventoryHistoryItem>[];
+    for (final e in raw) {
+      if (e is! Map) continue;
+      final tx = Map<String, dynamic>.from(e.cast<String, dynamic>());
+      final trx = (tx['transaction'] as Map?)?.cast<String, dynamic>();
+
+      final createdAt = _parseTxDate(
+        trx?['created_at'] ?? trx?['order_at'] ?? tx['date'],
+      );
+      final updatedAt = _parseTxDate(
+        trx?['updated_at'] ?? trx?['created_at'] ?? tx['date'],
+      );
+      final type = tx['type']?.toString() ?? '';
+      final number =
+          tx['number']?.toString() ?? trx?['number']?.toString() ?? '';
+
+      var note = tx['note']?.toString() ?? '';
+      if (note.isEmpty) {
+        final label = _txTypeLabel(type);
+        note = number.isNotEmpty ? '$label: $number' : label;
+      }
+
+      items.add(
+        InventoryHistoryItem(
+          createdAt: createdAt,
+          updatedAt: updatedAt,
+          note: note,
+          qty: (tx['qty'] is num)
+              ? (tx['qty'] as num).toInt()
+              : int.tryParse('${tx['qty']}') ?? 0,
+          referenceId:
+              tx['id']?.toString() ?? trx?['idTransaction']?.toString() ?? '',
+          referenceType: tx['referenceType']?.toString() ?? '',
+          source: tx['referenceType']?.toString() ?? 'transaction',
+          type: type,
+          product: product,
+          productSku: invSku,
+          storeLocation: InventoryStoreLocationLite(
+            idStoreLocation: trx?['store_location_id']?.toString() ?? '',
+            name: '',
+          ),
+        ),
+      );
+    }
+
+    items.sort((a, b) {
+      final aDt = a.createdAt.isAfter(a.updatedAt) ? a.createdAt : a.updatedAt;
+      final bDt = b.createdAt.isAfter(b.updatedAt) ? b.createdAt : b.updatedAt;
+      return bDt.compareTo(aDt);
+    });
+    return items;
+  }
 
   int _lastBatchCount = 0;
   bool _reachedEnd = false;
@@ -1135,6 +1066,48 @@ class ProductProvider with ChangeNotifier {
 
       final dataJ =
           (jsonMap['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+
+      // Support schema baru: { data: { product, transactions: [] } }
+      if (dataJ['transactions'] is List) {
+        final productJ = (dataJ['product'] as Map?)?.cast<String, dynamic>();
+        final product = Product.fromJson(productJ ?? const {});
+        final invSku = _inventorySkuFromProduct(product, idProductSKU);
+        final txItems = _mapTransactionsToHistory(
+          dataJ['transactions'] as List,
+          product,
+          invSku,
+        );
+
+        final sales = txItems
+            .where(
+              (it) =>
+                  it.type.toLowerCase() == 'sale' ||
+                  (it.qty < 0 && it.type.isNotEmpty),
+            )
+            .toList(growable: false);
+        final purchases = txItems
+            .where(
+              (it) =>
+                  it.type.toLowerCase() != 'sale' &&
+                  !(it.qty < 0 && it.type.isNotEmpty),
+            )
+            .toList(growable: false);
+
+        final buckets = SkuInventoryBuckets(
+          currentStock: const [],
+          purchases: purchases,
+          sales: sales,
+          transactions: txItems,
+        );
+
+        _skuBuckets[idProductSKU] = buckets;
+        _skuLatestCurrent[idProductSKU] = null;
+        _skuError.remove(idProductSKU);
+        notifyListeners();
+        return;
+      }
+
+      // Schema lama: current_stock / purchases / sales
       final buckets = SkuInventoryBuckets.fromJson(dataJ);
 
       _skuBuckets[idProductSKU] = buckets;

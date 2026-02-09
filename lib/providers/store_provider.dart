@@ -6,93 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:wa_blast/core/provider_helper.dart'; // untuk FetchHelper & PageMeta
 import 'package:wa_blast/services/api_service.dart'; // ApiService & ApiJson
 
-/// =========================
-/// MODELS
-/// =========================
-
-@immutable
-class Province {
-  final String id;
-  final String name;
-
-  const Province({required this.id, required this.name});
-
-  factory Province.fromJson(Map<String, dynamic> j) => Province(
-    id: (j['id'] ?? '').toString(),
-    name: (j['name'] ?? '').toString(),
-  );
-}
-
-@immutable
-class City {
-  final String id;
-  final String name;
-  final Province? province;
-
-  const City({required this.id, required this.name, this.province});
-
-  factory City.fromJson(Map<String, dynamic> j) => City(
-    id: (j['id'] ?? '').toString(),
-    name: (j['name'] ?? '').toString(),
-    province: (j['province'] is Map<String, dynamic>)
-        ? Province.fromJson(j['province'] as Map<String, dynamic>)
-        : null,
-  );
-}
-
-@immutable
-class BusinessLite {
-  final String idBusiness;
-  final String name;
-  final String? logo;
-  final String? logoPath;
-  final String? username;
-  final String? about;
-
-  const BusinessLite({
-    required this.idBusiness,
-    required this.name,
-    this.logo,
-    this.logoPath,
-    this.username,
-    this.about,
-  });
-
-  factory BusinessLite.fromJson(Map<String, dynamic> j) => BusinessLite(
-    idBusiness: (j['idBusiness'] ?? '').toString(),
-    name: (j['name'] ?? '').toString(),
-    logo: j['logo']?.toString(),
-    logoPath: j['logoPath']?.toString(),
-    username: j['username']?.toString(),
-    about: j['about']?.toString(),
-  );
-}
-
-@immutable
-class StoreLocation {
-  final String idStoreLocation;
-  final String name;
-  final City? city;
-  final BusinessLite? business;
-
-  const StoreLocation({
-    required this.idStoreLocation,
-    required this.name,
-    this.city,
-    this.business,
-  });
-
-  factory StoreLocation.fromJson(Map<String, dynamic> j) => StoreLocation(
-    idStoreLocation: (j['idStoreLocation'] ?? '').toString(),
-    name: (j['name'] ?? '').toString(),
-    city: (j['city'] is Map<String, dynamic>)
-        ? City.fromJson(j['city'] as Map<String, dynamic>)
-        : null,
-    business: (j['business'] is Map<String, dynamic>)
-        ? BusinessLite.fromJson(j['business'] as Map<String, dynamic>)
-        : null,
-  );
-}
+part '../models/store_models/business_lite.dart';
+part '../models/store_models/city.dart';
+part '../models/store_models/province.dart';
+part '../models/store_models/store_location.dart';
 
 /// =========================
 /// PROVIDER

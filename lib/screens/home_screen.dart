@@ -16,7 +16,7 @@ import 'package:wa_blast/providers/role_provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 import 'package:wa_blast/providers/subscription_provider.dart';
-import 'package:wa_blast/models/premium_plan_model.dart';
+import 'package:wa_blast/models/subscription_models/premium_plan_model.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
 import '../l10n/app_localizations.dart';
 
@@ -158,10 +158,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (v is num) return v != 0;
       final s = v?.toString().trim().toLowerCase() ?? '';
       if (s.isEmpty) return false;
-      return s == '1' ||
-          s == 'true' ||
-          s == 'yes' ||
-          s == 'premium';
+      return s == '1' || s == 'true' || s == 'yes' || s == 'premium';
     }
 
     final activeId = (prefs.getString('activeBizId') ?? '').trim();
@@ -1160,7 +1157,9 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                       padding: const EdgeInsets.only(top: 2),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(18),
-                        onTap: () => _openNotificationPopup(context),
+                        onTap: () => Navigator.of(context).pushNamed(
+                          '/notification',
+                        ),
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [
