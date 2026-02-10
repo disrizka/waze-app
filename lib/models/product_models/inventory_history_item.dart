@@ -11,6 +11,8 @@ class InventoryHistoryItem {
   final String referenceType; // e.g. "purchase"
   final String source; // e.g. "transaction"
   final String type; // e.g. "purchase"
+  final String number; // transaction number
+  final int balance;
   final Product product; // pakai model Product yang sudah ada
   final InventoryProductSku productSku;
   final InventoryStoreLocationLite storeLocation;
@@ -24,6 +26,8 @@ class InventoryHistoryItem {
     required this.referenceType,
     required this.source,
     required this.type,
+    required this.number,
+    required this.balance,
     required this.product,
     required this.productSku,
     required this.storeLocation,
@@ -45,6 +49,10 @@ class InventoryHistoryItem {
         referenceType: j['referenceType']?.toString() ?? '',
         source: j['source']?.toString() ?? '',
         type: j['type']?.toString() ?? '',
+        number: j['number']?.toString() ?? '',
+        balance: (j['balance'] is num)
+            ? (j['balance'] as num).toInt()
+            : int.tryParse('${j['balance']}') ?? 0,
         product: Product.fromJson(
           (j['product'] as Map?)?.cast<String, dynamic>() ?? const {},
         ),

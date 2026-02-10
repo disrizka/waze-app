@@ -214,11 +214,15 @@ class ProductProvider with ChangeNotifier {
           qty: (tx['qty'] is num)
               ? (tx['qty'] as num).toInt()
               : int.tryParse('${tx['qty']}') ?? 0,
+          balance: (tx['balance'] is num)
+              ? (tx['balance'] as num).toInt()
+              : int.tryParse('${tx['balance']}') ?? 0,
           referenceId:
               tx['id']?.toString() ?? trx?['idTransaction']?.toString() ?? '',
           referenceType: tx['referenceType']?.toString() ?? '',
           source: tx['referenceType']?.toString() ?? 'transaction',
           type: type,
+          number: number,
           product: product,
           productSku: invSku,
           storeLocation: InventoryStoreLocationLite(
@@ -1004,6 +1008,11 @@ class ProductProvider with ChangeNotifier {
   Future<void> fetchSkuInventoryHistory({
     required BuildContext context,
     required String idProductSKU,
+    int? page,
+    int? limit,
+    String? idStoreLocation,
+    String? typeFilter,
+    String? sortBy,
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
@@ -1021,8 +1030,19 @@ class ProductProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final path =
+      final basePath =
           '/waveup/$bizId/product/history/inventory-transaction/$idProductSKU';
+      final query = <String, String>{};
+      if (page != null) query['page'] = page.toString();
+      if (limit != null) query['limit'] = limit.toString();
+      if (idStoreLocation != null) {
+        query['id_store_location'] = idStoreLocation;
+      }
+      if (typeFilter != null) query['type'] = typeFilter;
+      if (sortBy != null) query['sort'] = sortBy;
+      final path = query.isEmpty
+          ? basePath
+          : '$basePath?${Uri(queryParameters: query).query}';
       // Pakai helper JSON yang sudah ada di project-mu
       final jsonMap = await ApiJson.getMap(context, path);
 

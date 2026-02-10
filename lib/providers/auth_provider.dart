@@ -255,7 +255,7 @@ class AuthProvider with ChangeNotifier {
   String _pickMsg(
     dynamic j, {
     int? httpStatus,
-    String fallback = 'Login gagal',
+    String fallback = 'Login failed',
   }) {
     try {
       if (j is Map<String, dynamic>) {
@@ -307,7 +307,7 @@ class AuthProvider with ChangeNotifier {
     try {
       // ===== VALIDASI WAJIB =====
       if (name.trim().isEmpty || username.trim().isEmpty) {
-        _error = 'Name dan username wajib diisi';
+        _error = 'Name and username are required.';
         _log(tag, '❌ $_error');
         await _snackLater(
           context,
@@ -328,14 +328,14 @@ class AuthProvider with ChangeNotifier {
           ? _accessToken!
           : (prefs.getString('accessToken') ?? '');
       if (token.isEmpty) {
-        _error = 'Access token tidak tersedia. Silakan login dulu.';
+        _error = 'Access token is not available. Please log in first.';
         _log(tag, '❗ $_error');
         await _snackLater(
           context,
           tag: tag,
           type: AppSnackType.error,
           title: 'Error',
-          message: 'Access token tidak tersedia. Silakan login dulu.',
+          message: 'Access token is not available. Please log in first.',
         );
         _isLoading = false;
         notifyLater(tag: tag);
@@ -549,7 +549,7 @@ class AuthProvider with ChangeNotifier {
           final msg = _pickMsg(
             decoded,
             httpStatus: apiStatus,
-            fallback: 'Login gagal',
+            fallback: 'Login failed',
           );
           _error = msg;
 
@@ -585,7 +585,7 @@ class AuthProvider with ChangeNotifier {
         final accessToken = tokenObj['access_token'] as String?;
         final refreshToken = tokenObj['refresh_token'] as String?;
         if (accessToken == null || accessToken.isEmpty) {
-          _error = "Login berhasil tapi token kosong";
+          _error = "Login succeeded but token is empty";
 
           if (context.mounted) {
             await _snackLater(
@@ -817,7 +817,7 @@ class AuthProvider with ChangeNotifier {
       final msg = _pickMsg(
         decoded ?? {},
         httpStatus: response.statusCode,
-        fallback: 'Login gagal',
+        fallback: 'Login failed',
       );
       _error = msg;
 
@@ -831,7 +831,7 @@ class AuthProvider with ChangeNotifier {
         );
       }
     } catch (e, st) {
-      _error = "Terjadi kesalahan: $e";
+      _error = "An error occurred: $e";
       debugPrint("LOGIN ❌ exception: $e");
       debugPrint("$st");
 
@@ -841,7 +841,7 @@ class AuthProvider with ChangeNotifier {
           tag: tag,
           type: AppSnackType.error,
           title: 'Error',
-          message: 'Terjadi kesalahan saat login.',
+          message: 'An error occurred during login.',
         );
       }
     }
@@ -856,7 +856,7 @@ class AuthProvider with ChangeNotifier {
     final accountJson = prefs.getString('account_$email');
 
     if (accountJson == null) {
-      _error = 'Data akun tidak ditemukan';
+      _error = 'Account data not found';
       notifyListeners();
       return false;
     }
@@ -918,7 +918,7 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _error = 'Gagal switch akun: $e';
+      _error = 'Failed to switch account: $e';
       notifyListeners();
       return false;
     }
@@ -1115,7 +1115,7 @@ class AuthProvider with ChangeNotifier {
       // 9) Kalau sudah tidak ada akun lain → kembali ke splash
       nav?.pushNamedAndRemoveUntil('/splash', (r) => false);
     } catch (e) {
-      debugPrint("Gagal logout: $e");
+      debugPrint("Logout failed: $e");
     }
   }
 
@@ -1233,7 +1233,7 @@ class AuthProvider with ChangeNotifier {
         debugPrint('[LOGIN_GOOGLE] Google sign-in error: $e\n$st');
 
         if (e.code == GoogleSignInExceptionCode.canceled) {
-          _error = 'Google sign-in dibatalkan.';
+          _error = 'Google sign-in was canceled.';
           await _snackLater(
             context,
             tag: tag,
@@ -1243,7 +1243,7 @@ class AuthProvider with ChangeNotifier {
           );
         } else {
           _error =
-              'Google sign-in gagal: ${e.description ?? e.code.toString()}';
+              'Google sign-in failed: ${e.description ?? e.code.toString()}';
           await _snackLater(
             context,
             tag: tag,
@@ -1258,7 +1258,7 @@ class AuthProvider with ChangeNotifier {
         return false;
       } catch (e, st) {
         debugPrint('[LOGIN_GOOGLE] Unexpected Google sign-in error: $e\n$st');
-        _error = 'Terjadi kesalahan saat Google sign-in: $e';
+        _error = 'An error occurred during Google sign-in: $e';
 
         await _snackLater(
           context,
@@ -1278,7 +1278,7 @@ class AuthProvider with ChangeNotifier {
         debugPrint(
           '[LOGIN_GOOGLE] googleUser == null (kemungkinan dibatalkan user)',
         );
-        _error = 'Google sign-in dibatalkan.';
+        _error = 'Google sign-in was canceled.';
 
         await _snackLater(
           context,
@@ -1301,6 +1301,17 @@ class AuthProvider with ChangeNotifier {
         '[LOGIN_GOOGLE] Google user: '
         'email=$email, displayName="$displayName", id=$googleId',
       );
+      try {
+        final auth = await googleUser.authentication;
+        final idToken = auth.idToken;
+        debugPrint(
+          '[LOGIN_GOOGLE] Auth tokens: '
+          'idToken=${idToken == null ? 'null' : 'len=${idToken.length}, head=${idToken.substring(0, idToken.length < 8 ? idToken.length : 8)}'}',
+        );
+        debugPrint('[LOGIN_GOOGLE] serverAuthCode=not_available');
+      } catch (e, st) {
+        debugPrint('[LOGIN_GOOGLE] Failed to read auth tokens: $e\n$st');
+      }
 
       // 3) Pecah displayName jadi first_name & last_name
       String firstName = '';
@@ -1433,28 +1444,81 @@ class AuthProvider with ChangeNotifier {
           '====== [LOGIN_GOOGLE] SUCCESS (REGISTER + LOGIN GOOGLE) ======',
         );
 
-        await _snackLater(
-          context,
-          tag: tag,
-          type: AppSnackType.success,
-          title: 'Welcome!',
-          message: 'Your account has been created successfully.',
+        // After successful registration, run the normal login flow
+        debugPrint('[LOGIN_GOOGLE] Running login() after register success');
+        final loginAfterRegister = await login(
+          context: context,
+          email: email,
+          password: googlePassword,
+          fcmToken: fcmToken,
+          deviceId: deviceId,
+          deviceName: deviceName,
         );
+
+        if (loginAfterRegister) {
+          await _snackLater(
+            context,
+            tag: tag,
+            type: AppSnackType.success,
+            title: 'Welcome!',
+            message: 'Your account has been created successfully.',
+          );
+        } else {
+          await _snackLater(
+            context,
+            tag: tag,
+            type: AppSnackType.error,
+            title: 'Login Failed',
+            message:
+                _error ?? 'Login failed after registration. Please try again.',
+          );
+        }
+
+        return loginAfterRegister;
       } else {
         debugPrint('====== [LOGIN_GOOGLE] FAILED (REGISTER) ======');
 
-        await _snackLater(
-          context,
-          tag: tag,
-          type: AppSnackType.error,
-          title: 'Register Failed',
-          message: (_error ?? 'Failed to create account. Please try again.'),
-        );
+        final err = _error ?? '';
+        final isAlreadyRegistered =
+            err.toLowerCase().contains('sudah terdaftar') ||
+            err.toLowerCase().contains('already registered');
+        final isTokenEmpty =
+            err.toLowerCase().contains('token kosong') ||
+            err.toLowerCase().contains('token empty');
+        if (isAlreadyRegistered) {
+          await _snackLater(
+            context,
+            tag: tag,
+            type: AppSnackType.info,
+            title: 'Account Already Exists',
+            message:
+                'Email is already registered. Please log in with email and password.',
+          );
+        } else if (isTokenEmpty) {
+          await _snackLater(
+            context,
+            tag: tag,
+            type: AppSnackType.info,
+            title: 'Use Email Login',
+            message:
+                'This email was registered with regular sign-up. Please log in with email and password.',
+          );
+        } else {
+          await _snackLater(
+            context,
+            tag: tag,
+            type: AppSnackType.error,
+            title: 'Register Failed',
+            message: (err.isNotEmpty
+                ? err
+                : 'Failed to create account. Please try again.'),
+          );
+        }
       }
 
       return registerOk;
     } catch (e, st) {
-      _error = 'Terjadi kesalahan saat login dengan Google: $e';
+      _error = 'An error occurred while logging in with Google: $e';
       debugPrint('[LOGIN_GOOGLE] ❌ UNCAUGHT ERROR: $e\n$st');
 
       await _snackLater(
@@ -1505,9 +1569,23 @@ class AuthProvider with ChangeNotifier {
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        final apiStatus = decoded['status'];
+        final apiMsg = decoded['msg']?.toString() ?? '';
+        if (apiStatus is num && apiStatus != 200) {
+          if (apiStatus.toInt() == 409 ||
+              apiMsg.toLowerCase().contains('already registered')) {
+            _error =
+                'Email is already registered. Please log in with email and password.';
+            return false;
+          }
+          _error = apiMsg.isNotEmpty
+              ? apiMsg
+              : 'Register step 1 failed (${apiStatus.toInt()})';
+          return false;
+        }
         final ok = await _persistFromAuthResponse(decoded, raw);
         if (!ok) {
-          _error = 'Register step 1 berhasil tapi token kosong';
+          _error = 'Register step 1 succeeded but token is empty';
           return false;
         }
         debugPrint('REGISTER STEP1 ✅ token & data disimpan');
@@ -1515,16 +1593,22 @@ class AuthProvider with ChangeNotifier {
       } else {
         try {
           final j = jsonDecode(raw);
-          _error =
-              j['message']?.toString() ??
-              'Register step 1 gagal (${res.statusCode})';
+          final msg = j['message']?.toString() ?? j['msg']?.toString() ?? '';
+          if (msg.toLowerCase().contains('already registered')) {
+            _error =
+                'Email is already registered. Please log in with email and password.';
+          } else {
+            _error = msg.isNotEmpty
+                ? msg
+                : 'Register step 1 failed (${res.statusCode})';
+          }
         } catch (_) {
-          _error = 'Register step 1 gagal (${res.statusCode})';
+          _error = 'Register step 1 failed (${res.statusCode})';
         }
         return false;
       }
     } catch (e, st) {
-      _error = 'Terjadi kesalahan: $e';
+      _error = 'An error occurred: $e';
       debugPrint('REGISTER STEP1 ❌ $e\n$st');
       return false;
     } finally {
@@ -1549,8 +1633,7 @@ class AuthProvider with ChangeNotifier {
           ? _accessToken!
           : (prefs.getString('accessToken') ?? '');
       if (token.isEmpty) {
-        _error =
-            'Access token tidak tersedia. Selesaikan Step 1 terlebih dahulu.';
+        _error = 'Access token is not available. Please complete Step 1 first.';
         return false;
       }
 
@@ -1622,7 +1705,7 @@ class AuthProvider with ChangeNotifier {
         return false;
       }
     } catch (e, st) {
-      _error = 'Terjadi kesalahan: $e';
+      _error = 'An error occurred: $e';
       debugPrint('REGISTER STEP2 ❌ $e\n$st');
       return false;
     } finally {
@@ -1803,12 +1886,17 @@ class AuthProvider with ChangeNotifier {
     String rawBody,
   ) async {
     try {
-      final tokenObj = (decoded['token'] ?? {}) as Map<String, dynamic>;
-      final userObj = (decoded['data'] ?? {}) as Map<String, dynamic>;
+      Map<String, dynamic> asStringMap(Object? v) {
+        if (v is Map) {
+          return Map<String, dynamic>.from(v);
+        }
+        return <String, dynamic>{};
+      }
+
+      final tokenObj = asStringMap(decoded['token']);
+      final userObj = asStringMap(decoded['data']);
       final bizListRaw =
-          (decoded['business'] as List?)
-              ?.map((e) => (e as Map).cast<String, dynamic>())
-              .toList() ??
+          (decoded['business'] as List?)?.map((e) => asStringMap(e)).toList() ??
           <Map<String, dynamic>>[];
 
       // Normalisasi business untuk prefs
@@ -1819,7 +1907,7 @@ class AuthProvider with ChangeNotifier {
       final accessToken = tokenObj['access_token'] as String?;
       final refreshToken = tokenObj['refresh_token'] as String?;
       if (accessToken == null || accessToken.isEmpty) {
-        _error = 'Register berhasil, tapi token kosong';
+        _error = 'Register succeeded, but token is empty';
         return false;
       }
 
@@ -1951,7 +2039,7 @@ class AuthProvider with ChangeNotifier {
       debugPrint('REGISTER FINISH ✅ persisted (+roles & out-of-stock flag)');
       return true;
     } catch (e, st) {
-      _error = 'Gagal menyimpan data register: $e';
+      _error = 'Failed to save registration data: $e';
       debugPrint('_persistFromAuthResponse ❌ $e\n$st');
       return false;
     }
@@ -2036,7 +2124,7 @@ class AuthProvider with ChangeNotifier {
 
           await prefs.setString(key, jsonEncode(snap));
         } catch (e) {
-          debugPrint('Gagal update snapshot idBusiness: $e');
+          debugPrint('Failed to update snapshot idBusiness: $e');
         }
       }
     }
@@ -2317,7 +2405,7 @@ class AuthProvider with ChangeNotifier {
       ),
     );
     if (target.idBusiness.isEmpty) {
-      _error = 'Business tidak ditemukan';
+      _error = 'Business not found';
       notifyListeners();
       return false;
     }

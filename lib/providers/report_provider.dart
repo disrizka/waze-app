@@ -6,6 +6,11 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/services/api_service.dart';
 
+part '../models/report_models/entity_report_item.dart';
+part '../models/report_models/period_series_item.dart';
+part '../models/report_models/report_range.dart';
+part '../models/report_models/report_summary.dart';
+
 /// ===============================
 /// ENUM & EXTENSIONS
 /// ===============================
@@ -46,111 +51,6 @@ extension ReportPeriodQueryX on ReportPeriod {
         return 'year';
     }
   }
-}
-
-/// ===============================
-/// DATA MODELS
-/// ===============================
-
-@immutable
-class EntityReportItem {
-  final String label; // nama: customer/supplier/brand/category/product
-  final String? sku; // product_sku (opsional)
-  final String? phone; // phone (opsional)
-  final int totalTransactions;
-  final int totalQty;
-  final num totalRevenue; // purchase: total_cost (dinormalisasi)
-  final String? revenueFormatted;
-  final num? avgTransaction; // avg_price / avg_transaction (dinormalisasi)
-  final String? avgTransactionFormatted;
-
-  const EntityReportItem({
-    required this.label,
-    this.sku,
-    this.phone,
-    required this.totalTransactions,
-    required this.totalQty,
-    required this.totalRevenue,
-    this.revenueFormatted,
-    this.avgTransaction,
-    this.avgTransactionFormatted,
-  });
-
-  EntityReportItem copyWith({
-    String? label,
-    String? sku,
-    String? phone,
-    int? totalTransactions,
-    int? totalQty,
-    num? totalRevenue,
-    String? revenueFormatted,
-    num? avgTransaction,
-    String? avgTransactionFormatted,
-  }) {
-    return EntityReportItem(
-      label: label ?? this.label,
-      sku: sku ?? this.sku,
-      phone: phone ?? this.phone,
-      totalTransactions: totalTransactions ?? this.totalTransactions,
-      totalQty: totalQty ?? this.totalQty,
-      totalRevenue: totalRevenue ?? this.totalRevenue,
-      revenueFormatted: revenueFormatted ?? this.revenueFormatted,
-      avgTransaction: avgTransaction ?? this.avgTransaction,
-      avgTransactionFormatted:
-          avgTransactionFormatted ?? this.avgTransactionFormatted,
-    );
-  }
-}
-
-@immutable
-class PeriodSeriesItem {
-  final String period; // contoh "2025-08-01" / "2025-11" / "2025-W46"
-  final int totalTransactions;
-  final int totalQty;
-  final num totalRevenue; // purchase: total_cost (dinormalisasi)
-  final String? revenueFormatted;
-
-  const PeriodSeriesItem({
-    required this.period,
-    required this.totalTransactions,
-    required this.totalQty,
-    required this.totalRevenue,
-    this.revenueFormatted,
-  });
-}
-
-@immutable
-class ReportSummary {
-  final int? totalTransactions; // opsional
-  final int? totalQty; // opsional
-  final num? totalRevenue; // purchase: total_cost
-  final String? totalRevenueFormatted;
-
-  // optional counts
-  final int? totalProducts;
-  final int? totalCategories;
-  final int? totalBrands;
-  final int? totalSuppliers;
-  final int? totalCustomers;
-
-  const ReportSummary({
-    this.totalTransactions,
-    this.totalQty,
-    this.totalRevenue,
-    this.totalRevenueFormatted,
-    this.totalProducts,
-    this.totalCategories,
-    this.totalBrands,
-    this.totalSuppliers,
-    this.totalCustomers,
-  });
-}
-
-@immutable
-class ReportRange {
-  final DateTime? startDate;
-  final DateTime? endDate;
-  const ReportRange({this.startDate, this.endDate});
 }
 
 /// ===============================

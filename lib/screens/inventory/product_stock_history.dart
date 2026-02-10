@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart'; // showPickerSheet, PickerResult
 
@@ -26,6 +26,9 @@ class ProductStockHistoryArgs {
   });
 }
 
+enum _HistoryTypeFilter { all, inStock, outStock }
+enum _HistorySort { dateDesc, dateAsc }
+
 class ProductStockHistoryScreen extends StatefulWidget {
   final String productName;
   final List<ProductSku> skus;
@@ -44,13 +47,16 @@ class ProductStockHistoryScreen extends StatefulWidget {
 }
 
 class _ProductSkuStockHistoryScreenState
-    extends State<ProductStockHistoryScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tab;
+    extends State<ProductStockHistoryScreen> {
   final _money = NumberFormat.decimalPattern('id_ID');
   final _dateFmt = DateFormat('dd MMM yyyy • HH:mm');
 
+  final ScrollController _scroll = ScrollController();
+  bool _isScrolled = false;
+
   String? _activeSkuId;
+  _HistoryTypeFilter _typeFilter = _HistoryTypeFilter.all;
+  _HistorySort _sort = _HistorySort.dateDesc;
 
   ProductSku? get _activeSku {
     if (_activeSkuId == null) return null;
@@ -64,27 +70,28 @@ class _ProductSkuStockHistoryScreenState
   @override
   void initState() {
     super.initState();
-    // 🔹 Sekarang ada 3 tab: All, Sales, Purchases
-    _tab = TabController(length: 3, vsync: this);
-
     _activeSkuId =
         widget.initialSkuId ??
         (widget.skus.isNotEmpty ? widget.skus.first.idProductSku : null);
 
+    _scroll.addListener(() {
+      final next = _scroll.offset > 4;
+      if (next != _isScrolled) {
+        setState(() => _isScrolled = next);
+      }
+    });
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final skuId = _activeSkuId;
       if (skuId != null && skuId.isNotEmpty) {
-        context.read<ProductProvider>().fetchSkuInventoryHistory(
-          context: context,
-          idProductSKU: skuId,
-        );
+        _fetchSkuHistory(skuId: skuId);
       }
     });
   }
 
   @override
   void dispose() {
-    _tab.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -143,29 +150,290 @@ class _ProductSkuStockHistoryScreenState
         _activeSkuId = result.id;
       });
 
-      await context.read<ProductProvider>().fetchSkuInventoryHistory(
-        context: context,
-        idProductSKU: result.id,
-      );
+      await _fetchSkuHistory(skuId: result.id);
     }
   }
 
-  Widget _qtyChip(int qty) {
+  String? _apiType() {
+    switch (_typeFilter) {
+      case _HistoryTypeFilter.inStock:
+        return 'in';
+      case _HistoryTypeFilter.outStock:
+        return 'out';
+      case _HistoryTypeFilter.all:
+        return null;
+    }
+  }
+
+  String? _apiSort() {
+    return _sort == _HistorySort.dateAsc ? 'date_asc' : 'date_desc';
+  }
+
+  bool _isOutTxn(InventoryHistoryItem it) {
+    final t = it.type.toLowerCase();
+    if (it.qty < 0) return true;
+    if (t == 'out' || t == 'sale' || t == 'sales') return true;
+    return false;
+  }
+
+  bool _isInTxn(InventoryHistoryItem it) {
+    final t = it.type.toLowerCase();
+    if (it.qty > 0) return true;
+    if (t == 'in' || t == 'purchase' || t == 'purchases') return true;
+    return false;
+  }
+
+  Future<void> _fetchSkuHistory({String? skuId}) async {
+    final id = skuId ?? _activeSkuId;
+    if (id == null || id.isEmpty) return;
+    await context.read<ProductProvider>().fetchSkuInventoryHistory(
+      context: context,
+      idProductSKU: id,
+      typeFilter: _apiType(),
+      sortBy: _apiSort(),
+    );
+  }
+
+  Future<void> _openAdvancedFilterSheet() async {
+    var nextType = _typeFilter;
+    var nextSort = _sort;
+
+    final res = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            return Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 44,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppColors.border,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Advanced Filter',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => setModal(() {
+                            nextType = _HistoryTypeFilter.all;
+                            nextSort = _HistorySort.dateDesc;
+                          }),
+                          child: const Text(
+                            'Reset',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Type',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        _FilterChip(
+                          label: 'All',
+                          selected: nextType == _HistoryTypeFilter.all,
+                          onTap: () =>
+                              setModal(() => nextType = _HistoryTypeFilter.all),
+                        ),
+                        _FilterChip(
+                          label: 'In',
+                          selected: nextType == _HistoryTypeFilter.inStock,
+                          onTap: () => setModal(
+                            () => nextType = _HistoryTypeFilter.inStock,
+                          ),
+                        ),
+                        _FilterChip(
+                          label: 'Out',
+                          selected: nextType == _HistoryTypeFilter.outStock,
+                          onTap: () => setModal(
+                            () => nextType = _HistoryTypeFilter.outStock,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Sort',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        _FilterChip(
+                          label: 'Newest',
+                          selected: nextSort == _HistorySort.dateDesc,
+                          onTap: () => setModal(
+                            () => nextSort = _HistorySort.dateDesc,
+                          ),
+                        ),
+                        _FilterChip(
+                          label: 'Oldest',
+                          selected: nextSort == _HistorySort.dateAsc,
+                          onTap: () => setModal(
+                            () => nextSort = _HistorySort.dateAsc,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.textPrimary,
+                              side: const BorderSide(color: AppColors.border),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text('Apply'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (res == true) {
+      setState(() {
+        _typeFilter = nextType;
+        _sort = nextSort;
+      });
+      await _fetchSkuHistory();
+    }
+  }
+
+  bool get _hasActiveFilter {
+    return _typeFilter != _HistoryTypeFilter.all ||
+        _sort != _HistorySort.dateDesc;
+  }
+
+  Widget _qtyChip(
+    int qty, {
+    required String tooltipTitle,
+    required String tooltipDesc,
+    bool showSign = true,
+  }) {
     final isMinus = qty < 0;
     final base = isMinus ? AppColors.danger : AppColors.success;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+    return Tooltip(
+      triggerMode: TooltipTriggerMode.tap,
+      showDuration: const Duration(seconds: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: base.withOpacity(0.09),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: base.withOpacity(0.22)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+        boxShadow: const [
+          BoxShadow(
+            blurRadius: 10,
+            offset: Offset(0, 6),
+            color: Color(0x22000000),
+          ),
+        ],
       ),
-      child: Text(
-        '${isMinus ? '' : '+'}$qty',
-        style: TextStyle(
-          color: base,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.2,
+      richMessage: TextSpan(
+        children: [
+          TextSpan(
+            text: '$tooltipTitle\n',
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+              fontSize: 12.5,
+              height: 1.2,
+            ),
+          ),
+          TextSpan(
+            text: tooltipDesc,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: base.withOpacity(0.09),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: base.withOpacity(0.22)),
+        ),
+        child: Text(
+          '${showSign ? (isMinus ? '' : '+') : ''}$qty',
+          style: TextStyle(
+            color: base,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.2,
+          ),
         ),
       ),
     );
@@ -215,17 +483,18 @@ class _ProductSkuStockHistoryScreenState
         ? sku!.code
         : (latest?.productSku.code ?? '');
 
-    final priceNum = sku?.price ?? latest?.productSku.price;
-    final priceLabel = priceNum == null ? '-' : 'Rp ${_money.format(priceNum)}';
     final storeName = latest?.storeLocation.name ?? '';
     final lastUpdated = latest?.updatedAt ?? latest?.createdAt;
     final currentStock = latest == null ? '-' : latest.qty.toString();
 
-    final sales = buckets?.sales ?? const <InventoryHistoryItem>[];
-    final purchases = buckets?.purchases ?? const <InventoryHistoryItem>[];
+    final txItems = buckets?.transactions ?? const <InventoryHistoryItem>[];
+    final legacySales = buckets?.sales ?? const <InventoryHistoryItem>[];
+    final legacyPurchases = buckets?.purchases ?? const <InventoryHistoryItem>[];
 
-    // 🔹 List "All" = gabungan sales + purchases
-    final allItems = <InventoryHistoryItem>[...sales, ...purchases]
+    // Satu list transaksi (fallback ke schema lama jika perlu)
+    final allItems = (txItems.isNotEmpty
+            ? List<InventoryHistoryItem>.from(txItems)
+            : <InventoryHistoryItem>[...legacySales, ...legacyPurchases])
       ..sort((a, b) {
         final aDt = a.createdAt.isAfter(a.updatedAt)
             ? a.createdAt
@@ -233,9 +502,26 @@ class _ProductSkuStockHistoryScreenState
         final bDt = b.createdAt.isAfter(b.updatedAt)
             ? b.createdAt
             : b.updatedAt;
-        // terbaru di atas
         return bDt.compareTo(aDt);
       });
+
+    final filteredItems = allItems.where((it) {
+      if (_typeFilter == _HistoryTypeFilter.inStock && !_isInTxn(it)) {
+        return false;
+      }
+      if (_typeFilter == _HistoryTypeFilter.outStock && !_isOutTxn(it)) {
+        return false;
+      }
+      return true;
+    }).toList();
+
+    filteredItems.sort((a, b) {
+      final aDt = a.createdAt.isAfter(a.updatedAt) ? a.createdAt : a.updatedAt;
+      final bDt = b.createdAt.isAfter(b.updatedAt) ? b.createdAt : b.updatedAt;
+      return _sort == _HistorySort.dateAsc
+          ? aDt.compareTo(bDt)
+          : bDt.compareTo(aDt);
+    });
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -243,8 +529,10 @@ class _ProductSkuStockHistoryScreenState
         elevation: 0,
         centerTitle: false,
         titleSpacing: 0,
-        backgroundColor: Colors.transparent,
+        backgroundColor: AppColors.white,
         foregroundColor: AppColors.textPrimary,
+        surfaceTintColor: AppColors.white,
+        scrolledUnderElevation: 0,
         // 🔹 Hanya judul, tanpa nama produk (nama produk dipindah ke hero band)
         title: const Text(
           'Stock History',
@@ -255,69 +543,123 @@ class _ProductSkuStockHistoryScreenState
         child: Column(
           children: [
             // === Selector SKU (pakai style mirip reusable picker) ===
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-              child: InkWell(
-                onTap: _openSkuPicker,
-                borderRadius: BorderRadius.circular(999),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.card,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.qr_code_2,
-                        size: 18,
-                        color: AppColors.textSecondary,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          sku != null ? _skuLabel(sku) : 'Select SKU',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                border: _isScrolled
+                    ? const Border(
+                        bottom: BorderSide(color: AppColors.border),
+                      )
+                    : null,
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: _openSkuPicker,
+                            borderRadius: BorderRadius.circular(999),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.card,
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.qr_code_2,
+                                    size: 18,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      sku != null ? _skuLabel(sku) : 'Select SKU',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    size: 18,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      const Icon(
-                        Icons.keyboard_arrow_down_rounded,
-                        size: 18,
-                        color: AppColors.textSecondary,
-                      ),
-                    ],
+                        const SizedBox(width: 10),
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _openAdvancedFilterSheet,
+                              icon: const Icon(Icons.tune_rounded, size: 18),
+                              label: const Text('Filter'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.textPrimary,
+                                side: const BorderSide(color: AppColors.border),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                textStyle:
+                                    const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            if (_hasActiveFilter)
+                              Positioned(
+                                right: 6,
+                                top: 6,
+                                child: Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary,
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ),
-            ),
 
-            // === HERO BAND (sekarang ada productName di dalam) ===
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              child: _HeroBand(
-                productName: widget.productName,
-                skuCode: skuCode.isEmpty ? 'SKU' : skuCode,
-                priceLabel: priceLabel,
-                storeName: storeName,
-              ),
-            ),
-
-            // === TABS (All, Sales, Purchases) ===
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-              child: _PillTabs(
-                controller: _tab,
-                tabs: const ['All', 'Out', 'In'],
+                  // === HERO BAND (sekarang ada productName di dalam) ===
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                    child: _HeroBand(
+                      productName: widget.productName,
+                      skuCode: skuCode.isEmpty ? 'SKU' : skuCode,
+                      storeName: storeName,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
               ),
             ),
 
@@ -326,58 +668,16 @@ class _ProductSkuStockHistoryScreenState
               child: RefreshIndicator(
                 color: AppColors.primary,
                 backgroundColor: AppColors.white,
-                onRefresh: () => prov.fetchSkuInventoryHistory(
-                  context: context,
-                  idProductSKU: activeSkuId,
-                ),
-                child: TabBarView(
-                  controller: _tab,
-                  children: [
-                    // 🔹 TAB "All" = gabungan
-                    _HistoryPane(
-                      items: allItems,
-                      loading: loading && allItems.isEmpty,
-                      errorText: err?.toString(),
-                      dateFmt: _dateFmt,
-                      qtyChip: _qtyChip,
-                      fallName: storeName,
-                      isSaleList: false, // cuma default behaviour
-                      onRetry: () => prov.fetchSkuInventoryHistory(
-                        context: context,
-                        idProductSKU: activeSkuId,
-                      ),
-                    ),
-
-                    // 🔹 TAB "Sales"
-                    _HistoryPane(
-                      items: sales,
-                      loading: loading && sales.isEmpty,
-                      errorText: err?.toString(),
-                      dateFmt: _dateFmt,
-                      qtyChip: _qtyChip,
-                      fallName: storeName,
-                      isSaleList: true,
-                      onRetry: () => prov.fetchSkuInventoryHistory(
-                        context: context,
-                        idProductSKU: activeSkuId,
-                      ),
-                    ),
-
-                    // 🔹 TAB "Purchases"
-                    _HistoryPane(
-                      items: purchases,
-                      loading: loading && purchases.isEmpty,
-                      errorText: err?.toString(),
-                      dateFmt: _dateFmt,
-                      qtyChip: _qtyChip,
-                      fallName: storeName,
-                      isSaleList: false,
-                      onRetry: () => prov.fetchSkuInventoryHistory(
-                        context: context,
-                        idProductSKU: activeSkuId,
-                      ),
-                    ),
-                  ],
+                onRefresh: () => _fetchSkuHistory(skuId: activeSkuId),
+                child: _HistoryPane(
+                  items: filteredItems,
+                  loading: loading && filteredItems.isEmpty,
+                  errorText: err?.toString(),
+                  dateFmt: _dateFmt,
+                  qtyChip: _qtyChip,
+                  fallName: storeName,
+                  controller: _scroll,
+                  onRetry: () => _fetchSkuHistory(skuId: activeSkuId),
                 ),
               ),
             ),
@@ -455,6 +755,43 @@ Widget _metricTile(String label, String value, {IconData? icon}) {
   );
 }
 
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary.withOpacity(0.12) : AppColors.card,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? AppColors.primary : AppColors.border,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: selected ? AppColors.primary : AppColors.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _HistoryPane extends StatelessWidget {
   const _HistoryPane({
     required this.items,
@@ -463,7 +800,7 @@ class _HistoryPane extends StatelessWidget {
     required this.dateFmt,
     required this.qtyChip,
     required this.fallName,
-    required this.isSaleList,
+    required this.controller,
     required this.onRetry,
   });
 
@@ -471,9 +808,14 @@ class _HistoryPane extends StatelessWidget {
   final bool loading;
   final String? errorText;
   final DateFormat dateFmt;
-  final Widget Function(int) qtyChip;
+  final Widget Function(
+    int, {
+    required String tooltipTitle,
+    required String tooltipDesc,
+    bool showSign,
+  }) qtyChip;
   final String fallName;
-  final bool isSaleList;
+  final ScrollController controller;
   final VoidCallback onRetry;
 
   @override
@@ -486,19 +828,67 @@ class _HistoryPane extends StatelessWidget {
     }
     if (items.isEmpty) {
       return _EmptyState(
-        icon: isSaleList ? Icons.south_west : Icons.north_east,
-        title: isSaleList ? 'Belum ada penjualan' : 'Belum ada pembelian',
+        icon: Icons.north_east,
+        title: 'Belum ada transaksi',
         message: 'Catatan akan muncul di sini setelah ada transaksi.',
         cta: 'Tarik ke bawah untuk refresh',
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-      itemCount: items.length,
-      separatorBuilder: (_, __) =>
-          const Divider(height: 1, color: AppColors.divider),
+    final monthFmt = DateFormat('MMMM yyyy');
+    final rows = <_HistoryRow>[];
+    String? activeKey;
+
+    for (final it in items) {
+      final dt = it.createdAt.isAfter(it.updatedAt)
+          ? it.createdAt
+          : it.updatedAt;
+      final key = '${dt.year}-${dt.month}';
+      if (key != activeKey) {
+        rows.add(
+          _HistoryRow.header(
+            monthFmt.format(DateTime(dt.year, dt.month)),
+          ),
+        );
+        activeKey = key;
+      }
+      rows.add(_HistoryRow.item(it));
+    }
+
+    return ListView.builder(
+      controller: controller,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      itemCount: rows.length,
       itemBuilder: (_, i) {
-        final it = items[i];
+        final row = rows[i];
+        if (row.isHeader) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 2, bottom: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    row.header!,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textSecondary,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Divider(
+                    height: 1,
+                    color: AppColors.border,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final it = row.item!;
         final dt = it.createdAt.isAfter(it.updatedAt)
             ? it.createdAt
             : it.updatedAt;
@@ -508,30 +898,98 @@ class _HistoryPane extends StatelessWidget {
         final store = it.storeLocation.name.isNotEmpty
             ? it.storeLocation.name
             : fallName;
-        final isSale = (it.type.toLowerCase() == 'sale');
+        final txNumber =
+            it.number.isNotEmpty ? it.number : (it.referenceId.isNotEmpty ? it.referenceId : '-');
+        final t = it.type.toLowerCase();
+        IconData icon = Icons.swap_horiz_rounded;
+        Color color = AppColors.primary;
+        String tooltipTitle = 'Transaction';
+        String tooltipDesc = 'General inventory movement.';
+        if (t == 'sale' || t == 'sales' || t == 'out') {
+          icon = Icons.south_west;
+          color = AppColors.danger;
+          tooltipTitle = 'Sales';
+          tooltipDesc = 'Stock moved out due to a sale.';
+        } else if (t == 'purchase' || t == 'purchases' || t == 'in') {
+          icon = Icons.north_east;
+          color = AppColors.success;
+          tooltipTitle = 'Purchase';
+          tooltipDesc = 'Stock moved in from a purchase.';
+        } else if (t == 'stock_opname' || t == 'stockopname') {
+          icon = Icons.fact_check_rounded;
+          color = AppColors.primary;
+          tooltipTitle = 'Stock Opname';
+          tooltipDesc = 'Inventory check adjustment.';
+        } else if (t == 'stock_opname_adjustment') {
+          icon = Icons.fact_check_rounded;
+          color = AppColors.primary;
+          tooltipTitle = 'Stock Opname Adjustment';
+          tooltipDesc = 'Adjustment from stock opname process.';
+        }
 
-        return _HistoryCard(
-          isSale: isSale,
-          title: it.note.isNotEmpty ? it.note : (isSale ? 'Sales' : 'Purchase'),
-          subtitle: '${store.isEmpty ? "-" : store} • $when',
-          trailing: qtyChip(it.qty),
-          onTap: () {},
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _HistoryCard(
+            icon: icon,
+            iconColor: color,
+            iconTooltipTitle: tooltipTitle,
+            iconTooltipDesc: tooltipDesc,
+            title: when,
+            subtitle: txNumber,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                qtyChip(
+                  it.balance,
+                  tooltipTitle: 'Balance',
+                  tooltipDesc: 'Stock balance after this transaction.',
+                  showSign: false,
+                ),
+                const SizedBox(width: 8),
+                qtyChip(
+                  it.qty,
+                  tooltipTitle: 'Qty',
+                  tooltipDesc: 'Quantity moved in this transaction.',
+                ),
+              ],
+            ),
+            onTap: () {},
+          ),
         );
       },
     );
   }
 }
 
+class _HistoryRow {
+  final String? header;
+  final InventoryHistoryItem? item;
+  final bool isHeader;
+
+  const _HistoryRow.header(this.header)
+      : item = null,
+        isHeader = true;
+  const _HistoryRow.item(this.item)
+      : header = null,
+        isHeader = false;
+}
+
 class _HistoryCard extends StatelessWidget {
   const _HistoryCard({
-    required this.isSale,
+    required this.icon,
+    required this.iconColor,
+    required this.iconTooltipTitle,
+    required this.iconTooltipDesc,
     required this.title,
     required this.subtitle,
     required this.trailing,
     this.onTap,
   });
 
-  final bool isSale;
+  final IconData icon;
+  final Color iconColor;
+  final String iconTooltipTitle;
+  final String iconTooltipDesc;
   final String title;
   final String subtitle;
   final Widget trailing;
@@ -539,11 +997,8 @@ class _HistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final arrowColor = isSale ? AppColors.danger : AppColors.success;
-    final arrowIcon = isSale ? Icons.south_west : Icons.north_east;
-
     return Material(
-      color: AppColors.card,
+      color: AppColors.white,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onTap,
@@ -552,6 +1007,7 @@ class _HistoryCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
+            color: AppColors.white,
             border: Border.all(color: AppColors.border),
             boxShadow: const [
               BoxShadow(
@@ -563,15 +1019,56 @@ class _HistoryCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: arrowColor.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
+              Tooltip(
+                richMessage: TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '$iconTooltipTitle\n',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12.5,
+                        height: 1.2,
+                      ),
+                    ),
+                    TextSpan(
+                      text: iconTooltipDesc,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
                 ),
-                alignment: Alignment.center,
-                child: Icon(arrowIcon, size: 20, color: arrowColor),
+                triggerMode: TooltipTriggerMode.tap,
+                showDuration: const Duration(seconds: 2),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: const [
+                    BoxShadow(
+                      blurRadius: 10,
+                      offset: Offset(0, 6),
+                      color: Color(0x22000000),
+                    ),
+                  ],
+                ),
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: iconColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(icon, size: 20, color: iconColor),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -615,47 +1112,45 @@ class _HeroBand extends StatelessWidget {
   const _HeroBand({
     required this.productName,
     required this.skuCode,
-    required this.priceLabel,
     required this.storeName,
   });
 
   final String productName;
   final String skuCode;
-  final String priceLabel;
   final String storeName;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [AppColors.inputBackground, AppColors.white],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
       ),
       child: Row(
         children: [
           // Avatar SKU / Product
           Container(
-            width: 52,
-            height: 52,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               color: AppColors.blueAccent.withOpacity(0.25),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(12),
             ),
             alignment: Alignment.center,
             child: const Icon(
               Icons.inventory_2_rounded,
-              size: 26,
+              size: 24,
               color: AppColors.textPrimary,
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           // Info utama
           Expanded(
             child: Column(
@@ -669,102 +1164,55 @@ class _HeroBand extends StatelessWidget {
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w900,
-                    fontSize: 17,
+                    fontSize: 16,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  skuCode.isEmpty ? 'SKU' : skuCode,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                if (priceLabel.isNotEmpty && priceLabel != '-')
-                  Text(
-                    priceLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.card,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        skuCode.isEmpty ? 'SKU' : skuCode,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                          height: 1.1,
+                        ),
+                      ),
                     ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 14),
-          // Optional: store name
-          if (storeName.isNotEmpty)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                const Icon(
-                  Icons.store_mall_directory_rounded,
-                  size: 18,
-                  color: AppColors.textSecondary,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  storeName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                    if (storeName.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          storeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PillTabs extends StatelessWidget {
-  const _PillTabs({required this.controller, required this.tabs});
-
-  final TabController controller;
-  final List<String> tabs;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.border),
-        boxShadow: const [
-          BoxShadow(
-            blurRadius: 8,
-            offset: Offset(0, 3),
-            color: Color(0x0F000000),
           ),
         ],
-      ),
-      child: TabBar(
-        controller: controller,
-        labelPadding: const EdgeInsets.symmetric(horizontal: 18),
-        indicatorSize: TabBarIndicatorSize.tab,
-        dividerColor: Colors.transparent,
-        splashBorderRadius: BorderRadius.circular(999),
-        indicator: BoxDecoration(
-          color: AppColors.blueButton,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        labelColor: AppColors.white,
-        unselectedLabelColor: AppColors.textPrimary,
-        tabs: tabs.map((t) => Tab(text: t)).toList(),
       ),
     );
   }

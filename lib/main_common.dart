@@ -101,16 +101,25 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('BG notification: ${message.notification?.title}');
 }
 
-void startApp() {
+Future<void> startApp() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Env.isDev) {
     HttpOverrides.global = _DevHttpOverrides();
   }
-  _initEnvSafe().then((_) {
-    Env.debugPrintEnv(' @startApp');
-    BuildDiag.printSummary(' @startApp');
-    runApp(const _AppShell());
-  });
+  await _initEnvSafe();
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
+  } catch (e) {
+    debugPrint('Firebase init error (startApp): $e');
+  }
+
+  Env.debugPrintEnv(' @startApp');
+  BuildDiag.printSummary(' @startApp');
+  runApp(const _AppShell());
 }
 
 class _DevHttpOverrides extends HttpOverrides {
@@ -221,10 +230,14 @@ class _BootstrapperState extends State<_Bootstrapper> {
     _inited = true;
 
     try {
-      await Future.any([
-        Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
-        Future.delayed(const Duration(seconds: 5)),
-      ]);
+      if (Firebase.apps.isEmpty) {
+        await Future.any([
+          Firebase.initializeApp(
+            options: DefaultFirebaseOptions.currentPlatform,
+          ),
+          Future.delayed(const Duration(seconds: 5)),
+        ]);
+      }
 
       FirebaseMessaging.onBackgroundMessage(
         _firebaseMessagingBackgroundHandler,
