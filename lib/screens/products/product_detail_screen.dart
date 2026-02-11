@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/l10n/app_localizations.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/screens/products/create_edit_screen/product_form_screen.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';

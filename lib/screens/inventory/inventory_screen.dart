@@ -7,7 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:wa_blast/constants/app_colors.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/screens/inventory/product_stock_history.dart';

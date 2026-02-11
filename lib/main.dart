@@ -1,7 +1,7 @@
 import 'package:wa_blast/env.dart';
 import 'main_common.dart';
 
-void main() {
+Future<void> main() async {
   const flavorStr = String.fromEnvironment('FLAVOR', defaultValue: 'prod');
   final flavor = flavorStr.toLowerCase() == 'prod' ? Flavor.prod : Flavor.dev;
 
@@ -12,5 +12,5 @@ void main() {
   Env.setup(flavor: flavor, apiBaseUrl: base);
   Env.debugPrintEnv(' @main');
 
-  startApp();
+  await startApp();
 }

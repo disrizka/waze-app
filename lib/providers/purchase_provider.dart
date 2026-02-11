@@ -5,57 +5,21 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:wa_blast/models/city_model.dart';
-import 'package:wa_blast/models/product_model.dart' hide City;
-import 'package:wa_blast/models/purchase_model.dart';
+import 'package:wa_blast/models/purchase_models/city_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart' hide City;
+import 'package:wa_blast/models/purchase_models/purchase_model.dart';
 
-import 'package:wa_blast/models/supplier_model.dart';
+import 'package:wa_blast/models/purchase_models/supplier_model.dart';
 import 'package:wa_blast/services/api_service.dart';
 
 import 'package:wa_blast/providers/product_provider.dart' as catalog;
 
 import '../core/provider_helper.dart';
 
-/// Status order
-enum PurchaseStatus { inProgress, completed, canceled }
-
-/// Produk katalog (untuk tambah dari bottom sheet)
-
-/// Baris item di order
-class OrderLine {
-  final String name;
-  final int qty;
-  final int price; // harga per item (IDR)
-  final String note;
-  final String imageUrl;
-
-  const OrderLine({
-    required this.name,
-    required this.qty,
-    required this.price,
-    this.note = 'Note here',
-    this.imageUrl =
-        'https://images.unsplash.com/photo-1542831371-29b0f74f9713?w=200&q=60',
-  });
-
-  int get lineTotal => qty * price;
-
-  OrderLine copyWith({
-    String? name,
-    int? qty,
-    int? price,
-    String? note,
-    String? imageUrl,
-  }) {
-    return OrderLine(
-      name: name ?? this.name,
-      qty: qty ?? this.qty,
-      price: price ?? this.price,
-      note: note ?? this.note,
-      imageUrl: imageUrl ?? this.imageUrl,
-    );
-  }
-}
+part '../models/purchase_models/order_line.dart';
+part '../models/purchase_models/pos_sku.dart';
+part '../models/purchase_models/purchase_item.dart';
+part '../models/purchase_models/purchase_status.dart';
 
 T _parseWithTrace<T>(
   Map<String, dynamic> json,
@@ -72,88 +36,6 @@ T _parseWithTrace<T>(
     });
     rethrow; // biarkan ketangkap di catch luar
   }
-}
-
-/// Entitas purchase/order
-class PurchaseItem {
-  final String idTransaction; // <-- NEW
-  final String code;
-  final DateTime time;
-  final int quantity;
-  final int totalAmount;
-  // kalau kamu sudah hapus status di UI, biarkan properti ini tetap ada atau hapus sekalian.
-  final PurchaseStatus status;
-
-  // Detail (tetap)
-  final String servicedByName;
-  final String servicedById;
-  final String servicedByAvatarUrl;
-  final double serviceFeePercent;
-  final List<OrderLine> lines;
-
-  const PurchaseItem({
-    required this.idTransaction, // <-- NEW (wajib diisi)
-    required this.code,
-    required this.time,
-    required this.quantity,
-    required this.totalAmount,
-    required this.status,
-    required this.servicedByName,
-    required this.servicedById,
-    required this.servicedByAvatarUrl,
-    required this.serviceFeePercent,
-    required this.lines,
-  });
-
-  // ...
-  PurchaseItem copyWith({
-    String? idTransaction, // <-- NEW
-    String? code,
-    DateTime? time,
-    int? quantity,
-    int? totalAmount,
-    PurchaseStatus? status,
-    String? servicedByName,
-    String? servicedById,
-    String? servicedByAvatarUrl,
-    double? serviceFeePercent,
-    List<OrderLine>? lines,
-  }) {
-    return PurchaseItem(
-      idTransaction: idTransaction ?? this.idTransaction, // <-- NEW
-      code: code ?? this.code,
-      time: time ?? this.time,
-      quantity: quantity ?? this.quantity,
-      totalAmount: totalAmount ?? this.totalAmount,
-      status: status ?? this.status,
-      servicedByName: servicedByName ?? this.servicedByName,
-      servicedById: servicedById ?? this.servicedById,
-      servicedByAvatarUrl: servicedByAvatarUrl ?? this.servicedByAvatarUrl,
-      serviceFeePercent: serviceFeePercent ?? this.serviceFeePercent,
-      lines: lines ?? this.lines,
-    );
-  }
-}
-
-/// ===== CATALOG (per-SKU) khusus purchase =====
-@immutable
-class PosSku {
-  final String skuId; // idProductSku (fallback: productId_code)
-  final String skuCode; // code
-  final int price; // harga retail / base
-  final String productId; // idProduct
-  final String productName; // name
-  final String imageUrl; // url gambar
-  final bool inStock; // dari isHide (dibalik)
-  const PosSku({
-    required this.skuId,
-    required this.skuCode,
-    required this.price,
-    required this.productId,
-    required this.productName,
-    required this.imageUrl,
-    this.inStock = true,
-  });
 }
 
 class PurchaseProvider extends ChangeNotifier {

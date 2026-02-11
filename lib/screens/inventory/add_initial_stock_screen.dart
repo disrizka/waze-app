@@ -6,11 +6,12 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/design_system.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/stock_provider.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
-import 'package:wa_blast/models/product_model.dart' hide City, StoreLocation;
+import 'package:wa_blast/models/product_models/product_model.dart'
+    hide City, StoreLocation;
 
 /// Row model untuk initial stock
 class _InitialStockRow {
