@@ -905,6 +905,258 @@ class AppLocalizationsEn extends AppLocalizations {
   String get mainNavSettingsLabel => 'Setting';
 
   @override
+  String get stockHistoryTitle => 'Stock History';
+
+  @override
+  String get stockHistoryGuideTooltip => 'History guide';
+
+  @override
+  String get stockHistoryNoSkuMessage => 'This product has no SKU yet.\nAdd SKU first to see stock history.';
+
+  @override
+  String get stockHistorySelectSkuTitle => 'Select SKU';
+
+  @override
+  String get stockHistorySelectSkuSearchHint => 'Search SKU or variant…';
+
+  @override
+  String get stockHistorySelectSkuEmpty => 'No SKU for this product';
+
+  @override
+  String get stockHistoryFilterButton => 'Filter';
+
+  @override
+  String get stockHistoryFilterSheetTitle => 'Advanced Filter';
+
+  @override
+  String get stockHistoryFilterReset => 'Reset';
+
+  @override
+  String get stockHistoryFilterTypeLabel => 'Type';
+
+  @override
+  String get stockHistoryFilterSortLabel => 'Sort';
+
+  @override
+  String get stockHistoryFilterTypeAll => 'All';
+
+  @override
+  String get stockHistoryFilterTypeIn => 'In';
+
+  @override
+  String get stockHistoryFilterTypeOut => 'Out';
+
+  @override
+  String get stockHistoryFilterNewest => 'Newest';
+
+  @override
+  String get stockHistoryFilterOldest => 'Oldest';
+
+  @override
+  String get stockHistoryFilterDateLabel => 'Date';
+
+  @override
+  String get stockHistoryFilterDateFromLabel => 'From';
+
+  @override
+  String get stockHistoryFilterDateToLabel => 'To';
+
+  @override
+  String get stockHistoryFilterDatePickHint => 'Pick a date';
+
+  @override
+  String get stockHistoryFilterDatePresetLast7Days => 'Last 7 Days';
+
+  @override
+  String get stockHistoryFilterDatePresetThisMonth => 'This Month';
+
+  @override
+  String get stockHistoryFilterDatePickerHelp => 'Select date';
+
+  @override
+  String get stockHistoryFilterCancel => 'Cancel';
+
+  @override
+  String get stockHistoryFilterApply => 'Apply';
+
+  @override
+  String get stockHistoryGuideAppbarTitle => 'Quick Guide: Stock History';
+
+  @override
+  String get stockHistoryGuideAppbarSubtitle => 'Simple clues so every row makes sense.';
+
+  @override
+  String get stockHistoryGuideSlide1Title => 'Understand transaction icons';
+
+  @override
+  String get stockHistoryGuideSlide1Subtitle => 'The icon on the left side of each card tells you the movement type at a glance.';
+
+  @override
+  String get stockHistoryGuideSlide1BadgeSalesOutbound => 'Sales / Outbound';
+
+  @override
+  String get stockHistoryGuideSlide1BadgePurchaseInbound => 'Purchase / Inbound';
+
+  @override
+  String get stockHistoryGuideSlide1BadgeStockOpname => 'Stock Opname';
+
+  @override
+  String get stockHistoryGuideSlide1PointOutbound => 'Red indicates outbound movement from sales.';
+
+  @override
+  String get stockHistoryGuideSlide1PointInbound => 'Green indicates inbound movement from purchase.';
+
+  @override
+  String get stockHistoryGuideSlide1PointAdjustment => 'Blue indicates adjustment from stock opname.';
+
+  @override
+  String get stockHistoryGuideTagOutbound => 'Outbound';
+
+  @override
+  String get stockHistoryGuideTagInbound => 'Inbound';
+
+  @override
+  String get stockHistoryGuideTagAdjustment => 'Adjustment';
+
+  @override
+  String get stockHistoryGuideSlide2Title => 'Date and transaction number';
+
+  @override
+  String get stockHistoryGuideSlide2Subtitle => 'The middle section shows when the transaction happened and its reference number.';
+
+  @override
+  String get stockHistoryGuideSlide2SampleDate => '07 Feb 2026 • 14:32';
+
+  @override
+  String get stockHistoryGuideSlide2SampleRef => 'SO-2026-000145';
+
+  @override
+  String get stockHistoryGuideSlide2DateHint => 'Recorded transaction timestamp';
+
+  @override
+  String get stockHistoryGuideSlide2ReferenceHint => 'Transaction reference number';
+
+  @override
+  String get stockHistoryGuideSlide2PointTimeline => 'Date shows the latest transaction timestamp.';
+
+  @override
+  String get stockHistoryGuideSlide2PointReference => 'Number can come from Number or Reference ID.';
+
+  @override
+  String get stockHistoryGuideTagTimeline => 'Timeline';
+
+  @override
+  String get stockHistoryGuideTagReference => 'Reference';
+
+  @override
+  String get stockHistoryGuideSlide3Title => 'What the two number badges mean';
+
+  @override
+  String get stockHistoryGuideSlide3Subtitle => 'The right side badges show the final stock state and movement quantity for that transaction.';
+
+  @override
+  String get stockHistoryGuideSlide3BadgeBalanceLabel => 'Balance';
+
+  @override
+  String get stockHistoryGuideSlide3BadgeBalanceDescription => 'Remaining stock after transaction';
+
+  @override
+  String get stockHistoryGuideSlide3BadgeQtyLabel => 'Qty';
+
+  @override
+  String get stockHistoryGuideSlide3BadgeQtyDescription => 'Stock quantity moved';
+
+  @override
+  String get stockHistoryGuideSlide3PointEnding => 'Balance is the ending stock after this record.';
+
+  @override
+  String get stockHistoryGuideSlide3PointMovement => 'Positive Qty is inbound, negative Qty is outbound.';
+
+  @override
+  String get stockHistoryGuideSlide3PointTip => 'Tap any badge to open its detail tooltip.';
+
+  @override
+  String get stockHistoryGuideTagEnding => 'Ending';
+
+  @override
+  String get stockHistoryGuideTagMovement => 'Movement';
+
+  @override
+  String get stockHistoryGuideTagTip => 'Tip';
+
+  @override
+  String get stockHistoryGuideBack => 'Back';
+
+  @override
+  String get stockHistoryGuideNext => 'Next';
+
+  @override
+  String get stockHistoryGuideDone => 'Done';
+
+  @override
+  String get stockHistorySkuFallback => 'SKU';
+
+  @override
+  String get stockHistoryEmptyTitle => 'No transactions yet';
+
+  @override
+  String get stockHistoryEmptyMessage => 'Records will appear here after a transaction is created.';
+
+  @override
+  String get stockHistoryEmptyCtaRefresh => 'Pull down to refresh';
+
+  @override
+  String get stockHistoryErrorTitle => 'No history available';
+
+  @override
+  String get stockHistoryErrorMessage => 'Press the button below to reload.';
+
+  @override
+  String get stockHistoryErrorRetry => 'Try again';
+
+  @override
+  String get stockHistoryTooltipTransactionTitle => 'Transaction';
+
+  @override
+  String get stockHistoryTooltipTransactionDesc => 'General inventory movement.';
+
+  @override
+  String get stockHistoryTooltipSalesTitle => 'Sales';
+
+  @override
+  String get stockHistoryTooltipSalesDesc => 'Stock moved out due to a sale.';
+
+  @override
+  String get stockHistoryTooltipPurchaseTitle => 'Purchase';
+
+  @override
+  String get stockHistoryTooltipPurchaseDesc => 'Stock moved in from a purchase.';
+
+  @override
+  String get stockHistoryTooltipStockOpnameTitle => 'Stock Opname';
+
+  @override
+  String get stockHistoryTooltipStockOpnameDesc => 'Inventory check adjustment.';
+
+  @override
+  String get stockHistoryTooltipStockOpnameAdjustmentTitle => 'Stock Opname Adjustment';
+
+  @override
+  String get stockHistoryTooltipStockOpnameAdjustmentDesc => 'Adjustment from stock opname process.';
+
+  @override
+  String get stockHistoryTooltipQtyTitle => 'Qty';
+
+  @override
+  String get stockHistoryTooltipQtyDesc => 'Quantity moved in this transaction.';
+
+  @override
+  String get stockHistoryTooltipBalanceTitle => 'Balance';
+
+  @override
+  String get stockHistoryTooltipBalanceDesc => 'Stock balance after this transaction.';
+
+  @override
   String get currencyUnitMillion => 'million';
 
   @override

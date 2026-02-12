@@ -1823,6 +1823,510 @@ abstract class AppLocalizations {
   /// **'Setting'**
   String get mainNavSettingsLabel;
 
+  /// No description provided for @stockHistoryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Stock History'**
+  String get stockHistoryTitle;
+
+  /// No description provided for @stockHistoryGuideTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'History guide'**
+  String get stockHistoryGuideTooltip;
+
+  /// No description provided for @stockHistoryNoSkuMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This product has no SKU yet.\nAdd SKU first to see stock history.'**
+  String get stockHistoryNoSkuMessage;
+
+  /// No description provided for @stockHistorySelectSkuTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Select SKU'**
+  String get stockHistorySelectSkuTitle;
+
+  /// No description provided for @stockHistorySelectSkuSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search SKU or variant…'**
+  String get stockHistorySelectSkuSearchHint;
+
+  /// No description provided for @stockHistorySelectSkuEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No SKU for this product'**
+  String get stockHistorySelectSkuEmpty;
+
+  /// No description provided for @stockHistoryFilterButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter'**
+  String get stockHistoryFilterButton;
+
+  /// No description provided for @stockHistoryFilterSheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced Filter'**
+  String get stockHistoryFilterSheetTitle;
+
+  /// No description provided for @stockHistoryFilterReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get stockHistoryFilterReset;
+
+  /// No description provided for @stockHistoryFilterTypeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Type'**
+  String get stockHistoryFilterTypeLabel;
+
+  /// No description provided for @stockHistoryFilterSortLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort'**
+  String get stockHistoryFilterSortLabel;
+
+  /// No description provided for @stockHistoryFilterTypeAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get stockHistoryFilterTypeAll;
+
+  /// No description provided for @stockHistoryFilterTypeIn.
+  ///
+  /// In en, this message translates to:
+  /// **'In'**
+  String get stockHistoryFilterTypeIn;
+
+  /// No description provided for @stockHistoryFilterTypeOut.
+  ///
+  /// In en, this message translates to:
+  /// **'Out'**
+  String get stockHistoryFilterTypeOut;
+
+  /// No description provided for @stockHistoryFilterNewest.
+  ///
+  /// In en, this message translates to:
+  /// **'Newest'**
+  String get stockHistoryFilterNewest;
+
+  /// No description provided for @stockHistoryFilterOldest.
+  ///
+  /// In en, this message translates to:
+  /// **'Oldest'**
+  String get stockHistoryFilterOldest;
+
+  /// No description provided for @stockHistoryFilterDateLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Date'**
+  String get stockHistoryFilterDateLabel;
+
+  /// No description provided for @stockHistoryFilterDateFromLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'From'**
+  String get stockHistoryFilterDateFromLabel;
+
+  /// No description provided for @stockHistoryFilterDateToLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'To'**
+  String get stockHistoryFilterDateToLabel;
+
+  /// No description provided for @stockHistoryFilterDatePickHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a date'**
+  String get stockHistoryFilterDatePickHint;
+
+  /// No description provided for @stockHistoryFilterDatePresetLast7Days.
+  ///
+  /// In en, this message translates to:
+  /// **'Last 7 Days'**
+  String get stockHistoryFilterDatePresetLast7Days;
+
+  /// No description provided for @stockHistoryFilterDatePresetThisMonth.
+  ///
+  /// In en, this message translates to:
+  /// **'This Month'**
+  String get stockHistoryFilterDatePresetThisMonth;
+
+  /// No description provided for @stockHistoryFilterDatePickerHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Select date'**
+  String get stockHistoryFilterDatePickerHelp;
+
+  /// No description provided for @stockHistoryFilterCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get stockHistoryFilterCancel;
+
+  /// No description provided for @stockHistoryFilterApply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get stockHistoryFilterApply;
+
+  /// No description provided for @stockHistoryGuideAppbarTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Guide: Stock History'**
+  String get stockHistoryGuideAppbarTitle;
+
+  /// No description provided for @stockHistoryGuideAppbarSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Simple clues so every row makes sense.'**
+  String get stockHistoryGuideAppbarSubtitle;
+
+  /// No description provided for @stockHistoryGuideSlide1Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Understand transaction icons'**
+  String get stockHistoryGuideSlide1Title;
+
+  /// No description provided for @stockHistoryGuideSlide1Subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The icon on the left side of each card tells you the movement type at a glance.'**
+  String get stockHistoryGuideSlide1Subtitle;
+
+  /// No description provided for @stockHistoryGuideSlide1BadgeSalesOutbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Sales / Outbound'**
+  String get stockHistoryGuideSlide1BadgeSalesOutbound;
+
+  /// No description provided for @stockHistoryGuideSlide1BadgePurchaseInbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Purchase / Inbound'**
+  String get stockHistoryGuideSlide1BadgePurchaseInbound;
+
+  /// No description provided for @stockHistoryGuideSlide1BadgeStockOpname.
+  ///
+  /// In en, this message translates to:
+  /// **'Stock Opname'**
+  String get stockHistoryGuideSlide1BadgeStockOpname;
+
+  /// No description provided for @stockHistoryGuideSlide1PointOutbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Red indicates outbound movement from sales.'**
+  String get stockHistoryGuideSlide1PointOutbound;
+
+  /// No description provided for @stockHistoryGuideSlide1PointInbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Green indicates inbound movement from purchase.'**
+  String get stockHistoryGuideSlide1PointInbound;
+
+  /// No description provided for @stockHistoryGuideSlide1PointAdjustment.
+  ///
+  /// In en, this message translates to:
+  /// **'Blue indicates adjustment from stock opname.'**
+  String get stockHistoryGuideSlide1PointAdjustment;
+
+  /// No description provided for @stockHistoryGuideTagOutbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Outbound'**
+  String get stockHistoryGuideTagOutbound;
+
+  /// No description provided for @stockHistoryGuideTagInbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Inbound'**
+  String get stockHistoryGuideTagInbound;
+
+  /// No description provided for @stockHistoryGuideTagAdjustment.
+  ///
+  /// In en, this message translates to:
+  /// **'Adjustment'**
+  String get stockHistoryGuideTagAdjustment;
+
+  /// No description provided for @stockHistoryGuideSlide2Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Date and transaction number'**
+  String get stockHistoryGuideSlide2Title;
+
+  /// No description provided for @stockHistoryGuideSlide2Subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The middle section shows when the transaction happened and its reference number.'**
+  String get stockHistoryGuideSlide2Subtitle;
+
+  /// No description provided for @stockHistoryGuideSlide2SampleDate.
+  ///
+  /// In en, this message translates to:
+  /// **'07 Feb 2026 • 14:32'**
+  String get stockHistoryGuideSlide2SampleDate;
+
+  /// No description provided for @stockHistoryGuideSlide2SampleRef.
+  ///
+  /// In en, this message translates to:
+  /// **'SO-2026-000145'**
+  String get stockHistoryGuideSlide2SampleRef;
+
+  /// No description provided for @stockHistoryGuideSlide2DateHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Recorded transaction timestamp'**
+  String get stockHistoryGuideSlide2DateHint;
+
+  /// No description provided for @stockHistoryGuideSlide2ReferenceHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Transaction reference number'**
+  String get stockHistoryGuideSlide2ReferenceHint;
+
+  /// No description provided for @stockHistoryGuideSlide2PointTimeline.
+  ///
+  /// In en, this message translates to:
+  /// **'Date shows the latest transaction timestamp.'**
+  String get stockHistoryGuideSlide2PointTimeline;
+
+  /// No description provided for @stockHistoryGuideSlide2PointReference.
+  ///
+  /// In en, this message translates to:
+  /// **'Number can come from Number or Reference ID.'**
+  String get stockHistoryGuideSlide2PointReference;
+
+  /// No description provided for @stockHistoryGuideTagTimeline.
+  ///
+  /// In en, this message translates to:
+  /// **'Timeline'**
+  String get stockHistoryGuideTagTimeline;
+
+  /// No description provided for @stockHistoryGuideTagReference.
+  ///
+  /// In en, this message translates to:
+  /// **'Reference'**
+  String get stockHistoryGuideTagReference;
+
+  /// No description provided for @stockHistoryGuideSlide3Title.
+  ///
+  /// In en, this message translates to:
+  /// **'What the two number badges mean'**
+  String get stockHistoryGuideSlide3Title;
+
+  /// No description provided for @stockHistoryGuideSlide3Subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The right side badges show the final stock state and movement quantity for that transaction.'**
+  String get stockHistoryGuideSlide3Subtitle;
+
+  /// No description provided for @stockHistoryGuideSlide3BadgeBalanceLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Balance'**
+  String get stockHistoryGuideSlide3BadgeBalanceLabel;
+
+  /// No description provided for @stockHistoryGuideSlide3BadgeBalanceDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Remaining stock after transaction'**
+  String get stockHistoryGuideSlide3BadgeBalanceDescription;
+
+  /// No description provided for @stockHistoryGuideSlide3BadgeQtyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Qty'**
+  String get stockHistoryGuideSlide3BadgeQtyLabel;
+
+  /// No description provided for @stockHistoryGuideSlide3BadgeQtyDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Stock quantity moved'**
+  String get stockHistoryGuideSlide3BadgeQtyDescription;
+
+  /// No description provided for @stockHistoryGuideSlide3PointEnding.
+  ///
+  /// In en, this message translates to:
+  /// **'Balance is the ending stock after this record.'**
+  String get stockHistoryGuideSlide3PointEnding;
+
+  /// No description provided for @stockHistoryGuideSlide3PointMovement.
+  ///
+  /// In en, this message translates to:
+  /// **'Positive Qty is inbound, negative Qty is outbound.'**
+  String get stockHistoryGuideSlide3PointMovement;
+
+  /// No description provided for @stockHistoryGuideSlide3PointTip.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap any badge to open its detail tooltip.'**
+  String get stockHistoryGuideSlide3PointTip;
+
+  /// No description provided for @stockHistoryGuideTagEnding.
+  ///
+  /// In en, this message translates to:
+  /// **'Ending'**
+  String get stockHistoryGuideTagEnding;
+
+  /// No description provided for @stockHistoryGuideTagMovement.
+  ///
+  /// In en, this message translates to:
+  /// **'Movement'**
+  String get stockHistoryGuideTagMovement;
+
+  /// No description provided for @stockHistoryGuideTagTip.
+  ///
+  /// In en, this message translates to:
+  /// **'Tip'**
+  String get stockHistoryGuideTagTip;
+
+  /// No description provided for @stockHistoryGuideBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get stockHistoryGuideBack;
+
+  /// No description provided for @stockHistoryGuideNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get stockHistoryGuideNext;
+
+  /// No description provided for @stockHistoryGuideDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get stockHistoryGuideDone;
+
+  /// No description provided for @stockHistorySkuFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'SKU'**
+  String get stockHistorySkuFallback;
+
+  /// No description provided for @stockHistoryEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No transactions yet'**
+  String get stockHistoryEmptyTitle;
+
+  /// No description provided for @stockHistoryEmptyMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Records will appear here after a transaction is created.'**
+  String get stockHistoryEmptyMessage;
+
+  /// No description provided for @stockHistoryEmptyCtaRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Pull down to refresh'**
+  String get stockHistoryEmptyCtaRefresh;
+
+  /// No description provided for @stockHistoryErrorTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No history available'**
+  String get stockHistoryErrorTitle;
+
+  /// No description provided for @stockHistoryErrorMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Press the button below to reload.'**
+  String get stockHistoryErrorMessage;
+
+  /// No description provided for @stockHistoryErrorRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get stockHistoryErrorRetry;
+
+  /// No description provided for @stockHistoryTooltipTransactionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Transaction'**
+  String get stockHistoryTooltipTransactionTitle;
+
+  /// No description provided for @stockHistoryTooltipTransactionDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'General inventory movement.'**
+  String get stockHistoryTooltipTransactionDesc;
+
+  /// No description provided for @stockHistoryTooltipSalesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sales'**
+  String get stockHistoryTooltipSalesTitle;
+
+  /// No description provided for @stockHistoryTooltipSalesDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Stock moved out due to a sale.'**
+  String get stockHistoryTooltipSalesDesc;
+
+  /// No description provided for @stockHistoryTooltipPurchaseTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Purchase'**
+  String get stockHistoryTooltipPurchaseTitle;
+
+  /// No description provided for @stockHistoryTooltipPurchaseDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Stock moved in from a purchase.'**
+  String get stockHistoryTooltipPurchaseDesc;
+
+  /// No description provided for @stockHistoryTooltipStockOpnameTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Stock Opname'**
+  String get stockHistoryTooltipStockOpnameTitle;
+
+  /// No description provided for @stockHistoryTooltipStockOpnameDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Inventory check adjustment.'**
+  String get stockHistoryTooltipStockOpnameDesc;
+
+  /// No description provided for @stockHistoryTooltipStockOpnameAdjustmentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Stock Opname Adjustment'**
+  String get stockHistoryTooltipStockOpnameAdjustmentTitle;
+
+  /// No description provided for @stockHistoryTooltipStockOpnameAdjustmentDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Adjustment from stock opname process.'**
+  String get stockHistoryTooltipStockOpnameAdjustmentDesc;
+
+  /// No description provided for @stockHistoryTooltipQtyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Qty'**
+  String get stockHistoryTooltipQtyTitle;
+
+  /// No description provided for @stockHistoryTooltipQtyDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity moved in this transaction.'**
+  String get stockHistoryTooltipQtyDesc;
+
+  /// No description provided for @stockHistoryTooltipBalanceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Balance'**
+  String get stockHistoryTooltipBalanceTitle;
+
+  /// No description provided for @stockHistoryTooltipBalanceDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Stock balance after this transaction.'**
+  String get stockHistoryTooltipBalanceDesc;
+
   /// Unit for 1 million in compact currency format
   ///
   /// In en, this message translates to:

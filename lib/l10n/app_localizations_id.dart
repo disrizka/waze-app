@@ -905,6 +905,258 @@ class AppLocalizationsId extends AppLocalizations {
   String get mainNavSettingsLabel => 'Pengaturan';
 
   @override
+  String get stockHistoryTitle => 'Riwayat Stok';
+
+  @override
+  String get stockHistoryGuideTooltip => 'Panduan riwayat';
+
+  @override
+  String get stockHistoryNoSkuMessage => 'Produk ini belum punya SKU.\nTambahkan SKU terlebih dahulu untuk melihat riwayat stok.';
+
+  @override
+  String get stockHistorySelectSkuTitle => 'Pilih SKU';
+
+  @override
+  String get stockHistorySelectSkuSearchHint => 'Cari SKU atau varian…';
+
+  @override
+  String get stockHistorySelectSkuEmpty => 'Tidak ada SKU untuk produk ini';
+
+  @override
+  String get stockHistoryFilterButton => 'Filter';
+
+  @override
+  String get stockHistoryFilterSheetTitle => 'Filter Lanjutan';
+
+  @override
+  String get stockHistoryFilterReset => 'Reset';
+
+  @override
+  String get stockHistoryFilterTypeLabel => 'Tipe';
+
+  @override
+  String get stockHistoryFilterSortLabel => 'Urutkan';
+
+  @override
+  String get stockHistoryFilterTypeAll => 'Semua';
+
+  @override
+  String get stockHistoryFilterTypeIn => 'Masuk';
+
+  @override
+  String get stockHistoryFilterTypeOut => 'Keluar';
+
+  @override
+  String get stockHistoryFilterNewest => 'Terbaru';
+
+  @override
+  String get stockHistoryFilterOldest => 'Terlama';
+
+  @override
+  String get stockHistoryFilterDateLabel => 'Tanggal';
+
+  @override
+  String get stockHistoryFilterDateFromLabel => 'Dari';
+
+  @override
+  String get stockHistoryFilterDateToLabel => 'Sampai';
+
+  @override
+  String get stockHistoryFilterDatePickHint => 'Pilih tanggal';
+
+  @override
+  String get stockHistoryFilterDatePresetLast7Days => '7 Hari Terakhir';
+
+  @override
+  String get stockHistoryFilterDatePresetThisMonth => 'Bulan Ini';
+
+  @override
+  String get stockHistoryFilterDatePickerHelp => 'Pilih tanggal';
+
+  @override
+  String get stockHistoryFilterCancel => 'Batal';
+
+  @override
+  String get stockHistoryFilterApply => 'Terapkan';
+
+  @override
+  String get stockHistoryGuideAppbarTitle => 'Panduan Singkat: Riwayat Stok';
+
+  @override
+  String get stockHistoryGuideAppbarSubtitle => 'Petunjuk sederhana agar setiap baris mudah dipahami.';
+
+  @override
+  String get stockHistoryGuideSlide1Title => 'Pahami ikon transaksi';
+
+  @override
+  String get stockHistoryGuideSlide1Subtitle => 'Ikon di sisi kiri setiap kartu menunjukkan jenis pergerakan stok secara cepat.';
+
+  @override
+  String get stockHistoryGuideSlide1BadgeSalesOutbound => 'Penjualan / Keluar';
+
+  @override
+  String get stockHistoryGuideSlide1BadgePurchaseInbound => 'Pembelian / Masuk';
+
+  @override
+  String get stockHistoryGuideSlide1BadgeStockOpname => 'Stok Opname';
+
+  @override
+  String get stockHistoryGuideSlide1PointOutbound => 'Merah menandakan pergerakan stok keluar dari penjualan.';
+
+  @override
+  String get stockHistoryGuideSlide1PointInbound => 'Hijau menandakan pergerakan stok masuk dari pembelian.';
+
+  @override
+  String get stockHistoryGuideSlide1PointAdjustment => 'Biru menandakan penyesuaian dari stok opname.';
+
+  @override
+  String get stockHistoryGuideTagOutbound => 'Keluar';
+
+  @override
+  String get stockHistoryGuideTagInbound => 'Masuk';
+
+  @override
+  String get stockHistoryGuideTagAdjustment => 'Penyesuaian';
+
+  @override
+  String get stockHistoryGuideSlide2Title => 'Tanggal dan nomor transaksi';
+
+  @override
+  String get stockHistoryGuideSlide2Subtitle => 'Bagian tengah menampilkan waktu transaksi terjadi dan nomor referensinya.';
+
+  @override
+  String get stockHistoryGuideSlide2SampleDate => '07 Feb 2026 • 14:32';
+
+  @override
+  String get stockHistoryGuideSlide2SampleRef => 'SO-2026-000145';
+
+  @override
+  String get stockHistoryGuideSlide2DateHint => 'Waktu transaksi tercatat';
+
+  @override
+  String get stockHistoryGuideSlide2ReferenceHint => 'Nomor referensi transaksi';
+
+  @override
+  String get stockHistoryGuideSlide2PointTimeline => 'Tanggal menunjukkan waktu transaksi terakhir.';
+
+  @override
+  String get stockHistoryGuideSlide2PointReference => 'Nomor bisa berasal dari Number atau Reference ID.';
+
+  @override
+  String get stockHistoryGuideTagTimeline => 'Waktu';
+
+  @override
+  String get stockHistoryGuideTagReference => 'Referensi';
+
+  @override
+  String get stockHistoryGuideSlide3Title => 'Arti dua badge angka';
+
+  @override
+  String get stockHistoryGuideSlide3Subtitle => 'Badge di sisi kanan menampilkan kondisi stok akhir dan jumlah pergerakan pada transaksi itu.';
+
+  @override
+  String get stockHistoryGuideSlide3BadgeBalanceLabel => 'Saldo';
+
+  @override
+  String get stockHistoryGuideSlide3BadgeBalanceDescription => 'Sisa stok setelah transaksi';
+
+  @override
+  String get stockHistoryGuideSlide3BadgeQtyLabel => 'Qty';
+
+  @override
+  String get stockHistoryGuideSlide3BadgeQtyDescription => 'Jumlah stok yang bergerak';
+
+  @override
+  String get stockHistoryGuideSlide3PointEnding => 'Saldo adalah stok akhir setelah catatan ini.';
+
+  @override
+  String get stockHistoryGuideSlide3PointMovement => 'Qty positif berarti masuk, qty negatif berarti keluar.';
+
+  @override
+  String get stockHistoryGuideSlide3PointTip => 'Ketuk badge apa pun untuk membuka tooltip detailnya.';
+
+  @override
+  String get stockHistoryGuideTagEnding => 'Akhir';
+
+  @override
+  String get stockHistoryGuideTagMovement => 'Pergerakan';
+
+  @override
+  String get stockHistoryGuideTagTip => 'Tips';
+
+  @override
+  String get stockHistoryGuideBack => 'Kembali';
+
+  @override
+  String get stockHistoryGuideNext => 'Lanjut';
+
+  @override
+  String get stockHistoryGuideDone => 'Selesai';
+
+  @override
+  String get stockHistorySkuFallback => 'SKU';
+
+  @override
+  String get stockHistoryEmptyTitle => 'Belum ada transaksi';
+
+  @override
+  String get stockHistoryEmptyMessage => 'Catatan akan muncul di sini setelah ada transaksi.';
+
+  @override
+  String get stockHistoryEmptyCtaRefresh => 'Tarik ke bawah untuk refresh';
+
+  @override
+  String get stockHistoryErrorTitle => 'Tidak ada riwayat';
+
+  @override
+  String get stockHistoryErrorMessage => 'Tekan tombol di bawah untuk memuat ulang.';
+
+  @override
+  String get stockHistoryErrorRetry => 'Coba lagi';
+
+  @override
+  String get stockHistoryTooltipTransactionTitle => 'Transaksi';
+
+  @override
+  String get stockHistoryTooltipTransactionDesc => 'Pergerakan inventori umum.';
+
+  @override
+  String get stockHistoryTooltipSalesTitle => 'Penjualan';
+
+  @override
+  String get stockHistoryTooltipSalesDesc => 'Stok keluar karena transaksi penjualan.';
+
+  @override
+  String get stockHistoryTooltipPurchaseTitle => 'Pembelian';
+
+  @override
+  String get stockHistoryTooltipPurchaseDesc => 'Stok masuk dari transaksi pembelian.';
+
+  @override
+  String get stockHistoryTooltipStockOpnameTitle => 'Stok Opname';
+
+  @override
+  String get stockHistoryTooltipStockOpnameDesc => 'Penyesuaian dari pemeriksaan inventori.';
+
+  @override
+  String get stockHistoryTooltipStockOpnameAdjustmentTitle => 'Penyesuaian Stok Opname';
+
+  @override
+  String get stockHistoryTooltipStockOpnameAdjustmentDesc => 'Penyesuaian dari proses stok opname.';
+
+  @override
+  String get stockHistoryTooltipQtyTitle => 'Qty';
+
+  @override
+  String get stockHistoryTooltipQtyDesc => 'Jumlah stok yang bergerak pada transaksi ini.';
+
+  @override
+  String get stockHistoryTooltipBalanceTitle => 'Saldo';
+
+  @override
+  String get stockHistoryTooltipBalanceDesc => 'Saldo stok setelah transaksi ini.';
+
+  @override
   String get currencyUnitMillion => 'juta';
 
   @override
