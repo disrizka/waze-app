@@ -305,7 +305,11 @@ class _EmployeeTile extends StatelessWidget {
                   ),
                 ),
           onTap: () {
-            // TODO: navigate to employee detail screen when available
+            Navigator.pushNamed(
+              context,
+              '/hr/employee/detail',
+              arguments: employee,
+            );
           },
         ),
       ),
@@ -334,7 +338,8 @@ class _EmployeeTile extends StatelessWidget {
           fit: BoxFit.cover,
           width: 44,
           height: 44,
-          errorBuilder: (_, __, ___) => _initialAvatar(initials),
+          errorBuilder: (context, error, stackTrace) =>
+              _initialAvatar(initials),
         ),
       ),
     );

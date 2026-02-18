@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/constants/design_system.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 import '../../providers/purchase_provider.dart';
 import '../../providers/product_provider.dart';
@@ -37,9 +37,22 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
         backgroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.of(
-            context,
-          ).popUntil((route) => route.settings.name == '/purchase'),
+          onPressed: () {
+            bool popped = false;
+            Navigator.of(context).popUntil((route) {
+              if (route.settings.name == '/purchase' ||
+                  route.settings.name == '/home') {
+                popped = true;
+                return true;
+              }
+              return false;
+            });
+            if (!popped && context.mounted) {
+              Navigator.of(
+                context,
+              ).pushNamedAndRemoveUntil('/home', (route) => false);
+            }
+          },
         ),
         // 🆕 Judul alami
         title: Row(
@@ -63,7 +76,26 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
         centerTitle: false,
         scrolledUnderElevation: 0,
       ),
-      body: const _PurchaseList(),
+      body: WillPopScope(
+        onWillPop: () async {
+          bool popped = false;
+          Navigator.of(context).popUntil((route) {
+            if (route.settings.name == '/purchase' ||
+                route.settings.name == '/home') {
+              popped = true;
+              return true;
+            }
+            return false;
+          });
+          if (!popped && context.mounted) {
+            Navigator.of(
+              context,
+            ).pushNamedAndRemoveUntil('/home', (route) => false);
+          }
+          return false;
+        },
+        child: const _PurchaseList(),
+      ),
 
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(16, 8, 16, 20),

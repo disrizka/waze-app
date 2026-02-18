@@ -12,7 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/constants/app_colors.dart';
 
-import '../../models/premium_plan_model.dart';
+import '../../models/subscription_models/premium_plan_model.dart';
 import '../../providers/subscription_provider.dart';
 
 class SubscriptionCheckoutScreen extends StatefulWidget {
@@ -386,39 +386,6 @@ class _SubscriptionCheckoutScreenState
             leadingIcon: Icons.apple,
             onChanged: (_) {},
           ),
-          if ((subscription.iosIapError ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF1F2),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFFECACA)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.error_outline_rounded,
-                    size: 18,
-                    color: Color(0xFFEF4444),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      subscription.iosIapError!.trim(),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        height: 1.35,
-                        color: Color(0xFF991B1B),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       );
     }

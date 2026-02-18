@@ -1013,6 +1013,8 @@ class ProductProvider with ChangeNotifier {
     String? idStoreLocation,
     String? typeFilter,
     String? sortBy,
+    String? dateFrom,
+    String? dateTo,
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
@@ -1040,6 +1042,12 @@ class ProductProvider with ChangeNotifier {
       }
       if (typeFilter != null) query['type'] = typeFilter;
       if (sortBy != null) query['sort'] = sortBy;
+      if ((dateFrom ?? '').trim().isNotEmpty) {
+        query['date_from'] = dateFrom!.trim();
+      }
+      if ((dateTo ?? '').trim().isNotEmpty) {
+        query['date_to'] = dateTo!.trim();
+      }
       final path = query.isEmpty
           ? basePath
           : '$basePath?${Uri(queryParameters: query).query}';

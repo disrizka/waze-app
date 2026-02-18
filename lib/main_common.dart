@@ -43,6 +43,7 @@ import 'package:wa_blast/screens/detail_purchase_screen.dart';
 import 'package:wa_blast/screens/edit_profile_screen.dart';
 import 'package:wa_blast/screens/forgot-password/forgot_password_wrapper_screen.dart';
 import 'package:wa_blast/screens/hr/employee_list_screen.dart';
+import 'package:wa_blast/screens/hr/employee_detail_screen.dart';
 import 'package:wa_blast/screens/hr/hr_screen.dart';
 import 'package:wa_blast/screens/hr/manage_hr_screen.dart';
 import 'package:wa_blast/screens/hr/role_screen.dart';
@@ -699,6 +700,26 @@ class MyApp extends StatelessWidget {
           const EmployeeListScreen(),
           android: AndroidTransition.slideRight,
         );
+
+      case '/hr/employee/detail':
+        {
+          final args = settings.arguments;
+          if (args is! EmployeeUser) {
+            return _platformRouteAnimated(
+              settings,
+              const _RouteErrorScreen(
+                message:
+                    'EmployeeDetailScreen membutuhkan argumen EmployeeUser.',
+              ),
+              android: AndroidTransition.fade,
+            );
+          }
+          return _platformRouteAnimated(
+            settings,
+            EmployeeDetailScreen(employee: args),
+            android: AndroidTransition.slideRight,
+          );
+        }
 
       case '/hr/employee/invitation':
         return _platformRouteAnimated(

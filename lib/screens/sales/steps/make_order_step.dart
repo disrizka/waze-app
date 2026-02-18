@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart' as st;
@@ -565,26 +565,14 @@ class _OrderItemTile extends StatelessWidget {
   }
 
   Widget _thumb(String url) {
-    final fallback = Container(
+    return SafeNetImage(
+      url: url,
       width: 64,
       height: 64,
-      decoration: BoxDecoration(
-        color: UI.bg,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Icon(Icons.image, color: UI.sub),
-    );
-    return ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: (url.isNotEmpty)
-          ? Image.network(
-              url,
-              width: 64,
-              height: 64,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => fallback,
-            )
-          : fallback,
+      crashIcon: const Center(
+        child: Icon(Icons.image, color: UI.sub),
+      ),
     );
   }
 
@@ -2022,20 +2010,13 @@ class _SalesProductCard extends StatelessWidget {
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(14),
                   ),
-                  child: thumb != null && thumb.isNotEmpty
-                      ? Image.network(
-                          thumb,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Center(
-                            child: Icon(Icons.image_not_supported),
-                          ),
-                        )
-                      : Container(
-                          color: Colors.grey[200],
-                          child: const Center(
-                            child: Icon(Icons.image_outlined, size: 30),
-                          ),
-                        ),
+                  child: SafeNetImage(
+                    url: thumb,
+                    fit: BoxFit.cover,
+                    crashIcon: const Center(
+                      child: Icon(Icons.image_not_supported),
+                    ),
+                  ),
                 ),
                 Positioned(
                   top: 8,
@@ -2311,24 +2292,18 @@ class _SalesVariantAttributeSheetState
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child:
-                        (_p.primaryImageUrl != null &&
-                            _p.primaryImageUrl!.isNotEmpty)
-                        ? Image.network(
-                            _p.primaryImageUrl!,
-                            width: 72,
-                            height: 72,
-                            fit: BoxFit.cover,
-                          )
-                        : Container(
-                            width: 72,
-                            height: 72,
-                            color: AppColors.greyBackground,
-                            child: const Icon(
-                              Icons.image,
-                              color: AppColors.disabledFg,
-                            ),
-                          ),
+                    child: SafeNetImage(
+                      url: _p.primaryImageUrl,
+                      width: 72,
+                      height: 72,
+                      borderRadius: BorderRadius.circular(12),
+                      crashIcon: const Center(
+                        child: Icon(
+                          Icons.image,
+                          color: AppColors.disabledFg,
+                        ),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -2413,13 +2388,17 @@ class _SalesVariantAttributeSheetState
                                 color: AppColors.textSecondary,
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                'Stock: $displayStock'
-                                '${alreadyInCart > 0 ? "  •  In cart: $alreadyInCart" : ""}',
-                                style: TextStyle(
-                                  color: stockColor,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                              Expanded(
+                                child: Text(
+                                  'Stock: $displayStock'
+                                  '${alreadyInCart > 0 ? "  •  In cart: $alreadyInCart" : ""}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: stockColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             ],
@@ -2796,24 +2775,18 @@ class _SalesVariantExactSheetState extends State<_SalesVariantExactSheet> {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child:
-                        (product.primaryImageUrl != null &&
-                            product.primaryImageUrl!.isNotEmpty)
-                        ? Image.network(
-                            product.primaryImageUrl!,
-                            width: 72,
-                            height: 72,
-                            fit: BoxFit.cover,
-                          )
-                        : Container(
-                            width: 72,
-                            height: 72,
-                            color: const Color(0xFFF3F4F6),
-                            child: const Icon(
-                              Icons.image,
-                              color: Color(0xFFA3A3A3),
-                            ),
-                          ),
+                    child: SafeNetImage(
+                      url: product.primaryImageUrl,
+                      width: 72,
+                      height: 72,
+                      borderRadius: BorderRadius.circular(12),
+                      crashIcon: const Center(
+                        child: Icon(
+                          Icons.image,
+                          color: Color(0xFFA3A3A3),
+                        ),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(

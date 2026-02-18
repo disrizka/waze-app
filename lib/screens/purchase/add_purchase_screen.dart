@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:wa_blast/constants/design_system.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/purchase_provider.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
@@ -743,10 +743,7 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
                           ),
                         ),
                         onPressed: () {
-                          Navigator.of(context).pushNamedAndRemoveUntil(
-                            '/purchase/list',
-                            (route) => false,
-                          );
+                          _closeAfterCreated();
                         },
                         child: const Text(
                           'Close',
@@ -777,6 +774,24 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
         );
       },
     );
+  }
+
+  Future<void> _closeAfterCreated() async {
+    if (!mounted) return;
+
+    // 1) Tutup dialog sukses
+    Navigator.of(context).pop();
+
+    // 2) Refresh list purchase supaya data terbaru terlihat
+    try {
+      await context.read<PurchaseProvider>().fetchPurchases(context);
+    } catch (_) {}
+
+    // 3) Reset root ke /home, lalu buka purchase list
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+    if (!mounted) return;
+    Navigator.of(context).pushNamed('/purchase/list');
   }
 }
 

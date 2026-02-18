@@ -6,7 +6,7 @@ import 'package:permission_handler/permission_handler.dart'; // ⬅️ izin kame
 import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
-import 'package:wa_blast/models/supplier_model.dart';
+import 'package:wa_blast/models/purchase_models/supplier_model.dart';
 import 'package:wa_blast/providers/purchase_provider.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 

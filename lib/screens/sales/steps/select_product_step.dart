@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
 import 'package:wa_blast/providers/product_provider.dart' as catalog;
 
@@ -453,6 +453,27 @@ class _VariantAttributeSheetState extends State<_VariantAttributeSheet> {
                             width: 72,
                             height: 72,
                             fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 72,
+                              height: 72,
+                              color: AppColors.greyBackground,
+                              child: const Icon(
+                                Icons.image,
+                                color: AppColors.disabledFg,
+                              ),
+                            ),
+                            loadingBuilder: (context, child, progress) {
+                              if (progress == null) return child;
+                              return Container(
+                                width: 72,
+                                height: 72,
+                                color: AppColors.greyBackground,
+                                child: const Icon(
+                                  Icons.image,
+                                  color: AppColors.disabledFg,
+                                ),
+                              );
+                            },
                           )
                         : Container(
                             width: 72,
@@ -817,6 +838,28 @@ class _EditCartSheet extends StatelessWidget {
                                         width: 48,
                                         height: 48,
                                         fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Container(
+                                          width: 48,
+                                          height: 48,
+                                          color: AppColors.greyBackground,
+                                          child: const Icon(
+                                            Icons.image,
+                                            color: AppColors.disabledFg,
+                                          ),
+                                        ),
+                                        loadingBuilder:
+                                            (context, child, progress) {
+                                          if (progress == null) return child;
+                                          return Container(
+                                            width: 48,
+                                            height: 48,
+                                            color: AppColors.greyBackground,
+                                            child: const Icon(
+                                              Icons.image,
+                                              color: AppColors.disabledFg,
+                                            ),
+                                          );
+                                        },
                                       )
                                     : Container(
                                         width: 48,
@@ -989,6 +1032,10 @@ class _SpCard extends StatelessWidget {
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) =>
                     SizedBox(height: 110, child: fallback),
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return SizedBox(height: 110, child: fallback);
+                },
               )
             : SizedBox(height: 110, child: fallback),
       );
