@@ -16,6 +16,7 @@ class OrderProvider extends ChangeNotifier {
   // Filter untuk list store order
   String? _search; // ✅ search filter (server-side)
   String? _status; // e.g. "ON_HOLD"
+  String? _transactionStatus; // e.g. "processed" | "unprocessed"
   DateTime? _startDate; // e.g. 2026-01-01
   DateTime? _endDate; // e.g. 2026-01-31
   String? _platformName; // e.g. "tiktok"
@@ -55,6 +56,11 @@ class OrderProvider extends ChangeNotifier {
     // add filters (kalau ada)
     final st = _status?.trim();
     if (st != null && st.isNotEmpty) q['status'] = st;
+
+    final tx = _transactionStatus?.trim().toLowerCase();
+    if (tx == 'processed' || tx == 'unprocessed') {
+      q['transaction_status'] = tx!;
+    }
 
     if (_startDate != null) q['start_date'] = _fmtDate(_startDate!);
     if (_endDate != null) q['end_date'] = _fmtDate(_endDate!);
@@ -97,6 +103,7 @@ class OrderProvider extends ChangeNotifier {
 
   String? get search => _search;
   String? get status => _status;
+  String? get transactionStatus => _transactionStatus;
   DateTime? get startDate => _startDate;
   DateTime? get endDate => _endDate;
   String? get platformName => _platformName;
@@ -198,6 +205,7 @@ class OrderProvider extends ChangeNotifier {
     BuildContext context, {
     String? search,
     String? status,
+    String? transactionStatus,
     DateTime? startDate,
     DateTime? endDate,
     String? platformName,
@@ -205,6 +213,7 @@ class OrderProvider extends ChangeNotifier {
   }) async {
     _search = search;
     _status = status;
+    _transactionStatus = transactionStatus;
     _startDate = startDate;
     _endDate = endDate;
     _platformName = platformName;
@@ -216,13 +225,14 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
-  /// ✅ Reset semua filter (search/status/date/platform) lalu refresh.
+  /// ✅ Reset semua filter (search/status/transaction_status/date/platform) lalu refresh.
   Future<void> resetFilters(
     BuildContext context, {
     bool autoRefresh = true,
   }) async {
     _search = null;
     _status = null;
+    _transactionStatus = null;
     _startDate = null;
     _endDate = null;
     _platformName = null;
@@ -390,6 +400,7 @@ class OrderProvider extends ChangeNotifier {
           '[OrderProvider] page=$_page loaded=${items.length} totalNow=${_orders.length} '
           'hasMore=$_hasMore limit=$effectiveLimit '
           'filters={search:${_search ?? "-"}, status:${_status ?? "-"}, '
+          'transaction_status:${_transactionStatus ?? "-"}, '
           'start:${_startDate != null ? _fmtDate(_startDate!) : "-"}, '
           'end:${_endDate != null ? _fmtDate(_endDate!) : "-"}, '
           'platform:${_platformName ?? "-"}}',
@@ -617,6 +628,7 @@ class OrderProvider extends ChangeNotifier {
 
     _search = null;
     _status = null;
+    _transactionStatus = null;
     _startDate = null;
     _endDate = null;
     _platformName = null;

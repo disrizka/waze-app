@@ -22,7 +22,9 @@ class InitialStockDetail {
   });
 
   factory InitialStockDetail.fromJson(Map<String, dynamic> j) {
-    final storeJ = _asMap(j['storeLocation']);
+    final storeJ = _asMap(j['storeLocation']).isNotEmpty
+        ? _asMap(j['storeLocation'])
+        : _asMap(j['store_location']);
 
     final itemsJ = _asMapList(j['items']);
     final items = itemsJ.map(InitialStockItem.fromJson).toList();
@@ -32,7 +34,13 @@ class InitialStockDetail {
         : _toInt(j['discount']);
 
     return InitialStockDetail(
-      id: j['id']?.toString() ?? '',
+      id:
+          (j['id'] ??
+                  j['idTransaction'] ??
+                  j['id_transaction'] ??
+                  j['transactionId'] ??
+                  '')
+              .toString(),
       storeLocation: storeJ.isNotEmpty
           ? StockStoreLocationLite.fromJson(storeJ)
           : null,

@@ -90,6 +90,8 @@ class AuthProvider with ChangeNotifier {
   static const String kActiveBizRoleIdKey = 'activeBizRoleId';
   static const String kActiveBizRoleNameKey = 'activeBizRoleName';
   static const String kActiveBizRoleIsPrimaryKey = 'activeBizRoleIsPrimary';
+  static const String kPinnedActiveBizIdKey = 'pinnedActiveBizId';
+  static const String kPinnedActiveBizUsernameKey = 'pinnedActiveBizUsername';
 
   String? get activeAccountEmail => _email;
   final nav = appNavigatorKey.currentState;
@@ -135,6 +137,86 @@ class AuthProvider with ChangeNotifier {
       if (s == '0' || s == 'false' || s == 'no') return false;
     }
     return false;
+  }
+
+  String? _chooseActiveBizId({
+    required List<String> ids,
+    String? currentActiveId,
+    String? pinnedActiveId,
+  }) {
+    if (ids.isEmpty) return null;
+    if (pinnedActiveId != null &&
+        pinnedActiveId.isNotEmpty &&
+        ids.contains(pinnedActiveId)) {
+      return pinnedActiveId;
+    }
+    if (currentActiveId != null &&
+        currentActiveId.isNotEmpty &&
+        ids.contains(currentActiveId)) {
+      return currentActiveId;
+    }
+    return ids.first;
+  }
+
+  List<Map<String, dynamic>> _readBusinessListFromPrefs(SharedPreferences prefs) {
+    final raw = prefs.getString('business');
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      return (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  String? _chooseActiveBizIdByCountRule({
+    required List<Map<String, dynamic>> prevBusiness,
+    required List<Map<String, dynamic>> nextBusiness,
+    String? prevActiveId,
+    String? pinnedActiveId,
+    String? pinnedActiveUsername,
+  }) {
+    final nextIds = nextBusiness
+        .map((e) => (e['idBusiness'] ?? '').toString())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (nextIds.isEmpty) return null;
+
+    final prevCount = prevBusiness.length;
+    final nextCount = nextBusiness.length;
+
+    if (pinnedActiveUsername != null && pinnedActiveUsername.isNotEmpty) {
+      final byUsername = nextBusiness.firstWhere(
+        (e) => (e['username'] ?? '').toString() == pinnedActiveUsername,
+        orElse: () => const <String, dynamic>{},
+      );
+      final idByUsername = (byUsername['idBusiness'] ?? '').toString();
+      if (idByUsername.isNotEmpty) return idByUsername;
+    }
+
+    // Requirement: jika jumlah business tetap, pertahankan slot business aktif.
+    if (prevCount == nextCount && nextCount > 0) {
+      final prevIds = prevBusiness
+          .map((e) => (e['idBusiness'] ?? '').toString())
+          .toList();
+
+      var idx = -1;
+      if (prevActiveId != null && prevActiveId.isNotEmpty) {
+        idx = prevIds.indexOf(prevActiveId);
+      }
+      if (idx < 0 && pinnedActiveId != null && pinnedActiveId.isNotEmpty) {
+        idx = prevIds.indexOf(pinnedActiveId);
+      }
+      if (idx < 0) idx = 0;
+      if (idx >= nextIds.length) idx = nextIds.length - 1;
+      return nextIds[idx];
+    }
+
+    // Jika jumlah berubah (mis. 0/1/2), gunakan fallback normal.
+    return _chooseActiveBizId(
+      ids: nextIds,
+      currentActiveId: prevActiveId,
+      pinnedActiveId: pinnedActiveId,
+    );
   }
 
   /// Normalisasi 1 business item untuk disimpan ke prefs (key `business`)
@@ -496,6 +578,8 @@ class AuthProvider with ChangeNotifier {
     await prefs.remove('activeBizName');
     await prefs.remove('activeBizUsername');
     await prefs.remove('activeBizLogoPath');
+    await prefs.remove(kPinnedActiveBizIdKey);
+    await prefs.remove(kPinnedActiveBizUsernameKey);
     await prefs.remove(kActiveBizRoleIdKey);
     await prefs.remove(kActiveBizRoleNameKey);
     await prefs.remove(kActiveBizRoleIsPrimaryKey);
@@ -896,6 +980,18 @@ class AuthProvider with ChangeNotifier {
         'activeBizLogoPath',
         (activeBiz['logoPath'] ?? '').toString(),
       );
+      final activeBizUsername = (activeBiz['username'] ?? '').toString();
+      final activeBizId = (activeBiz['idBusiness'] ?? '').toString();
+      if (activeBizId.isNotEmpty) {
+        await prefs.setString(kPinnedActiveBizIdKey, activeBizId);
+      } else {
+        await prefs.remove(kPinnedActiveBizIdKey);
+      }
+      if (activeBizUsername.isNotEmpty) {
+        await prefs.setString(kPinnedActiveBizUsernameKey, activeBizUsername);
+      } else {
+        await prefs.remove(kPinnedActiveBizUsernameKey);
+      }
 
       final roleMap = (accountData['businessRoles'] as Map?)
           ?.cast<String, dynamic>();
@@ -1030,6 +1126,8 @@ class AuthProvider with ChangeNotifier {
     await prefs.remove('activeBizName');
     await prefs.remove('activeBizUsername');
     await prefs.remove('activeBizLogoPath');
+    await prefs.remove(kPinnedActiveBizIdKey);
+    await prefs.remove(kPinnedActiveBizUsernameKey);
     await prefs.remove(kActiveBizRoleIdKey);
     await prefs.remove(kActiveBizRoleNameKey);
     await prefs.remove(kActiveBizRoleIsPrimaryKey);
@@ -1081,6 +1179,8 @@ class AuthProvider with ChangeNotifier {
       await prefs.remove('activeBizName');
       await prefs.remove('activeBizUsername');
       await prefs.remove('activeBizLogoPath');
+      await prefs.remove(kPinnedActiveBizIdKey);
+      await prefs.remove(kPinnedActiveBizUsernameKey);
       await prefs.remove(kActiveBizRoleIdKey);
       await prefs.remove(kActiveBizRoleNameKey);
       await prefs.remove(kActiveBizRoleIsPrimaryKey);
@@ -1736,6 +1836,7 @@ class AuthProvider with ChangeNotifier {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('userBusinessRaw', raw);
+      final prevBusiness = _readBusinessListFromPrefs(prefs);
 
       // ——— Normalisasi daftar business untuk dipakai app (pakai helper)
       final List<Map<String, dynamic>> simplifiedBusiness = data
@@ -1767,18 +1868,17 @@ class AuthProvider with ChangeNotifier {
 
       // ——— HORMATI activeBizId yang ada; hanya fallback jika belum ada / tidak valid
       final String? prevActiveId = prefs.getString('activeBizId');
-      final ids = simplifiedBusiness
-          .map((e) => (e['idBusiness'] ?? '').toString())
-          .where((s) => s.isNotEmpty)
-          .toList();
-
-      String? nextActiveId = prevActiveId;
-      if (nextActiveId == null ||
-          nextActiveId.isEmpty ||
-          !ids.contains(nextActiveId)) {
-        // belum pernah set atau id lama tidak ada pada data terbaru → pilih pertama (kalau ada)
-        nextActiveId = ids.isNotEmpty ? ids.first : null;
-      }
+      final String? pinnedActiveId = prefs.getString(kPinnedActiveBizIdKey);
+      final String? pinnedActiveUsername = prefs.getString(
+        kPinnedActiveBizUsernameKey,
+      );
+      final String? nextActiveId = _chooseActiveBizIdByCountRule(
+        prevBusiness: prevBusiness,
+        nextBusiness: simplifiedBusiness,
+        prevActiveId: prevActiveId,
+        pinnedActiveId: pinnedActiveId,
+        pinnedActiveUsername: pinnedActiveUsername,
+      );
 
       // Terapkan active business (hanya jika ada data)
       if (nextActiveId != null && nextActiveId.isNotEmpty) {
@@ -1794,6 +1894,14 @@ class AuthProvider with ChangeNotifier {
           username: (first['username'] ?? '').toString(),
           logoPath: (first['logoPath'] ?? '').toString(),
           roleMap: roleMap,
+        );
+        await prefs.setString(
+          kPinnedActiveBizIdKey,
+          (first['idBusiness'] ?? '').toString(),
+        );
+        await prefs.setString(
+          kPinnedActiveBizUsernameKey,
+          (first['username'] ?? '').toString(),
         );
 
         // Sinkronkan snapshot akun aktif
@@ -1842,6 +1950,8 @@ class AuthProvider with ChangeNotifier {
         await prefs.remove('activeBizName');
         await prefs.remove('activeBizUsername');
         await prefs.remove('activeBizLogoPath');
+        await prefs.remove(kPinnedActiveBizIdKey);
+        await prefs.remove(kPinnedActiveBizUsernameKey);
         await prefs.remove(kActiveBizRoleIdKey);
         await prefs.remove(kActiveBizRoleNameKey);
         await prefs.remove(kActiveBizRoleIsPrimaryKey);
@@ -2093,6 +2203,8 @@ class AuthProvider with ChangeNotifier {
       logoPath: b.logoPath,
       // roleMap: null → baca dari prefs
     );
+    await prefs.setString(kPinnedActiveBizIdKey, idBusiness);
+    await prefs.setString(kPinnedActiveBizUsernameKey, b.username);
 
     // sinkronisasi snapshot (opsional / sesuai kode kamu sebelumnya)
     final emailKey = _email ?? prefs.getString(kActiveAccountKey);
@@ -2182,6 +2294,7 @@ class AuthProvider with ChangeNotifier {
           (root['business'] as List?) ?? const <dynamic>[];
 
       final prefs = await SharedPreferences.getInstance();
+      final prevBusiness = _readBusinessListFromPrefs(prefs);
 
       // 2) Simpan raw untuk debug
       await prefs.setString('user_fetch_raw', raw); // raw lengkap
@@ -2247,17 +2360,17 @@ class AuthProvider with ChangeNotifier {
 
       // 5) Active Business (hormati yang lama kalau masih valid)
       final String? prevActiveId = prefs.getString('activeBizId');
-      final ids = simplifiedBusiness
-          .map((e) => (e['idBusiness'] ?? '').toString())
-          .where((s) => s.isNotEmpty)
-          .toList();
-
-      String? nextActiveId = prevActiveId;
-      if (nextActiveId == null ||
-          nextActiveId.isEmpty ||
-          !ids.contains(nextActiveId)) {
-        nextActiveId = ids.isNotEmpty ? ids.first : null;
-      }
+      final String? pinnedActiveId = prefs.getString(kPinnedActiveBizIdKey);
+      final String? pinnedActiveUsername = prefs.getString(
+        kPinnedActiveBizUsernameKey,
+      );
+      final String? nextActiveId = _chooseActiveBizIdByCountRule(
+        prevBusiness: prevBusiness,
+        nextBusiness: simplifiedBusiness,
+        prevActiveId: prevActiveId,
+        pinnedActiveId: pinnedActiveId,
+        pinnedActiveUsername: pinnedActiveUsername,
+      );
 
       if (nextActiveId != null && nextActiveId.isNotEmpty) {
         final selected = simplifiedBusiness.firstWhere(
@@ -2272,6 +2385,14 @@ class AuthProvider with ChangeNotifier {
           username: (selected['username'] ?? '').toString(),
           logoPath: (selected['logoPath'] ?? '').toString(),
           roleMap: roleMap,
+        );
+        await prefs.setString(
+          kPinnedActiveBizIdKey,
+          (selected['idBusiness'] ?? '').toString(),
+        );
+        await prefs.setString(
+          kPinnedActiveBizUsernameKey,
+          (selected['username'] ?? '').toString(),
         );
 
         // ⬇️ NEW: sinkronkan pref info subscription untuk ACTIVE business
@@ -2345,6 +2466,8 @@ class AuthProvider with ChangeNotifier {
         await prefs.remove('activeBizName');
         await prefs.remove('activeBizUsername');
         await prefs.remove('activeBizLogoPath');
+        await prefs.remove(kPinnedActiveBizIdKey);
+        await prefs.remove(kPinnedActiveBizUsernameKey);
         await prefs.remove(kActiveBizRoleIdKey);
         await prefs.remove(kActiveBizRoleNameKey);
         await prefs.remove(kActiveBizRoleIsPrimaryKey);
@@ -2390,26 +2513,10 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Ganti active business + set active role dari map roles
-  Future<bool> switchActiveBusiness(String idBusiness) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final businesses = await getBusinesses();
-    final target = businesses.firstWhere(
-      (b) => b.idBusiness == idBusiness,
-      orElse: () => const BusinessInfo(
-        idBusiness: '',
-        name: '',
-        username: '',
-        logoPath: '',
-      ),
-    );
-    if (target.idBusiness.isEmpty) {
-      _error = 'Business not found';
-      notifyListeners();
-      return false;
-    }
-
+  Future<bool> _switchActiveBusinessWithTarget(
+    SharedPreferences prefs,
+    BusinessInfo target,
+  ) async {
     await _applyActiveBusinessAndRole(
       prefs: prefs,
       idBusiness: target.idBusiness,
@@ -2417,6 +2524,8 @@ class AuthProvider with ChangeNotifier {
       username: target.username,
       logoPath: target.logoPath,
     );
+    await prefs.setString(kPinnedActiveBizIdKey, target.idBusiness);
+    await prefs.setString(kPinnedActiveBizUsernameKey, target.username);
 
     // snapshot
     final emailKey = _email ?? prefs.getString(kActiveAccountKey);
@@ -2484,6 +2593,104 @@ class AuthProvider with ChangeNotifier {
     _error = null;
     notifyListeners();
     return true;
+  }
+
+  /// Ganti active business + set active role dari map roles (legacy by ID).
+  Future<bool> switchActiveBusiness(String idBusiness) async {
+    final prefs = await SharedPreferences.getInstance();
+    final businesses = await getBusinesses();
+    final target = businesses.firstWhere(
+      (b) => b.idBusiness == idBusiness,
+      orElse: () => const BusinessInfo(
+        idBusiness: '',
+        name: '',
+        username: '',
+        logoPath: '',
+      ),
+    );
+    if (target.idBusiness.isEmpty) {
+      _error = 'Business not found';
+      notifyListeners();
+      return false;
+    }
+    return _switchActiveBusinessWithTarget(prefs, target);
+  }
+
+  /// Ganti active business berdasarkan username (stabil saat ID terenkripsi berubah).
+  Future<bool> switchActiveBusinessByUsername(String username) async {
+    final u = username.trim();
+    if (u.isEmpty) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    final businesses = await getBusinesses();
+    final target = businesses.firstWhere(
+      (b) => b.username.trim() == u,
+      orElse: () => const BusinessInfo(
+        idBusiness: '',
+        name: '',
+        username: '',
+        logoPath: '',
+      ),
+    );
+    if (target.idBusiness.isEmpty) {
+      _error = 'Business not found';
+      notifyListeners();
+      return false;
+    }
+    return _switchActiveBusinessWithTarget(prefs, target);
+  }
+
+  Future<void> restoreActiveBusinessFromCache({
+    required String idBusiness,
+    required String name,
+    required String username,
+    required String logoPath,
+    String? roleId,
+    String? roleName,
+    bool? roleIsPrimary,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString('activeBizId', idBusiness);
+    await prefs.setString('activeBizName', name);
+    await prefs.setString('activeBizUsername', username);
+    await prefs.setString('activeBizLogoPath', logoPath);
+    await prefs.setString(kPinnedActiveBizIdKey, idBusiness);
+    await prefs.setString(kPinnedActiveBizUsernameKey, username);
+
+    final rid = (roleId ?? '').trim();
+    if (rid.isNotEmpty) {
+      await prefs.setString(kActiveBizRoleIdKey, rid);
+      await prefs.setString(kActiveBizRoleNameKey, (roleName ?? '').trim());
+      await prefs.setBool(kActiveBizRoleIsPrimaryKey, roleIsPrimary == true);
+    }
+
+    final emailKey = _email ?? prefs.getString(kActiveAccountKey);
+    if (emailKey != null && emailKey.isNotEmpty) {
+      final key = 'account_$emailKey';
+      final snapStr = prefs.getString(key);
+      if (snapStr != null && snapStr.isNotEmpty) {
+        try {
+          final snap = jsonDecode(snapStr) as Map<String, dynamic>;
+          snap['activeBusiness'] = {
+            'idBusiness': idBusiness,
+            'name': name,
+            'username': username,
+            'logoPath': logoPath,
+          };
+          if (rid.isNotEmpty) {
+            snap['activeBusinessRole'] = {
+              'idAdminRole': rid,
+              'name': (roleName ?? '').trim(),
+              'isPrimary': roleIsPrimary == true,
+            };
+          }
+          await prefs.setString(key, jsonEncode(snap));
+        } catch (_) {}
+      }
+    }
+
+    notifyListeners();
   }
 
   /// =========================

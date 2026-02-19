@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:wa_blast/core/provider_helper.dart';
+import 'package:wa_blast/constants/api_constant.dart';
 import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/services/api_service.dart';
 
@@ -89,19 +90,25 @@ class StockProvider with ChangeNotifier {
   // GET /waveup/{businessId}/initial-stock
   // ============================================================
 
-  Future<void> fetchInitialStocks(
+  Future<int> fetchInitialStocks(
     BuildContext context, {
     int? page,
     int? rowPerPage,
+    int? limit,
+    String? search,
+    String? storeLocationId,
+    String? dateFrom,
+    String? dateTo,
+    bool append = false,
   }) async {
     final bizId = await BizIdCache.get();
     if (bizId == null || bizId.isEmpty) {
-      _initialStocks.clear();
+      if (!append) _initialStocks.clear();
       _pageInitialStocks = null;
       _initialStocksError = 'Business ID is not available.';
       _lastError = _initialStocksError;
       notifyListeners();
-      return;
+      return 0;
     }
 
     _loadingInitialStocks = true;
@@ -113,39 +120,53 @@ class StockProvider with ChangeNotifier {
       final query = <String, String>{};
 
       if (page != null && page > 0) query['page'] = page.toString();
-      if (rowPerPage != null && rowPerPage > 0) {
-        query['row_per_page'] = rowPerPage.toString();
+      final effectiveLimit = (limit ?? rowPerPage);
+      if (effectiveLimit != null && effectiveLimit > 0) {
+        query['row_per_page'] = effectiveLimit.toString();
+      }
+      if ((search ?? '').trim().isNotEmpty) {
+        query['search'] = search!.trim();
+      }
+      if ((storeLocationId ?? '').trim().isNotEmpty) {
+        query['store_location_id'] = storeLocationId!.trim();
+      }
+      if ((dateFrom ?? '').trim().isNotEmpty) {
+        query['date_from'] = dateFrom!.trim();
+      }
+      if ((dateTo ?? '').trim().isNotEmpty) {
+        query['date_to'] = dateTo!.trim();
       }
 
       if (query.isNotEmpty) {
-        buffer.write(
-          '?${query.entries.map((e) => '${e.key}=${e.value}').join('&')}',
-        );
+        buffer.write('?${Uri(queryParameters: query).query}');
       }
 
       final path = buffer.toString();
       if (kDebugMode) debugPrint('[StockProvider] GET $path');
 
-      final jsonMap = await ApiJson.getMap(context, path);
+      final jsonMap = await ApiJson.getMap(
+        context,
+        path,
+      ).timeout(const Duration(seconds: 30), onTimeout: () => null);
 
       if (jsonMap == null) {
-        _initialStocks.clear();
+        if (!append) _initialStocks.clear();
         _pageInitialStocks = null;
         _initialStocksError = 'Failed to load initial stock.';
         _lastError = _initialStocksError;
         notifyListeners();
-        return;
+        return 0;
       }
 
       final status = (jsonMap['status'] as num?)?.toInt() ?? 0;
       if (status < 200 || status >= 300) {
-        _initialStocks.clear();
+        if (!append) _initialStocks.clear();
         _pageInitialStocks = null;
         _initialStocksError =
             jsonMap['message']?.toString() ?? 'Failed to load initial stock.';
         _lastError = _initialStocksError;
         notifyListeners();
-        return;
+        return 0;
       }
 
       final pageJ = _asMap(jsonMap['page']);
@@ -157,21 +178,27 @@ class StockProvider with ChangeNotifier {
           .map((e) => InitialStockRow.fromJson(e.cast<String, dynamic>()))
           .toList();
 
-      _initialStocks
-        ..clear()
-        ..addAll(parsed);
+      if (append) {
+        _initialStocks.addAll(parsed);
+      } else {
+        _initialStocks
+          ..clear()
+          ..addAll(parsed);
+      }
 
       _initialStocksError = null;
       _lastError = null;
       notifyListeners();
+      return parsed.length;
     } catch (e, st) {
-      _initialStocks.clear();
+      if (!append) _initialStocks.clear();
       _pageInitialStocks = null;
       _initialStocksError = e.toString();
       _lastError = _initialStocksError;
       debugPrint('[StockProvider] fetchInitialStocks error: $e');
       debugPrint('$st');
       notifyListeners();
+      return 0;
     } finally {
       _loadingInitialStocks = false;
       notifyListeners();
@@ -206,9 +233,15 @@ class StockProvider with ChangeNotifier {
 
     try {
       final path = '/waveup/$bizId/initial-stock/$idInitialStock';
-      if (kDebugMode) debugPrint('[StockProvider] GET $path');
+      if (kDebugMode) {
+        debugPrint('[StockProvider] GET $path');
+        debugPrint('[StockProvider] GET ${ApiConstant.baseUrl}$path');
+      }
 
-      final jsonMap = await ApiJson.getMap(context, path);
+      final jsonMap = await ApiJson.getMap(
+        context,
+        path,
+      ).timeout(const Duration(seconds: 30), onTimeout: () => null);
 
       if (jsonMap == null) {
         _initialStockDetail = null;
