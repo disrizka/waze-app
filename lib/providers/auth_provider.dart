@@ -71,6 +71,7 @@ class AuthProvider with ChangeNotifier {
   bool _isActivated = false;
   bool _isLoading = false;
   String? _error;
+  Future<void>? _ongoingLogout;
 
   // ========= Getters publik
   String? get accessToken => _accessToken;
@@ -158,7 +159,9 @@ class AuthProvider with ChangeNotifier {
     return ids.first;
   }
 
-  List<Map<String, dynamic>> _readBusinessListFromPrefs(SharedPreferences prefs) {
+  List<Map<String, dynamic>> _readBusinessListFromPrefs(
+    SharedPreferences prefs,
+  ) {
     final raw = prefs.getString('business');
     if (raw == null || raw.isEmpty) return const [];
     try {
@@ -1144,6 +1147,15 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> logout(BuildContext context) async {
+    final inFlight = _ongoingLogout;
+    if (inFlight != null) {
+      debugPrint('[AuthProvider] logout ignored: already in progress');
+      return inFlight;
+    }
+
+    final completer = Completer<void>();
+    _ongoingLogout = completer.future;
+
     try {
       final prefs = await SharedPreferences.getInstance();
 
@@ -1207,15 +1219,24 @@ class AuthProvider with ChangeNotifier {
         final nextEmail = accounts.first;
         final success = await switchAccount(nextEmail);
         if (success) {
-          nav?.pushNamedAndRemoveUntil('/splash', (r) => false);
+          appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+            '/splash',
+            (r) => false,
+          );
           return;
         }
       }
 
       // 9) Kalau sudah tidak ada akun lain → kembali ke splash
-      nav?.pushNamedAndRemoveUntil('/splash', (r) => false);
+      appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+        '/splash',
+        (r) => false,
+      );
     } catch (e) {
       debugPrint("Logout failed: $e");
+    } finally {
+      if (!completer.isCompleted) completer.complete();
+      _ongoingLogout = null;
     }
   }
 

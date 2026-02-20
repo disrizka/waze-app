@@ -420,6 +420,7 @@ class SubscriptionProvider with ChangeNotifier {
     6: 'premium_6_months',
     12: 'premium_12_months',
   };
+  static const String _iosPromoProductId = 'promo_1year';
 
   /// Opsi mapping by pricingId (id pricing dari backend)
   static const Map<String, String> _iosProductIdByPricingId = {
@@ -451,10 +452,16 @@ class SubscriptionProvider with ChangeNotifier {
     ids.addAll(
       _iosProductIdByPricingId.values.where((e) => e.trim().isNotEmpty),
     );
+    ids.add(_iosPromoProductId);
     return ids;
   }
 
-  String? iosProductIdForPricing(PlanPricing pricing) {
+  String? iosProductIdForPricing(
+    PlanPricing pricing, {
+    bool usePromoProduct = false,
+  }) {
+    if (usePromoProduct) return _iosPromoProductId;
+
     final pricingKey = pricing.id.toString();
     final byPricing = _iosProductIdByPricingId[pricingKey];
     if (byPricing != null && byPricing.trim().isNotEmpty) return byPricing;
@@ -465,8 +472,11 @@ class SubscriptionProvider with ChangeNotifier {
     return null;
   }
 
-  ProductDetails? iosCachedProductForPricing(PlanPricing pricing) {
-    final id = iosProductIdForPricing(pricing);
+  ProductDetails? iosCachedProductForPricing(
+    PlanPricing pricing, {
+    bool usePromoProduct = false,
+  }) {
+    final id = iosProductIdForPricing(pricing, usePromoProduct: usePromoProduct);
     if (id == null) return null;
     return _iosProductsById[id];
   }
@@ -496,6 +506,7 @@ class SubscriptionProvider with ChangeNotifier {
         },
         onError: (e) {
           _iapLog('purchaseStream onError: $e');
+          _iosPurchasing = false;
           _iosIapError = e.toString();
           notifyListeners();
         },
@@ -575,9 +586,18 @@ class SubscriptionProvider with ChangeNotifier {
 
   Future<ProductDetails?> _getIosProduct(String productId) async {
     final cached = _iosProductsById[productId];
-    if (cached != null) return cached;
+    if (cached != null) {
+      _iapLog('get product from cache: id=${cached.id}');
+      return cached;
+    }
 
     final resp1 = await _iap.queryProductDetails({productId});
+    _iapLog(
+      'get product attempt#1 id=$productId '
+      'error=${resp1.error?.code}:${resp1.error?.message} '
+      'notFound=${resp1.notFoundIDs} '
+      'found=${resp1.productDetails.map((e) => e.id).toList()}',
+    );
     if (resp1.error == null && resp1.productDetails.isNotEmpty) {
       _iosProductsById[productId] = resp1.productDetails.first;
       notifyListeners();
@@ -587,6 +607,12 @@ class SubscriptionProvider with ChangeNotifier {
     await Future.delayed(const Duration(milliseconds: 800));
 
     final resp2 = await _iap.queryProductDetails({productId});
+    _iapLog(
+      'get product attempt#2 id=$productId '
+      'error=${resp2.error?.code}:${resp2.error?.message} '
+      'notFound=${resp2.notFoundIDs} '
+      'found=${resp2.productDetails.map((e) => e.id).toList()}',
+    );
     if (resp2.error == null && resp2.productDetails.isNotEmpty) {
       _iosProductsById[productId] = resp2.productDetails.first;
       notifyListeners();
@@ -603,6 +629,7 @@ class SubscriptionProvider with ChangeNotifier {
   Future<void> startIosSubscriptionPurchase({
     required BuildContext context,
     required PlanPricing pricing,
+    bool usePromoProduct = false,
   }) async {
     if (!isIOS) return;
 
@@ -623,7 +650,14 @@ class SubscriptionProvider with ChangeNotifier {
       return;
     }
 
-    final productId = iosProductIdForPricing(pricing);
+    final productId = iosProductIdForPricing(
+      pricing,
+      usePromoProduct: usePromoProduct,
+    );
+    _iapLog(
+      'purchase request: pricing=${pricing.id} period=${pricing.period} '
+      'usePromo=$usePromoProduct productId=$productId',
+    );
     if (productId == null || productId.isEmpty) {
       await _showIosSubscriptionFailedDialog(
         context,
@@ -647,6 +681,7 @@ class SubscriptionProvider with ChangeNotifier {
       final purchaseParam = PurchaseParam(productDetails: product);
 
       final ok = await _iap.buyNonConsumable(purchaseParam: purchaseParam);
+      _iapLog('buyNonConsumable result: ok=$ok productId=${product.id}');
       if (!ok) {
         _iosPurchasing = false;
         await _showIosSubscriptionFailedDialog(
@@ -656,6 +691,7 @@ class SubscriptionProvider with ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
+      _iapLog('start purchase catch: $e');
       _iosPurchasing = false;
       _iosIapError = e.toString();
       await _showIosSubscriptionFailedDialog(
@@ -668,8 +704,21 @@ class SubscriptionProvider with ChangeNotifier {
 
   Future<void> _handlePurchaseUpdates(List<PurchaseDetails> purchases) async {
     for (final p in purchases) {
+      _iapLog(
+        'purchase update: status=${p.status.name} '
+        'productId=${p.productID} purchaseId=${p.purchaseID} '
+        'error=${p.error?.code}:${p.error?.message}',
+      );
       if (p.status == PurchaseStatus.pending) {
         _iosPurchasing = true;
+        notifyListeners();
+        continue;
+      }
+
+      final statusName = p.status.name.toLowerCase();
+      if (statusName == 'canceled' || statusName == 'cancelled') {
+        _iosPurchasing = false;
+        _iosIapError = null;
         notifyListeners();
         continue;
       }
@@ -1822,7 +1871,9 @@ class SubscriptionProvider with ChangeNotifier {
 
     // stop processing flags
     _isProcessing = false;
+    _iosPurchasing = false;
     _errorMessage = null;
+    _iosIapError = null;
 
     // optional: force-complete midtrans completer supaya gak menggantung
     if (_snapCompleter != null && !(_snapCompleter!.isCompleted)) {

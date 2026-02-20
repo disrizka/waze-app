@@ -56,7 +56,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with RouteAware, WidgetsBindingObserver {
   bool _didKickRoleLoad = false;
-  bool _handledRefreshArg = false;
+  bool _didSubscribeRouteObserver = false;
 
   final GlobalKey<_HeaderGradientState> _headerKey =
       GlobalKey<_HeaderGradientState>();
@@ -82,26 +82,35 @@ class _HomeScreenState extends State<HomeScreen>
     final prefs = await SharedPreferences.getInstance();
 
     final lockedId = (prefs.getString('activeBizId') ?? '').trim();
+    final lockedName = prefs.getString('activeBizName') ?? '';
+    final lockedUsername = prefs.getString('activeBizUsername') ?? '';
+    final lockedLogoPath = prefs.getString('activeBizLogoPath') ?? '';
+    final lockedRoleId = (prefs.getString('activeBizRoleId') ?? '').trim();
+    final lockedRoleName = prefs.getString('activeBizRoleName') ?? '';
+    final lockedRoleIsPrimary = prefs.getBool('activeBizRoleIsPrimary') ?? false;
     final ok = await auth.refreshCurrentUser(context);
 
-    String? currentId = (prefs.getString('activeBizId') ?? '').trim();
+    final currentId = (prefs.getString('activeBizId') ?? '').trim();
 
+    // Pertahankan bisnis aktif sebelumnya bila masih valid di daftar terbaru.
     if (lockedId.isNotEmpty && lockedId != currentId) {
-      final raw = prefs.getString('business');
-      if (raw != null && raw.isNotEmpty) {
-        try {
-          final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-          final ids = list
-              .map((e) => (e['idBusiness'] ?? '').toString())
-              .where((s) => s.isNotEmpty)
-              .toList();
-
-          if (ids.contains(lockedId)) {
-            await auth.switchActiveBusiness(lockedId);
-            currentId = lockedId;
-          }
-        } catch (_) {}
+      final switched = lockedUsername.trim().isNotEmpty
+          ? await auth.switchActiveBusinessByUsername(lockedUsername)
+          : await auth.switchActiveBusiness(lockedId);
+      if (!switched) {
+        await auth.restoreActiveBusinessFromCache(
+          idBusiness: lockedId,
+          name: lockedName,
+          username: lockedUsername,
+          logoPath: lockedLogoPath,
+          roleId: lockedRoleId,
+          roleName: lockedRoleName,
+          roleIsPrimary: lockedRoleIsPrimary,
+        );
       }
+      debugPrint(
+        '[HomeScreen] restore activeBiz locked=$lockedId current=$currentId switched=$switched',
+      );
     }
 
     // 🔁 Tambahan: refresh role setelah user refresh
@@ -188,24 +197,20 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted || _didKickRoleLoad) return;
       _didKickRoleLoad = true;
 
-      // 1) refresh role dulu
-      await context.read<RoleProvider>().refreshActiveRoleFromPrefs(context);
-
-      if (!mounted) return;
-
-      // 2) refresh data user + header (SETIAP HOME DIBUKA)
+      // 1) refresh data user + header (SETIAP HOME DIBUKA)
+      // Method ini sudah me-refresh role setelah /user sinkron.
       await _refreshCurrentUserAndHeader();
 
       if (!mounted) return;
 
-      // 3) fetch report harian
+      // 2) fetch report harian
       await _kickDailyFetch();
 
       await _refreshNotificationsOnHomeOpen();
 
       if (!mounted) return;
 
-      // 4) cek apakah perlu tampilkan modal subscription
+      // 3) cek apakah perlu tampilkan modal subscription
       // await _maybeShowSubscriptionModal();
     });
   }
@@ -214,30 +219,11 @@ class _HomeScreenState extends State<HomeScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    // ✅ existing: subscribe routeObserver
+    // Subscribe sekali supaya callback route tidak terdaftar ganda.
     final route = ModalRoute.of(context);
-    if (route is PageRoute) {
+    if (!_didSubscribeRouteObserver && route is PageRoute) {
       routeObserver.subscribe(this, route);
-    }
-
-    // ✅ NEW: handle refresh argument once
-    if (_handledRefreshArg) return;
-    _handledRefreshArg = true;
-
-    final args = route?.settings.arguments;
-    final bool shouldRefresh =
-        args is Map && (args['refresh'] == true || args['refresh'] == 'true');
-
-    if (shouldRefresh) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (!mounted) return;
-
-        // ✅ ini yang kamu mau: sama seperti refresh HomeScreen normal
-        await _refreshCurrentUserAndHeader();
-
-        // (opsional) bersihkan args supaya kalau dependencies berubah, tidak ke-trigger lagi
-        // tapi karena _handledRefreshArg sudah true, sebenarnya tidak perlu.
-      });
+      _didSubscribeRouteObserver = true;
     }
   }
 
@@ -4513,7 +4499,7 @@ class _BusinessSwitcherSheetState extends State<_BusinessSwitcherSheet> {
                           }
                           final ok = await context
                               .read<AuthProvider>()
-                              .switchActiveBusiness(b.idBusiness);
+                              .switchActiveBusinessByUsername(b.username);
                           if (ok && mounted) {
                             Navigator.pop(context, true);
                           }

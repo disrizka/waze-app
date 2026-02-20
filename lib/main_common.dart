@@ -350,14 +350,14 @@ class MyApp extends StatelessWidget {
         return _platformRouteAnimated(
           settings,
           const SplashScreen(),
-          android: AndroidTransition.fade,
+          android: AndroidTransition.none,
         );
 
       case '/login':
         return _platformRouteAnimated(
           settings,
           const LoginScreen(),
-          android: AndroidTransition.fade,
+          android: AndroidTransition.none,
         );
 
       case '/register':
@@ -378,7 +378,7 @@ class MyApp extends StatelessWidget {
         return _platformRouteAnimated(
           settings,
           const MainWrapper(),
-          android: AndroidTransition.fade,
+          android: AndroidTransition.none,
         );
 
       // PRODUCT
@@ -907,7 +907,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-enum AndroidTransition { slideRight, slideUp, fade, scale }
+enum AndroidTransition { none, slideRight, slideUp, fade, scale }
 
 Route<dynamic> _platformRouteAnimated(
   RouteSettings settings,
@@ -915,6 +915,17 @@ Route<dynamic> _platformRouteAnimated(
   AndroidTransition android = AndroidTransition.slideRight,
   Duration duration = const Duration(milliseconds: 280),
 }) {
+  if (android == AndroidTransition.none) {
+    return PageRouteBuilder(
+      settings: settings,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+          child,
+    );
+  }
+
   if (defaultTargetPlatform == TargetPlatform.iOS ||
       defaultTargetPlatform == TargetPlatform.macOS) {
     return CupertinoPageRoute(settings: settings, builder: (_) => page);
@@ -924,9 +935,12 @@ Route<dynamic> _platformRouteAnimated(
     settings: settings,
     transitionDuration: duration,
     reverseTransitionDuration: duration,
-    pageBuilder: (_, __, ___) => page,
-    transitionsBuilder: (_, animation, secondary, child) {
+    pageBuilder: (context, animation, secondaryAnimation) => page,
+    transitionsBuilder: (context, animation, secondary, child) {
       switch (android) {
+        case AndroidTransition.none:
+          return child;
+
         case AndroidTransition.fade:
           return FadeTransition(opacity: animation, child: child);
 
@@ -960,7 +974,6 @@ Route<dynamic> _platformRouteAnimated(
           );
 
         case AndroidTransition.slideRight:
-        default:
           return SlideTransition(
             position: Tween<Offset>(
               begin: const Offset(1, 0),

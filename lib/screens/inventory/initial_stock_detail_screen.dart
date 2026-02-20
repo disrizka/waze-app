@@ -1,7 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/provider_helper.dart';
+import '../../constants/api_constant.dart';
 import '../../providers/stock_provider.dart';
 
 class InitialStockDetailScreen extends StatefulWidget {
@@ -14,8 +18,32 @@ class InitialStockDetailScreen extends StatefulWidget {
 
 class _InitialStockDetailScreenState extends State<InitialStockDetailScreen> {
   String? _id;
+  String? _argError;
   StockProvider?
   _stockProv; // simpan reference provider (aman dipakai di dispose)
+
+  Future<void> _debugLogGetLinkOnOpen(String idInitialStock) async {
+    if (!kDebugMode) return;
+    final bizId = await BizIdCache.get();
+    final safeBizId = (bizId == null || bizId.isEmpty) ? '{idBusiness}' : bizId;
+    final path = '/waveup/$safeBizId/initial-stock/$idInitialStock';
+    final base = ApiConstant.baseUrl;
+    final fullUrl = '$base$path';
+
+    final prefs = await SharedPreferences.getInstance();
+    final accessToken = prefs.getString('accessToken') ?? '';
+
+    debugPrint('[InitialStockDetailScreen] Opened page.');
+    debugPrint('[InitialStockDetailScreen] METHOD : GET');
+    debugPrint('[InitialStockDetailScreen] PATH   : $path');
+    debugPrint('[InitialStockDetailScreen] URL    : $fullUrl');
+    debugPrint('[InitialStockDetailScreen] HEADER Authorization: ${ApiConstant.basicAuth}');
+    debugPrint('[InitialStockDetailScreen] HEADER Access-Token : Bearer $accessToken');
+    debugPrint('[InitialStockDetailScreen] cURL:');
+    debugPrint(
+      "curl -X GET '$fullUrl' -H 'Authorization: ${ApiConstant.basicAuth}' -H 'Access-Token: Bearer $accessToken'",
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -25,17 +53,44 @@ class _InitialStockDetailScreenState extends State<InitialStockDetailScreen> {
     _stockProv ??= context.read<StockProvider>();
 
     final args = ModalRoute.of(context)?.settings.arguments;
-    final id = (args is Map) ? (args['id']?.toString()) : null;
-
-    if (_id == null && id != null && id.isNotEmpty) {
-      _id = id;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (!mounted) return;
-        // pakai reference provider, bukan context.read di fase rawan
-        await _stockProv!.fetchInitialStockDetail(context, id);
-      });
+    if (kDebugMode) {
+      debugPrint(
+        '[InitialStockDetailScreen] route args type=${args.runtimeType} value=$args',
+      );
     }
+
+    String? id;
+    if (args is Map) {
+      id =
+          (args['id'] ??
+                  args['idInitialStock'] ??
+                  args['initialStockId'] ??
+                  args['initial_stock_id'])
+              ?.toString();
+    } else if (args is String) {
+      id = args;
+    }
+
+    if (_id != null) return;
+
+    if (id == null || id.isEmpty) {
+      _argError =
+          'ID initial stock tidak ditemukan dari route arguments.\nPastikan pushNamed mengirim arguments {\'id\': ...}.';
+      if (kDebugMode) {
+        debugPrint('[InitialStockDetailScreen] ❌ Missing id in route args.');
+      }
+      return;
+    }
+
+    _id = id;
+    _argError = null;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      _debugLogGetLinkOnOpen(id!);
+      // pakai reference provider, bukan context.read di fase rawan
+      await _stockProv!.fetchInitialStockDetail(context, id);
+    });
   }
 
   @override
@@ -95,7 +150,14 @@ class _InitialStockDetailScreenState extends State<InitialStockDetailScreen> {
             );
           }
 
-          if ((loading && detail == null) || (_id == null || _id!.isEmpty)) {
+          if (_id == null || _id!.isEmpty) {
+            return _DetailError(
+              message: _argError ?? 'Initial stock id is not available.',
+              onRetry: retry,
+            );
+          }
+
+          if (loading && detail == null) {
             return const _DetailLoading();
           }
 
