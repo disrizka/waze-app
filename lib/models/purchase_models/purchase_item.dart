@@ -5,6 +5,8 @@ class PurchaseItem {
   final String idTransaction; // <-- NEW
   final String code;
   final DateTime time;
+  final String supplierName;
+  final String note;
   final int quantity;
   final int totalAmount;
   // kalau kamu sudah hapus status di UI, biarkan properti ini tetap ada atau hapus sekalian.
@@ -21,6 +23,8 @@ class PurchaseItem {
     required this.idTransaction, // <-- NEW (wajib diisi)
     required this.code,
     required this.time,
+    required this.supplierName,
+    required this.note,
     required this.quantity,
     required this.totalAmount,
     required this.status,
@@ -36,6 +40,8 @@ class PurchaseItem {
     String? idTransaction, // <-- NEW
     String? code,
     DateTime? time,
+    String? supplierName,
+    String? note,
     int? quantity,
     int? totalAmount,
     PurchaseStatus? status,
@@ -49,6 +55,8 @@ class PurchaseItem {
       idTransaction: idTransaction ?? this.idTransaction, // <-- NEW
       code: code ?? this.code,
       time: time ?? this.time,
+      supplierName: supplierName ?? this.supplierName,
+      note: note ?? this.note,
       quantity: quantity ?? this.quantity,
       totalAmount: totalAmount ?? this.totalAmount,
       status: status ?? this.status,

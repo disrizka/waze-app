@@ -10,6 +10,8 @@ class PurchaseDetail {
 
   final String storeLocationId;
   final StoreLocationLight? storeLocation; // ← detail lokasi untuk ambil name
+  final String supplierId;
+  final SupplierLight? supplier;
 
   final String note;
   final String reference;
@@ -39,6 +41,8 @@ class PurchaseDetail {
     required this.status,
     required this.storeLocationId,
     required this.storeLocation,
+    required this.supplierId,
+    required this.supplier,
     required this.note,
     required this.reference,
     required this.amount,
@@ -52,6 +56,8 @@ class PurchaseDetail {
   /// Nama store location yang siap pakai di UI.
   String get storeLocationName =>
       (storeLocation?.name?.isNotEmpty == true) ? storeLocation!.name! : '—';
+  String get supplierName =>
+      (supplier?.name?.isNotEmpty == true) ? supplier!.name! : '—';
 
   /// Total kuantitas masuk (qty_in - qty_out) semua baris.
   int get totalQty => items.fold<int>(0, (s, i) => s + i.netQty);
@@ -82,12 +88,20 @@ class PurchaseDetail {
       storeLoc = StoreLocationLight.fromJson(sl);
     }
 
+    SupplierLight? supp;
+    final supplierRaw = j['supplier'];
+    if (supplierRaw is Map<String, dynamic>) {
+      supp = SupplierLight.fromJson(supplierRaw);
+    }
+
     return PurchaseDetail(
       idTransaction: (j['idTransaction'] ?? '').toString(),
       number: (j['number'] ?? '').toString(),
       status: (j['status'] ?? '').toString(), // "success" | "pending" | ...
       storeLocationId: (j['store_location_id'] ?? '').toString(),
       storeLocation: storeLoc,
+      supplierId: (j['supplier_id'] ?? '').toString(),
+      supplier: supp,
       note: (j['note'] ?? '').toString(),
       reference: (j['reference'] ?? '').toString(),
       amount: _asInt(j['amount']),
@@ -98,6 +112,30 @@ class PurchaseDetail {
       items: items,
     );
   }
+}
+
+class SupplierLight {
+  final String idSupplier;
+  final String? name;
+  final String? phone;
+  final String? email;
+  final String? address;
+
+  const SupplierLight({
+    required this.idSupplier,
+    required this.name,
+    required this.phone,
+    required this.email,
+    required this.address,
+  });
+
+  factory SupplierLight.fromJson(Map<String, dynamic> j) => SupplierLight(
+    idSupplier: (j['idSupplier'] ?? '').toString(),
+    name: j['name']?.toString(),
+    phone: j['phone']?.toString(),
+    email: j['email']?.toString(),
+    address: j['address']?.toString(),
+  );
 }
 
 class PurchaseDetailItem {

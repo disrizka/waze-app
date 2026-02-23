@@ -3,6 +3,7 @@
 // ===============================
 import 'dart:ui';
 
+import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +12,7 @@ import 'package:wa_blast/constants/design_system.dart';
 import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/purchase_provider.dart';
+import 'package:wa_blast/widgets/stepper_header.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 
 class _PurchaseRow {
@@ -19,12 +21,14 @@ class _PurchaseRow {
   final String productName;
   final String skuLabel; // nama SKU / kode
   final String? imageUrl;
-  final int price; // harga unit asli (SKU)
+  final int defaultPrice; // harga unit dari SKU (default)
+  int customPrice; // harga unit input user
   int qty;
   int discountPerItem; // diskon per item (IDR)
 
+  int get unitBasePrice => customPrice;
   int get unitPriceAfterDisc =>
-      (price - discountPerItem).clamp(0, 1 << 31).toInt();
+      (unitBasePrice - discountPerItem).clamp(0, 1 << 31).toInt();
 
   int get lineTotal => unitPriceAfterDisc * qty;
 
@@ -33,11 +37,12 @@ class _PurchaseRow {
     required this.skuId,
     required this.productName,
     required this.skuLabel,
-    required this.price,
+    required this.defaultPrice,
+    int? customPrice,
     this.imageUrl,
     this.qty = 1,
-    this.discountPerItem = 0,
-  });
+  }) : customPrice = customPrice ?? 0,
+       discountPerItem = 0;
 }
 
 class AddPurchasePage extends StatefulWidget {
@@ -50,6 +55,7 @@ class AddPurchasePage extends StatefulWidget {
 class _AddPurchasePageState extends State<AddPurchasePage> {
   final _formKey = GlobalKey<FormState>();
   bool _submitting = false;
+  int _lastStep = 0;
 
   /// 0 = Details, 1 = Items, 2 = Review
   int _currentStep = 0;
@@ -81,9 +87,9 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
   }
 
   double get _maxContentWidth => _isTablet ? 960 : double.infinity;
-  EdgeInsets get _screenPadding => _isTablet
-      ? const EdgeInsets.fromLTRB(24, 12, 24, 0)
-      : const EdgeInsets.fromLTRB(16, 12, 16, 0);
+  EdgeInsets get _contentPadding => _isTablet
+      ? const EdgeInsets.fromLTRB(24, 12, 24, 16)
+      : const EdgeInsets.fromLTRB(16, 12, 16, 16);
 
   @override
   void initState() {
@@ -119,6 +125,20 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
     });
   }
 
+  Future<void> _handleBack() async {
+    if (_currentStep > 0) {
+      _goToStep(_currentStep - 1);
+      return;
+    }
+    if (!mounted) return;
+    final nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.pop();
+      return;
+    }
+    nav.pushReplacementNamed('/purchase/list');
+  }
+
   Future<void> _pickStore() async {
     final picked = await showStorePickerSheet(context, selectedId: _storeId);
     if (picked != null && mounted) {
@@ -140,52 +160,6 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
         _supplierName = picked.label;
       });
     }
-  }
-
-  Map<String, int> _allocOrderDiscountPerUnit() {
-    final od = _orderDiscount;
-    if (od <= 0 || _rows.isEmpty) return const {};
-
-    final bases = <String, int>{};
-    var baseSum = 0;
-    for (final r in _rows.values) {
-      final base = (r.unitPriceAfterDisc * r.qty);
-      if (base > 0) {
-        bases[r.skuId] = base;
-        baseSum += base;
-      }
-    }
-    if (baseSum == 0) return const {};
-
-    final perUnit = <String, int>{};
-    var allocated = 0;
-    for (final r in _rows.values) {
-      final base = bases[r.skuId] ?? 0;
-      if (base == 0) {
-        perUnit[r.skuId] = 0;
-        continue;
-      }
-      final rowDisc = (od * base ~/ baseSum);
-      allocated += rowDisc;
-      final perUnitDisc = (r.qty > 0) ? (rowDisc ~/ r.qty) : 0;
-      perUnit[r.skuId] = perUnitDisc;
-    }
-
-    final remain = od - allocated;
-    if (remain > 0) {
-      final first = _rows.values.first;
-      perUnit[first.skuId] =
-          (perUnit[first.skuId] ?? 0) +
-          (remain ~/ (first.qty > 0 ? first.qty : 1));
-    }
-
-    perUnit.updateAll((sku, d) {
-      final r = _rows[sku]!;
-      final maxDisc = r.unitPriceAfterDisc;
-      return d.clamp(0, maxDisc).toInt();
-    });
-
-    return perUnit;
   }
 
   Future<void> _openSkuPicker() async {
@@ -222,6 +196,8 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
     return sum;
   }
 
+  bool get _hasZeroPriceItems => _rows.values.any((r) => r.unitBasePrice <= 0);
+
   int get _grandTotal {
     final t = _subtotalItems - _orderDiscount + _shippingFee;
     return t < 0 ? 0 : t;
@@ -253,15 +229,19 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
 
   Future<void> _submit() async {
     if (_rows.isEmpty) {
-      _showSnack('Tambahkan minimal 1 SKU');
+      _showSnack('Add at least 1 SKU');
       return;
     }
     if (_storeId == null || _storeId!.isEmpty) {
-      _showSnack('Pilih store location dulu');
+      _showSnack('Please select a store first');
       return;
     }
     if (_supplierId == null || _supplierId!.isEmpty) {
-      _showSnack('Pilih supplier dulu');
+      _showSnack('Please select a supplier first');
+      return;
+    }
+    if (_hasZeroPriceItems) {
+      _showSnack('Set all SKU prices above Rp 0 before continuing');
       return;
     }
     if (_formKey.currentState?.validate() != true) return;
@@ -291,11 +271,11 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
 
   void _nextFromDetails() {
     if (_storeId == null || _storeId!.isEmpty) {
-      _showSnack('Pilih store location dulu');
+      _showSnack('Please select a store first');
       return;
     }
     if (_supplierId == null || _supplierId!.isEmpty) {
-      _showSnack('Pilih supplier dulu');
+      _showSnack('Please select a supplier first');
       return;
     }
     _goToStep(1);
@@ -303,7 +283,11 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
 
   void _nextFromItems() {
     if (_rows.isEmpty) {
-      _showSnack('Tambahkan minimal 1 SKU');
+      _showSnack('Add at least 1 SKU');
+      return;
+    }
+    if (_hasZeroPriceItems) {
+      _showSnack('Set all SKU prices above Rp 0 before continuing');
       return;
     }
     _goToStep(2);
@@ -313,114 +297,202 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
 
   @override
   Widget build(BuildContext context) {
+    final hasStore = (_storeId ?? '').isNotEmpty;
+    final hasSupplier = (_supplierId ?? '').isNotEmpty;
     final hasItems = _rows.isNotEmpty;
+    final hasZeroPrices = _hasZeroPriceItems;
     final canSubmit =
-        hasItems && _storeId != null && _supplierId != null && !_submitting;
+        hasItems && hasStore && hasSupplier && !hasZeroPrices && !_submitting;
+    final reverse = _currentStep < _lastStep;
+    _lastStep = _currentStep;
 
-    return Scaffold(
-      backgroundColor: UI.bg,
-      appBar: AppBar(
+    return PopScope(
+      canPop: _currentStep == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBack();
+      },
+      child: Scaffold(
         backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () {
-            if (_currentStep > 0) {
-              // Kalau lagi di step 2 atau 3 → mundur 1 step dulu
-              setState(() {
-                _currentStep -= 1;
-              });
-            } else {
-              // Kalau sudah di step pertama → baru benar-benar back screen
-              Navigator.maybePop(context);
-            }
-          },
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment:
-              CrossAxisAlignment.baseline, // ⬅️ ini pakai CrossAxisAlignment
-          textBaseline:
-              TextBaseline.alphabetic, // ⬅️ ini baru pakai TextBaseline
-          children: const [
-            Text('Purchase', style: TextStyle(fontWeight: FontWeight.w800)),
-            SizedBox(width: 8),
-            Text(
-              '/create',
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF9CA3AF),
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-
-        centerTitle: false,
-      ),
-
-      body: SafeArea(
-        minimum: _screenPadding,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: _maxContentWidth),
-            child: Column(
-              children: [
-                // Stepper horizontal
-                _PurchaseStepper(
-                  currentStep: _currentStep,
-                  onStepTap: (step) {
-                    // boleh lompat ke step sebelumnya
-                    if (step < _currentStep) {
-                      _goToStep(step);
-                    }
-                  },
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black87),
+            onPressed: _handleBack,
+          ),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: const [
+              Text(
+                'Purchase',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
                 ),
-                const SizedBox(height: 8),
-
-                // Konten per step
-                Expanded(
-                  child: Form(
-                    key: _formKey,
-                    child: ListView(
-                      children: [
-                        _buildStepContent(),
-                        const SizedBox(height: 16),
-                      ],
+              ),
+              SizedBox(width: 8),
+              Text(
+                '/create',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF9CA3AF),
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          centerTitle: false,
+          actions: [
+            if (_currentStep == 1)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: FilledButton.icon(
+                  onPressed: _submitting ? null : _openSkuPicker,
+                  icon: const Icon(Icons.add_shopping_cart_outlined, size: 16),
+                  label: const Text(
+                    'Add Items',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF426FD4),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    minimumSize: const Size(0, 34),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
                     ),
                   ),
                 ),
-
-                // Footer per step
-                if (_currentStep == 0)
-                  _StepNavBar(
-                    secondaryLabel: 'Cancel',
-                    primaryLabel: 'Next: Items',
-                    primaryEnabled:
-                        _storeId != null && _supplierId != null && !_submitting,
-                    onSecondary: () => Navigator.maybePop(context),
-                    onPrimary: _nextFromDetails,
-                  )
-                else if (_currentStep == 1)
-                  _StepNavBar(
-                    secondaryLabel: 'Back',
-                    primaryLabel: 'Next: Review',
-                    primaryEnabled: hasItems && !_submitting,
-                    onSecondary: () => _goToStep(0),
-                    onPrimary: _nextFromItems,
-                  )
-                else
-                  _StickyFooterBar(
-                    subtotal: _subtotalItems,
-                    discount: _orderDiscount,
-                    grandTotal: _grandTotal,
-                    enabled: canSubmit,
-                    onSubmit: _submit,
-                    onCancel: () => _goToStep(1),
+              ),
+          ],
+        ),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: _maxContentWidth),
+              child: Column(
+                children: [
+                  if (_currentStep == 0 && (!hasStore || !hasSupplier))
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      margin: const EdgeInsets.only(bottom: 6),
+                      color: const Color(0xFFFFF7E6),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 18,
+                            color: Color(0xFFB45309),
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Please select store and supplier before adding products.',
+                              style: TextStyle(
+                                color: Color(0xFF8A4B08),
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (_currentStep == 1 && hasZeroPrices)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      margin: const EdgeInsets.only(bottom: 6),
+                      color: const Color(0xFFFFF7E6),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 18,
+                            color: Color(0xFFB45309),
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'All SKU prices must be above Rp 0 to continue.',
+                              style: TextStyle(
+                                color: Color(0xFF8A4B08),
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  StepperHeader(activeIndex: _currentStep),
+                  Expanded(
+                    child: Form(
+                      key: _formKey,
+                      child: PageTransitionSwitcher(
+                        reverse: reverse,
+                        duration: const Duration(milliseconds: 300),
+                        transitionBuilder:
+                            (child, animation, secondaryAnimation) {
+                              return SharedAxisTransition(
+                                animation: animation,
+                                secondaryAnimation: secondaryAnimation,
+                                transitionType:
+                                    SharedAxisTransitionType.horizontal,
+                                child: child,
+                              );
+                            },
+                        child: ListView(
+                          key: ValueKey('purchase-step-$_currentStep'),
+                          padding: _contentPadding,
+                          children: [_buildStepContent()],
+                        ),
+                      ),
+                    ),
                   ),
-              ],
+                  if (_currentStep == 0)
+                    _StepNavBar(
+                      secondaryLabel: 'Cancel',
+                      primaryLabel: 'Next',
+                      primaryEnabled: hasStore && hasSupplier && !_submitting,
+                      onSecondary: _handleBack,
+                      onPrimary: _nextFromDetails,
+                    )
+                  else if (_currentStep == 1)
+                    _StepNavBar(
+                      secondaryLabel: 'Back',
+                      primaryLabel: 'Next',
+                      primaryEnabled:
+                          hasItems && !hasZeroPrices && !_submitting,
+                      totalAmount: _subtotalItems,
+                      onSecondary: () => _goToStep(0),
+                      onPrimary: _nextFromItems,
+                    )
+                  else
+                    _StickyFooterBar(
+                      enabled: canSubmit,
+                      onSubmit: _submit,
+                      onCancel: () => _goToStep(1),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -440,7 +512,7 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
     }
   }
 
-  // STEP 1: Purchase details (tanpa note & discount)
+  // STEP 1: Purchase details (+ notes)
   Widget _buildDetailsStep() {
     return _Section(
       title: 'Purchase details',
@@ -448,9 +520,10 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
         children: [
           const SizedBox(height: 12),
           _LabeledField(
-            label: 'Store location',
+            label: 'Store',
+            isRequired: true,
             child: PickerField(
-              placeholder: 'Select store location',
+              placeholder: 'Choose store',
               value: _storeName,
               onTap: _pickStore,
             ),
@@ -458,10 +531,20 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
           const SizedBox(height: 12),
           _LabeledField(
             label: 'Supplier',
+            isRequired: true,
             child: PickerField(
-              placeholder: 'Select supplier',
+              placeholder: 'Choose supplier',
               value: _supplierName,
               onTap: _pickSupplier,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _LabeledField(
+            label: 'Notes',
+            child: TextFormField(
+              controller: _noteC,
+              maxLines: 2,
+              decoration: UI.input('Optional notes for this purchase...'),
             ),
           ),
           const SizedBox(height: 12),
@@ -489,24 +572,18 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
   Widget _buildItemsStep() {
     return _Section(
       titleWidget: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text('Items', style: TextStyle(fontWeight: FontWeight.w800)),
-          TextButton.icon(
-            onPressed: _openSkuPicker,
-            icon: const Icon(Icons.add_rounded, size: 18),
-            label: const Text('Add SKU'),
-            style: TextButton.styleFrom(foregroundColor: UI.blue),
-          ),
+        children: const [
+          Icon(Icons.receipt_long_outlined, size: 18, color: UI.sub),
+          SizedBox(width: 8),
+          Text('Order summary', style: UI.tsSub),
         ],
       ),
       child: (_rows.isEmpty)
           ? _emptyItemsHint()
           : _ItemsDataTable(
               rows: _rows.values.toList(),
-              orderDiscPerUnit: _allocOrderDiscountPerUnit(),
-              onDiscountChanged: (skuId, value) => setState(() {
-                _rows[skuId]!.discountPerItem = value.clamp(0, 1 << 31);
+              onPriceChanged: (skuId, value) => setState(() {
+                _rows[skuId]!.customPrice = value.clamp(0, 1 << 31);
               }),
               onRemove: (skuId) => setState(() => _rows.remove(skuId)),
               onQtyChanged: (skuId, nextQty) => setState(() {
@@ -523,56 +600,42 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
     );
   }
 
-  // STEP 3: Note + discount + penjelasan total
+  // STEP 3: Payment (discount confirmation)
   Widget _buildReviewStep() {
-    final money = NumberFormat.decimalPattern('id_ID');
-    final totalQty = _rows.values.fold<int>(0, (sum, r) => sum + r.qty);
-
     return Column(
       children: [
         _Section(
-          title: 'Order summary',
+          title: 'Details',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _summaryRow(
-                'Store location',
-                _storeName.isEmpty ? '—' : _storeName,
+              const Text(
+                'Store & supplier information.',
+                style: TextStyle(color: UI.sub, fontSize: 13),
               ),
+              const SizedBox(height: 10),
+              _summaryRow('Store', _storeName.isEmpty ? '—' : _storeName),
               const SizedBox(height: 4),
               _summaryRow(
                 'Supplier',
                 _supplierName.isEmpty ? '—' : _supplierName,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Items: ${_rows.length} SKU • $totalQty pcs',
-                style: const TextStyle(color: UI.sub, fontSize: 12),
               ),
             ],
           ),
         ),
         const SizedBox(height: 12),
         _Section(
-          title: 'Note & discount',
+          title: 'Discount',
           child: Column(
             children: [
               _LabeledField(
-                label: 'Note',
-                child: TextFormField(
-                  controller: _noteC,
-                  maxLines: 2,
-                  decoration: UI.input('Pembelian stok awal…'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _LabeledField(
-                label: 'Discount (order, IDR)',
+                label: 'Order discount (IDR)',
                 child: TextFormField(
                   controller: _discountOrderC,
+                  textAlign: TextAlign.left,
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: UI.input('0'),
+                  decoration: UI.input('0').copyWith(prefixText: 'Rp '),
                   onChanged: (_) => setState(() {}),
                 ),
               ),
@@ -580,44 +643,32 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
           ),
         ),
         const SizedBox(height: 12),
-        // _Section(
-        //   title: 'Final total',
-        //   child: Column(
-        //     crossAxisAlignment: CrossAxisAlignment.start,
-        //     children: [
-        //       _summaryRow(
-        //         'Subtotal items',
-        //         'Rp ${money.format(_subtotalItems)}',
-        //       ),
-        //       _summaryRow(
-        //         'Order discount',
-        //         '- Rp ${money.format(_orderDiscount)}',
-        //       ),
-        //       _summaryRow('Shipping fee', 'Rp ${money.format(_shippingFee)}'),
-        //       const Divider(height: 18),
-        //       Row(
-        //         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        //         children: [
-        //           const Text(
-        //             'Total to be paid',
-        //             style: TextStyle(
-        //               fontWeight: FontWeight.w800,
-        //               color: UI.text,
-        //             ),
-        //           ),
-        //           Text(
-        //             'Rp ${money.format(_grandTotal)}',
-        //             style: const TextStyle(
-        //               fontWeight: FontWeight.w800,
-        //               color: UI.text,
-        //             ),
-        //           ),
-        //         ],
-        //       ),
-        //     ],
-        //   ),
-        // ),
+        _buildPaymentSummaryCard(),
       ],
+    );
+  }
+
+  Widget _buildPaymentSummaryCard() {
+    final money = NumberFormat.decimalPattern('id_ID');
+    return _Section(
+      title: 'Payment Summary',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Review subtotal, discount, and total.',
+            style: TextStyle(color: UI.sub, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          _summaryRow('Subtotal', 'Rp ${money.format(_subtotalItems)}'),
+          if (_orderDiscount > 0) ...[
+            const SizedBox(height: 4),
+            _summaryRow('Discount', '- Rp ${money.format(_orderDiscount)}'),
+          ],
+          const Divider(height: 18, color: UI.line),
+          _summaryRowStrong('Total', 'Rp ${money.format(_grandTotal)}'),
+        ],
+      ),
     );
   }
 
@@ -637,6 +688,37 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
                 color: UI.text,
                 fontWeight: FontWeight.w600,
                 fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryRowStrong(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: UI.text,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: UI.text,
+                fontWeight: FontWeight.w900,
+                fontSize: 17,
               ),
             ),
           ),
@@ -795,111 +877,6 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
   }
 }
 
-/// Top stepper: garis 3 segmen seperti contoh
-class _PurchaseStepper extends StatelessWidget {
-  final int currentStep; // 0..2
-  final void Function(int step)? onStepTap;
-
-  const _PurchaseStepper({required this.currentStep, this.onStepTap});
-
-  @override
-  Widget build(BuildContext context) {
-    const totalSteps = 3;
-    const titles = ['Details', 'Items', 'Review'];
-    const subtitles = ['Store & supplier', 'Add SKU items', 'Note & total'];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // ===== LINE STEPPER =====
-        SizedBox(
-          height: 8,
-          child: Row(
-            children: List.generate(totalSteps, (index) {
-              final baseColor = const Color(0xFFE5E7EB);
-              final bool isPast = index < currentStep;
-              final bool isCurrent = index == currentStep;
-
-              BoxDecoration deco;
-
-              if (isPast) {
-                // step yang sudah lewat → full biru lembut
-                deco = BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [UI.blue, UI.blue.withOpacity(0.4)],
-                  ),
-                  borderRadius: BorderRadius.circular(999),
-                );
-              } else if (isCurrent) {
-                // step aktif → biru → abu, seperti progres yang memudar
-                deco = BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [UI.blue, baseColor],
-                  ),
-                  borderRadius: BorderRadius.circular(999),
-                );
-              } else {
-                // step berikutnya → abu-abu
-                deco = BoxDecoration(
-                  color: baseColor,
-                  borderRadius: BorderRadius.circular(999),
-                );
-              }
-
-              return Expanded(
-                child: GestureDetector(
-                  onTap: onStepTap != null ? () => onStepTap!(index) : null,
-                  child: Container(
-                    margin: EdgeInsets.only(left: index == 0 ? 0 : 8),
-                    decoration: deco,
-                  ),
-                ),
-              );
-            }),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        // ===== LABEL STEP (judul + deskripsi, rata kiri) =====
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: List.generate(totalSteps, (index) {
-            final isActive = index <= currentStep;
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      titles[index],
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        color: isActive ? UI.text : UI.sub,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitles[index],
-                      style: const TextStyle(fontSize: 11, color: UI.sub),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-        ),
-      ],
-    );
-  }
-}
-
 /// Footer navigasi untuk step 1 & 2 (Cancel/Back + Next)
 class _StepNavBar extends StatelessWidget {
   final String secondaryLabel;
@@ -907,6 +884,7 @@ class _StepNavBar extends StatelessWidget {
   final bool primaryEnabled;
   final VoidCallback onSecondary;
   final VoidCallback onPrimary;
+  final int? totalAmount;
 
   const _StepNavBar({
     required this.secondaryLabel,
@@ -914,10 +892,12 @@ class _StepNavBar extends StatelessWidget {
     required this.primaryEnabled,
     required this.onSecondary,
     required this.onPrimary,
+    this.totalAmount,
   });
 
   @override
   Widget build(BuildContext context) {
+    final money = NumberFormat.decimalPattern('id_ID');
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -933,39 +913,68 @@ class _StepNavBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         minimum: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: onSecondary,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: UI.sub,
-                  side: const BorderSide(color: UI.line),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            if (totalAmount != null) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Total',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 17,
+                      color: UI.text,
+                    ),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: Text(secondaryLabel),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton(
-                onPressed: primaryEnabled ? onPrimary : null,
-                style: FilledButton.styleFrom(
-                  backgroundColor: UI.blue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                  Text(
+                    'Rp ${money.format(totalAmount)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      color: UI.text,
+                    ),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: Text(
-                  primaryLabel,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
+                ],
               ),
+              const SizedBox(height: 12),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: onSecondary,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: UI.sub,
+                      side: const BorderSide(color: UI.line),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: Text(secondaryLabel),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: primaryEnabled ? onPrimary : null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: UI.blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: Text(
+                      primaryLabel,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1061,9 +1070,6 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
   // Ambil URL gambar utama dari Product.primaryImageUrl (sudah ada di model)
   String? _thumb(Product p) => p.primaryImageUrl;
 
-  // Ambil base price dari Product.basePrice (sudah ada di model)
-  int? _price(Product p) => p.basePrice;
-
   Future<void> _pickVariant(Product p) async {
     // QUICK-ADD: jika tidak ada atribut varian sama sekali
     if (_hasNoVariantAttrs(p)) {
@@ -1080,7 +1086,7 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
             productName: p.name,
             skuLabel: s.code,
             imageUrl: p.primaryImageUrl,
-            price: s.price,
+            defaultPrice: s.price,
             qty: 1,
           );
         } else {
@@ -1088,13 +1094,6 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
         }
       });
 
-      // optional feedback
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Added 1 — ${p.name}'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
       return;
     }
 
@@ -1224,7 +1223,6 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
               onAdd: () => _pickVariant(p),
               selectedQty: qtyOfThisProduct,
               thumbUrl: _thumb(p),
-              basePrice: _price(p),
             );
           },
         ),
@@ -1341,19 +1339,16 @@ class _ProductCardFromModel extends StatelessWidget {
     required this.onAdd,
     required this.selectedQty,
     this.thumbUrl,
-    this.basePrice,
   });
 
   final Product product;
   final VoidCallback onAdd;
   final int selectedQty;
   final String? thumbUrl;
-  final int? basePrice;
 
   @override
   Widget build(BuildContext context) {
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-    final money = NumberFormat.decimalPattern('id_ID');
 
     Widget image() {
       final fallback = Container(
@@ -1425,21 +1420,19 @@ class _ProductCardFromModel extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              product.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: UI.text,
+            SizedBox(
+              height: 48,
+              child: Text(
+                product.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: UI.text,
+                ),
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              (basePrice != null) ? 'Rp. ${money.format(basePrice)}' : '—',
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-            ),
-            const Spacer(),
+            const SizedBox(height: 10),
             SizedBox(
               height: isTablet ? 42 : 40,
               width: double.infinity,
@@ -1484,8 +1477,6 @@ class _SkuRowForPurchase extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final priceText = NumberFormat.decimalPattern('id_ID').format(sku.price);
-
     final image = ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: (sku.imageUrl.isNotEmpty == true)
@@ -1528,14 +1519,6 @@ class _SkuRowForPurchase extends StatelessWidget {
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Rp. $priceText',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF111827),
-                  ),
                 ),
               ],
             ),
@@ -1774,199 +1757,313 @@ class _QtyPill extends StatelessWidget {
   }
 }
 
-class _ItemsDataTable extends StatelessWidget {
+class _ItemsDataTable extends StatefulWidget {
   const _ItemsDataTable({
     required this.rows,
-    required this.orderDiscPerUnit,
-    required this.onDiscountChanged,
+    required this.onPriceChanged,
     required this.onRemove,
     required this.onQtyChanged,
   });
 
   final List<_PurchaseRow> rows;
-  final Map<String, int> orderDiscPerUnit; // skuId -> disc/unit
-  final void Function(String skuId, int value) onDiscountChanged;
+  final void Function(String skuId, int value) onPriceChanged;
   final void Function(String skuId) onRemove;
   final void Function(String skuId, int nextQty) onQtyChanged;
 
   @override
+  State<_ItemsDataTable> createState() => _ItemsDataTableState();
+}
+
+class _ItemsDataTableState extends State<_ItemsDataTable> {
+  final ScrollController _listCtrl = ScrollController();
+
+  @override
+  void dispose() {
+    _listCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.decimalPattern('id_ID');
+    const double rowExtent = 128.0;
+    final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+    final int maxVisible = isTablet ? 7 : 4;
+    final bool needScroll = widget.rows.length > maxVisible;
 
-    // Lebar minimum supaya kolom tidak terlalu sempit; cukup nyaman di iPad.
-    const minTableWidth = 880.0;
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: minTableWidth),
-        child: DataTable(
-          headingRowHeight: 44,
-          dataRowMinHeight: 52,
-          dataRowMaxHeight: 60,
-          columnSpacing: 16,
-          dividerThickness: 1,
-          headingTextStyle: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF6B7280),
+    final list = ListView.separated(
+      controller: needScroll ? _listCtrl : null,
+      padding: EdgeInsets.zero,
+      itemCount: widget.rows.length,
+      shrinkWrap: !needScroll,
+      physics: needScroll
+          ? const AlwaysScrollableScrollPhysics()
+          : const NeverScrollableScrollPhysics(),
+      separatorBuilder: (_, __) => const Divider(height: 1, color: UI.line),
+      itemBuilder: (context, i) {
+        final r = widget.rows[i];
+        return SizedBox(
+          height: rowExtent,
+          child: _OrderSummaryEditableItem(
+            row: r,
+            onMinus: () => widget.onQtyChanged(r.skuId, r.qty - 1),
+            onPlus: () => widget.onQtyChanged(r.skuId, r.qty + 1),
+            onRemove: () => widget.onRemove(r.skuId),
+            onPriceChanged: (v) => widget.onPriceChanged(r.skuId, v),
           ),
-          columns: const [
-            DataColumn(label: Text('Product')),
-            DataColumn(label: Text('SKU')),
-            DataColumn(numeric: true, label: Text('Qty')),
-            DataColumn(numeric: true, label: Text('Disc/Item')),
-            DataColumn(numeric: true, label: Text('Unit (Base)')),
-            DataColumn(numeric: true, label: Text('Unit (Effective)')),
-            DataColumn(numeric: true, label: Text('Line Total')),
-            DataColumn(label: Text('')),
-          ],
-          rows: rows.map((r) {
-            final ord = orderDiscPerUnit[r.skuId] ?? 0;
-            final unitAfterItem = (r.price - r.discountPerItem).clamp(
-              0,
-              1 << 31,
-            );
-            final unitEffective = (unitAfterItem - ord).clamp(0, 1 << 31);
-            final lineTotal = unitEffective * r.qty;
+        );
+      },
+    );
 
-            Widget thumb() {
-              final fallback = Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF3F4F6),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Icons.image,
-                  color: Color(0xFFA3A3A3),
-                  size: 18,
-                ),
-              );
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: (r.imageUrl != null && r.imageUrl!.isNotEmpty)
-                    ? Image.network(
-                        r.imageUrl!,
-                        width: 36,
-                        height: 36,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => fallback,
-                      )
-                    : fallback,
-              );
-            }
+    if (!needScroll) return list;
 
-            return DataRow(
-              cells: [
-                // Product
-                DataCell(
-                  Row(
-                    children: [
-                      thumb(),
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(
-                          r.productName,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+    final double maxHeight =
+        (rowExtent * maxVisible) + (1.0 * (maxVisible - 1));
 
-                // SKU
-                DataCell(
-                  Text(
-                    r.skuLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Color(0xFF6B7280)),
-                  ),
-                ),
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: Scrollbar(
+        controller: _listCtrl,
+        thumbVisibility: true,
+        radius: const Radius.circular(999),
+        child: list,
+      ),
+    );
+  }
+}
 
-                // Qty (editable)
-                DataCell(
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: _QtyEditor(
-                      qty: r.qty,
-                      onMinus: () {
-                        final next = r.qty - 1;
-                        onQtyChanged(r.skuId, next);
-                      },
-                      onPlus: () => onQtyChanged(r.skuId, r.qty + 1),
-                      onTyped: (v) => onQtyChanged(r.skuId, v),
-                    ),
-                  ),
-                ),
+class _OrderSummaryEditableItem extends StatelessWidget {
+  const _OrderSummaryEditableItem({
+    required this.row,
+    required this.onMinus,
+    required this.onPlus,
+    required this.onRemove,
+    required this.onPriceChanged,
+  });
 
-                // Discount / Item (editable)
-                DataCell(
-                  SizedBox(
-                    width: 120,
-                    child: TextFormField(
-                      initialValue: r.discountPerItem.toString(),
-                      textAlign: TextAlign.right,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        prefixText: 'Rp ',
-                      ),
-                      onChanged: (v) =>
-                          onDiscountChanged(r.skuId, int.tryParse(v) ?? 0),
-                    ),
-                  ),
-                ),
+  final _PurchaseRow row;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+  final VoidCallback onRemove;
+  final void Function(int value) onPriceChanged;
 
-                // Unit (Base)
-                DataCell(Text(money.format(r.price))),
-
-                // Unit (Effective)
-                DataCell(
-                  (ord > 0 || r.discountPerItem > 0)
-                      ? Text(
-                          money.format(unitEffective),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        )
-                      : Text(
-                          money.format(r.price),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                ),
-
-                // Line total
-                DataCell(
-                  Text(
-                    money.format(lineTotal),
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-
-                // Remove
-                DataCell(
-                  IconButton(
-                    tooltip: 'Remove',
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      color: Color(0xFF9CA3AF),
-                    ),
-                    onPressed: () => onRemove(r.skuId),
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _thumb(row.imageUrl),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                row.productName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                row.skuLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: UI.tsSub,
+              ),
+              const SizedBox(height: 6),
+              _InlinePriceEditor(
+                value: row.unitBasePrice,
+                onChanged: onPriceChanged,
+              ),
+            ],
+          ),
         ),
+        const SizedBox(width: 12),
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _QtyPill(qty: row.qty, onMinus: onMinus, onPlus: onPlus),
+            const SizedBox(height: 4),
+            IconButton(
+              tooltip: 'Remove',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.delete_outline, color: UI.sub),
+              onPressed: onRemove,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _thumb(String? url) {
+    final fallback = Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        color: UI.bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Icon(Icons.image, color: UI.sub),
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: (url != null && url.isNotEmpty)
+          ? Image.network(
+              url,
+              width: 64,
+              height: 64,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => fallback,
+            )
+          : fallback,
+    );
+  }
+}
+
+class _InlinePriceEditor extends StatefulWidget {
+  const _InlinePriceEditor({required this.value, required this.onChanged});
+
+  final int value;
+  final void Function(int value) onChanged;
+
+  @override
+  State<_InlinePriceEditor> createState() => _InlinePriceEditorState();
+}
+
+class _InlinePriceEditorState extends State<_InlinePriceEditor> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+  String? _programmaticText;
+  int? _queuedValue;
+  bool _emitScheduled = false;
+  String? _pendingSyncText;
+  bool _pendingSyncForce = false;
+  bool _syncScheduled = false;
+
+  String _normalizeDigits(String raw) {
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return '';
+    final trimmed = digits.replaceFirst(RegExp(r'^0+(?=\d)'), '');
+    return trimmed.isEmpty ? '0' : trimmed;
+  }
+
+  void _setTextSilently(String text) {
+    _programmaticText = text;
+    _controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  void _scheduleTextSync(String text, {bool force = false}) {
+    _pendingSyncText = text;
+    _pendingSyncForce = force;
+    if (_syncScheduled) return;
+    _syncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncScheduled = false;
+      final nextText = _pendingSyncText;
+      final forceSync = _pendingSyncForce;
+      _pendingSyncText = null;
+      _pendingSyncForce = false;
+      if (!mounted || nextText == null) return;
+      if (!forceSync && _focusNode.hasFocus && _controller.text != nextText) {
+        return;
+      }
+      if (_controller.text != nextText) {
+        _setTextSilently(nextText);
+      }
+    });
+  }
+
+  void _queueEmit(int value) {
+    _queuedValue = value;
+    if (_emitScheduled) return;
+    _emitScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _emitScheduled = false;
+      final next = _queuedValue;
+      _queuedValue = null;
+      if (!mounted || next == null) return;
+      if (next != widget.value) {
+        widget.onChanged(next);
+      }
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value.toString());
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlinePriceEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value && !_focusNode.hasFocus) {
+      final next = widget.value.toString();
+      if (_controller.text != next) {
+        _scheduleTextSync(next);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 150,
+      height: 34,
+      child: TextField(
+        controller: _controller,
+        focusNode: _focusNode,
+        textAlign: TextAlign.right,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        onTap: () {
+          if (_controller.text == '0') {
+            _controller.selection = const TextSelection(
+              baseOffset: 0,
+              extentOffset: 1,
+            );
+          }
+        },
+        decoration: const InputDecoration(
+          hintText: '0',
+          isDense: true,
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          prefixText: 'Rp ',
+        ),
+        onChanged: (v) {
+          if (_programmaticText != null && v == _programmaticText) {
+            _programmaticText = null;
+            return;
+          }
+
+          final normalized = _normalizeDigits(v);
+          if (normalized.isEmpty) {
+            _queueEmit(0);
+            _scheduleTextSync('0', force: true);
+            return;
+          }
+
+          if (v != normalized) {
+            _scheduleTextSync(normalized, force: true);
+          }
+
+          final next = int.tryParse(normalized) ?? 0;
+          _queueEmit(next);
+        },
       ),
     );
   }
@@ -2013,9 +2110,6 @@ class _ProductVariantSheetState extends State<_ProductVariantSheet> {
         break;
       }
     }
-
-    final price = matchedSku?.price ?? product.basePrice ?? 0;
-    final money = NumberFormat.decimalPattern('id_ID');
 
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     final heroSize = isTablet ? 84.0 : 72.0;
@@ -2068,14 +2162,6 @@ class _ProductVariantSheetState extends State<_ProductVariantSheet> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Rp ${money.format(price)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
                         ),
                         if (matchedSku != null) ...[
                           const SizedBox(height: 4),
@@ -2203,7 +2289,7 @@ class _ProductVariantSheetState extends State<_ProductVariantSheet> {
                                   productName: product.name,
                                   skuLabel: matchedSku!.code,
                                   imageUrl: product.primaryImageUrl,
-                                  price: matchedSku.price,
+                                  defaultPrice: matchedSku.price,
                                   qty: _qty,
                                 );
                                 Navigator.pop(context, row);
@@ -2219,7 +2305,7 @@ class _ProductVariantSheetState extends State<_ProductVariantSheet> {
                         child: Text(
                           (matchedSku == null)
                               ? "Pilih semua varian"
-                              : "Add to cart — Rp ${money.format(price)}",
+                              : "Add to cart",
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
@@ -2266,19 +2352,47 @@ class _ProductVariantSheetState extends State<_ProductVariantSheet> {
 class _LabeledField extends StatelessWidget {
   final String label;
   final Widget child;
-  const _LabeledField({required this.label, required this.child});
+  final bool isRequired;
+  const _LabeledField({
+    required this.label,
+    required this.child,
+    this.isRequired = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF374151), // selaras dengan style sheet-mu
-          ),
+        Row(
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF374151), // selaras dengan style sheet-mu
+              ),
+            ),
+            if (isRequired) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF4FF),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: const Color(0xFFA5B4FC)),
+                ),
+                child: const Text(
+                  'Required',
+                  style: TextStyle(
+                    color: Color(0xFF426FD4),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
         const SizedBox(height: 6),
         child,
@@ -2288,15 +2402,11 @@ class _LabeledField extends StatelessWidget {
 }
 
 class _StickyFooterBar extends StatelessWidget {
-  final int subtotal, discount, grandTotal;
   final bool enabled;
   final VoidCallback onSubmit;
   final VoidCallback onCancel;
 
   const _StickyFooterBar({
-    required this.subtotal,
-    required this.discount,
-    required this.grandTotal,
     required this.enabled,
     required this.onSubmit,
     required this.onCancel,
@@ -2304,7 +2414,6 @@ class _StickyFooterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.decimalPattern('id_ID');
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -2322,40 +2431,6 @@ class _StickyFooterBar extends StatelessWidget {
         minimum: const EdgeInsets.fromLTRB(16, 10, 16, 12),
         child: Column(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _miniKV('Subtotal', 'Rp ${money.format(subtotal)}'),
-                      _miniKV('Discount', '- Rp ${money.format(discount)}'),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Grand total',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: UI.text,
-                            ),
-                          ),
-                          Text(
-                            'Rp ${money.format(grandTotal)}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: UI.text,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
@@ -2394,109 +2469,6 @@ class _StickyFooterBar extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _miniKV(String k, String v) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 2),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(k, style: const TextStyle(color: UI.sub)),
-        Text(v, style: const TextStyle(color: UI.sub)),
-      ],
-    ),
-  );
-}
-
-class _QtyEditor extends StatefulWidget {
-  final int qty;
-  final VoidCallback onMinus;
-  final VoidCallback onPlus;
-  final void Function(int value) onTyped;
-
-  const _QtyEditor({
-    required this.qty,
-    required this.onMinus,
-    required this.onPlus,
-    required this.onTyped,
-    Key? key,
-  }) : super(key: key);
-
-  @override
-  State<_QtyEditor> createState() => _QtyEditorState();
-}
-
-class _QtyEditorState extends State<_QtyEditor> {
-  late final TextEditingController _c;
-
-  @override
-  void initState() {
-    super.initState();
-    _c = TextEditingController(text: widget.qty.toString());
-  }
-
-  @override
-  void didUpdateWidget(covariant _QtyEditor oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.qty != widget.qty) {
-      _c.text = widget.qty.toString();
-    }
-  }
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 36,
-      decoration: BoxDecoration(
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: 'Minus',
-            visualDensity: VisualDensity.compact,
-            onPressed: widget.onMinus,
-            icon: const Icon(Icons.remove_rounded),
-          ),
-          SizedBox(
-            width: 56,
-            child: TextField(
-              controller: _c,
-              textAlign: TextAlign.center,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 8),
-              ),
-              onChanged: (t) {
-                final v = int.tryParse(t) ?? 0;
-                widget.onTyped(v);
-              },
-              onSubmitted: (t) {
-                final v = int.tryParse(t) ?? 0;
-                widget.onTyped(v);
-              },
-            ),
-          ),
-          IconButton(
-            tooltip: 'Plus',
-            visualDensity: VisualDensity.compact,
-            onPressed: widget.onPlus,
-            icon: const Icon(Icons.add_rounded),
-          ),
-        ],
       ),
     );
   }

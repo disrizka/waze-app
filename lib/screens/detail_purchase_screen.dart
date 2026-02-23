@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -90,11 +89,11 @@ class _DetailPurchaseScreenState extends State<DetailPurchaseScreen> {
 
               // ==== Data siap pakai dari model baru ====
               final number = detail.number;
-              final status = detail.status;
-              final dateText = fDate.format(detail.createdAt);
+              final dateText = fDate.format(detail.orderAt);
               final storeName = detail.storeLocationName;
+              final supplierName = detail.supplierName;
               final note = detail.note.isNotEmpty ? detail.note : '—';
-              final storeLocation = detail.storeLocation?.city?.name;
+              final storeLocation = detail.storeLocation?.city?.name ?? '—';
 
               final subtotal = detail.itemsSubtotal;
               final discount = detail.discount;
@@ -104,24 +103,19 @@ class _DetailPurchaseScreenState extends State<DetailPurchaseScreen> {
               return ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  // Header
-                  Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: const BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
+                  Container(
+                    padding: const EdgeInsets.all(16),
                     child: Padding(
-                      padding: const EdgeInsets.all(16),
+                      padding: EdgeInsets.zero,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             number,
                             style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF111827),
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -130,151 +124,184 @@ class _DetailPurchaseScreenState extends State<DetailPurchaseScreen> {
                             dateText,
                             style: const TextStyle(
                               fontSize: 13,
-                              color: Color(0xFF6B7280),
+                              color: Color(0xFF475569),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              _StatusChip(status: status),
-                              const SizedBox(width: 12),
-                              const Icon(
-                                Icons.store_rounded,
-                                size: 16,
-                                color: Color(0xFF6B7280),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  storeName,
-                                  style: const TextStyle(
-                                    color: Color(0xFF374151),
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              const Icon(
-                                Icons.pin_drop,
-                                size: 16,
-                                color: Color(0xFF6B7280),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  storeLocation!,
-                                  style: const TextStyle(
-                                    color: Color(0xFF374151),
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                ),
-                              ),
-                            ],
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Note
-                  const Text(
-                    'Note',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF374151),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFF8FAFC), Color(0xFFFFFFFF)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 12),
+
                   Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF9FAFB),
-                      borderRadius: BorderRadius.circular(10),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: const Color(0xFFE5E7EB)),
                     ),
-                    child: Text(
-                      note,
-                      style: const TextStyle(color: Color(0xFF111827)),
+                    child: Column(
+                      children: [
+                        _infoRow(
+                          icon: Icons.business_rounded,
+                          label: 'Supplier',
+                          value: supplierName,
+                        ),
+                        const SizedBox(height: 10),
+                        _infoRow(
+                          icon: Icons.storefront_rounded,
+                          label: 'Store',
+                          value: storeName,
+                        ),
+                        const SizedBox(height: 10),
+                        _infoRow(
+                          icon: Icons.location_on_rounded,
+                          label: 'Location',
+                          value: storeLocation,
+                        ),
+                        const SizedBox(height: 10),
+                        _infoRow(
+                          icon: Icons.notes_rounded,
+                          label: 'Notes',
+                          value: note,
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
 
-                  // Items
                   const Text(
                     'Items',
                     style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF374151),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   if (detail.items.isEmpty)
                     const Text('No items', style: TextStyle(color: Colors.grey))
                   else
                     ...detail.items.map((line) {
-                      return Card(
+                      return Container(
                         margin: const EdgeInsets.only(bottom: 10),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          side: const BorderSide(color: Color(0xFFE5E7EB)),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE5E7EB)),
                         ),
-                        child: ListTile(
-                          leading: const Icon(
-                            Icons.inventory_2_rounded,
-                            color: Color(0xFF6B7280),
-                          ),
-                          title: Text(
-                            line.productName.isNotEmpty
-                                ? line.productName
-                                : '—',
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          subtitle: Text(
-                            line.skuCode.isNotEmpty
-                                ? 'SKU: ${line.skuCode}'
-                                : 'SKU: —',
-                          ),
-                          trailing: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                'x${line.netQty}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(10),
                               ),
-                              Text(
-                                'Rp ${fMoney.format(line.price)}',
-                                style: const TextStyle(
-                                  color: Color(0xFF374151),
-                                ),
+                              clipBehavior: Clip.antiAlias,
+                              child:
+                                  (line.imageUrl != null &&
+                                      line.imageUrl!.isNotEmpty)
+                                  ? Image.network(
+                                      line.imageUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                        Icons.inventory_2_rounded,
+                                        color: Color(0xFF475569),
+                                        size: 18,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.inventory_2_rounded,
+                                      color: Color(0xFF475569),
+                                      size: 18,
+                                    ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    line.productName.isNotEmpty
+                                        ? line.productName
+                                        : '—',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF111827),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    line.skuCode.isNotEmpty
+                                        ? 'SKU: ${line.skuCode}'
+                                        : 'SKU: —',
+                                    style: const TextStyle(
+                                      color: Color(0xFF64748B),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  'x${line.netQty}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                                Text(
+                                  'Rp ${fMoney.format(line.price)}',
+                                  style: const TextStyle(
+                                    color: Color(0xFF334155),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       );
                     }),
 
-                  const Divider(height: 32),
-
-                  // Totals
-                  _totalRow('Items total', fMoney.format(subtotal)),
-                  _totalRow('Discount', fMoney.format(discount)),
-                  _totalRow('Shipping fee', fMoney.format(shipping)),
                   const SizedBox(height: 8),
-                  _totalRow(
-                    'Grand total',
-                    fMoney.format(grandTotal),
-                    bold: true,
-                    highlight: true,
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      children: [
+                        _totalRow('Items total', fMoney.format(subtotal)),
+                        _totalRow('Discount', fMoney.format(discount)),
+                        _totalRow('Shipping fee', fMoney.format(shipping)),
+                        const SizedBox(height: 8),
+                        _totalRow(
+                          'Grand total',
+                          fMoney.format(grandTotal),
+                          bold: true,
+                          highlight: true,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               );
@@ -290,7 +317,6 @@ class _DetailPurchaseScreenState extends State<DetailPurchaseScreen> {
               final number = d.number;
               final date = d.createdAt;
               final storeName = d.storeLocationName;
-              final reference = d.reference.isNotEmpty ? d.reference : '—';
               final note = d.note.isNotEmpty ? d.note : '—';
               final discount = d.discount;
               final shipping = d.shippingFee;
@@ -435,6 +461,42 @@ class _DetailPurchaseScreenState extends State<DetailPurchaseScreen> {
   }
 
   // ===== Helper yg hilang (INI YANG MENYEBABKAN ERROR) =====
+  Widget _infoRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF64748B)),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 72,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFF0F172A),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _totalRow(
     String label,
     String value, {
@@ -463,44 +525,6 @@ class _DetailPurchaseScreenState extends State<DetailPurchaseScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  final String status;
-  const _StatusChip({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final s = status.toLowerCase();
-    late Color c;
-    late String label;
-    switch (s) {
-      case 'completed':
-      case 'success':
-        c = const Color(0xFF059669);
-        label = 'Completed';
-        break;
-      case 'canceled':
-        c = const Color(0xFFDC2626);
-        label = 'Canceled';
-        break;
-      case 'pending':
-      default:
-        c = const Color(0xFFB45309);
-        label = 'Pending';
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: c.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(color: c, fontWeight: FontWeight.w600, fontSize: 13),
       ),
     );
   }

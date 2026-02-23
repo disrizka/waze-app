@@ -1011,16 +1011,24 @@ PurchaseItem _purchaseItemFromApi(Map<String, dynamic> j) {
       .toList(growable: false);
 
   final totalQty = lines.fold<int>(0, (s, l) => s + l.qty);
+  final supplierName = _pickSupplierName(j);
 
   return PurchaseItem(
     idTransaction: (j['idTransaction'] ?? j['id_transaction'] ?? '')
         .toString(), // <-- tambahkan ini
     code: j['number']?.toString() ?? '',
     time: _parseTime(j['order_at'], j['created_at']),
+    supplierName: supplierName,
+    note: _firstNonEmptyText([
+      j['note'],
+      j['notes'],
+      j['transaction_note'],
+      j['description'],
+    ]),
     quantity: totalQty,
     totalAmount: _asInt(j['amount']),
     status: _mapStatus(j['status']?.toString()),
-    servicedByName: '-', // tidak tersedia di respons
+    servicedByName: supplierName, // fallback kompatibel UI lama
     servicedById: '-', // tidak tersedia di respons
     servicedByAvatarUrl: '', // tidak tersedia di respons
     serviceFeePercent: 0.0, // tidak ada service fee di API ini
@@ -1033,6 +1041,33 @@ int _asInt(dynamic v) {
   if (v is num) return v.toInt();
   if (v is String) return int.tryParse(v) ?? 0;
   return 0;
+}
+
+String _firstNonEmptyText(List<dynamic> values, {String fallback = '-'}) {
+  for (final v in values) {
+    final text = (v ?? '').toString().trim();
+    if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+  }
+  return fallback;
+}
+
+String _pickSupplierName(Map<String, dynamic> j) {
+  final supplier = j['supplier'];
+  if (supplier is Map<String, dynamic>) {
+    final nested = _firstNonEmptyText([
+      supplier['name'],
+      supplier['supplier_name'],
+      supplier['company_name'],
+    ], fallback: '');
+    if (nested.isNotEmpty) return nested;
+  }
+
+  return _firstNonEmptyText([
+    j['supplier_name'],
+    j['supplierName'],
+    j['supplier_label'],
+    j['supplier_company'],
+  ]);
 }
 
 DateTime _parseTime(dynamic orderAt, dynamic createdAtStr) {
