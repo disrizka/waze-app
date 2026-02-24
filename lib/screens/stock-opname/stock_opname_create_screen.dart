@@ -1,6 +1,4 @@
 // lib/screens/stock-opname/stock_opname_create_screen.dart
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
@@ -9,7 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/stock_provider.dart';
 import 'package:wa_blast/providers/store_provider.dart';
@@ -30,7 +28,6 @@ class StockOpnameCreateScreen extends StatefulWidget {
 
 class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
   final TextEditingController _searchC = TextEditingController();
-  Timer? _debounce;
 
   late final ProductProvider _prodProv;
 
@@ -81,7 +78,6 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
   @override
   void dispose() {
     _prodProv.disposeInfinitePaging();
-    _debounce?.cancel();
     _searchC.dispose();
     super.dispose();
   }
@@ -112,19 +108,15 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
     });
   }
 
-  void _onSearchChanged(String _) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () async {
-      if (!mounted) return;
+  Future<void> _onSearchSubmitted(String _) async {
+    if (!mounted) return;
 
-      final prov = context.read<ProductProvider>();
-      final q = _searchC.text.trim();
+    final prov = context.read<ProductProvider>();
+    final q = _searchC.text.trim();
+    final composed = _filters.copyWith(query: q).toSearchString(rawQuery: q);
 
-      final composed = _filters.copyWith(query: q).toSearchString(rawQuery: q);
-
-      await prov.setInfiniteSearch(context, composed);
-      await prov.refreshInfinite(context);
-    });
+    await prov.setInfiniteSearch(context, composed);
+    await prov.refreshInfinite(context);
   }
 
   Future<void> _onPullRefresh() async {
@@ -426,7 +418,7 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                                         Expanded(
                                           child: TextField(
                                             controller: _searchC,
-                                            onChanged: _onSearchChanged,
+                                            onSubmitted: _onSearchSubmitted,
                                             textInputAction:
                                                 TextInputAction.search,
                                             decoration: InputDecoration(
@@ -2175,157 +2167,148 @@ class _StockOpnameQtySheetState extends State<_StockOpnameQtySheet> {
 
     return Padding(
       padding: EdgeInsets.only(bottom: padBottom),
-      child: DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.70,
-        minChildSize: 0.45,
-        maxChildSize: 0.92,
-        builder: (context, controller) {
-          return Column(
-            children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 44,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE5E7EB),
-                  borderRadius: BorderRadius.circular(999),
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.72,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: controller,
-                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 10),
+                const Text(
+                  'Stock Opname',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: Row(
                     children: [
-                      const Text(
-                        'Stock Opname',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF111827),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          width: 62,
+                          height: 62,
+                          color: const Color(0xFFF3F4F6),
+                          child: _SquareImage(image: widget.productImage),
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF9FAFB),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE5E7EB)),
-                        ),
-                        child: Row(
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
-                              child: Container(
-                                width: 62,
-                                height: 62,
-                                color: const Color(0xFFF3F4F6),
-                                child: _SquareImage(image: widget.productImage),
+                            Text(
+                              widget.productName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF111827),
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    widget.productName,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      color: Color(0xFF111827),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'SKU: ${widget.skuCode}',
-                                    style: const TextStyle(
-                                      color: Color(0xFF6B7280),
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
+                            const SizedBox(height: 6),
+                            Text(
+                              'SKU: ${widget.skuCode}',
+                              style: const TextStyle(
+                                color: Color(0xFF6B7280),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 12,
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Qty',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          _QtyBtn(
-                            icon: Icons.remove_rounded,
-                            onTap: () {
-                              final v = _qty();
-                              final next = (v <= 1) ? 1 : v - 1;
-                              setState(() => _qtyC.text = '$next');
-                            },
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _qtyC,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                              ],
-                              decoration: InputDecoration(
-                                isDense: true,
-                                filled: true,
-                                fillColor: const Color(0xFFF3F4F6),
-                                hintText: 'Enter stock opname qty',
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 14,
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderSide: const BorderSide(
-                                    color: Color(0xFFE5E7EB),
-                                  ),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderSide: const BorderSide(
-                                    color: Color(0xFFCBD5E1),
-                                  ),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              onChanged: (_) => setState(() {}),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          _QtyBtn(
-                            icon: Icons.add_rounded,
-                            onTap: () {
-                              final v = _qty();
-                              final next = (v <= 0) ? 1 : v + 1;
-                              setState(() => _qtyC.text = '$next');
-                            },
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-                child: SizedBox(
+                const SizedBox(height: 16),
+                const Text(
+                  'Qty',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _QtyBtn(
+                      icon: Icons.remove_rounded,
+                      onTap: () {
+                        final v = _qty();
+                        final next = (v <= 1) ? 1 : v - 1;
+                        setState(() => _qtyC.text = '$next');
+                      },
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _qtyC,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        decoration: InputDecoration(
+                          isDense: true,
+                          filled: true,
+                          fillColor: const Color(0xFFF3F4F6),
+                          hintText: 'Enter stock opname qty',
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 14,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE5E7EB),
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderSide: const BorderSide(
+                              color: Color(0xFFCBD5E1),
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _QtyBtn(
+                      icon: Icons.add_rounded,
+                      onTap: () {
+                        final v = _qty();
+                        final next = (v <= 0) ? 1 : v + 1;
+                        setState(() => _qtyC.text = '$next');
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
                   height: 50,
                   width: double.infinity,
                   child: ElevatedButton(
@@ -2359,10 +2342,10 @@ class _StockOpnameQtySheetState extends State<_StockOpnameQtySheet> {
                           ),
                   ),
                 ),
-              ),
-            ],
-          );
-        },
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

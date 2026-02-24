@@ -94,6 +94,7 @@ class _StoreOrderListScreenState extends State<StoreOrderListScreen> {
       context,
       search: search.isEmpty ? null : search,
       status: _filters.status,
+      transactionStatus: _filters.transactionStatus,
       startDate: _filters.startDate,
       endDate: _filters.endDate,
       platformName: (_filters.platformKey ?? '').trim().isEmpty
@@ -613,6 +614,7 @@ class _AdvancedFilterIconButton extends StatelessWidget {
 @immutable
 class _OrderFilters {
   final String? status;
+  final String? transactionStatus;
   final DateTime? startDate;
   final DateTime? endDate;
 
@@ -621,6 +623,7 @@ class _OrderFilters {
 
   const _OrderFilters({
     this.status,
+    this.transactionStatus,
     this.startDate,
     this.endDate,
     this.platformKey,
@@ -629,13 +632,16 @@ class _OrderFilters {
   bool get hasOptionalFilters {
     final s = (status ?? '').trim();
     final hasStatus = s.isNotEmpty;
+    final tx = (transactionStatus ?? '').trim().toLowerCase();
+    final hasTransactionStatus = tx == 'processed' || tx == 'unprocessed';
     final hasDate = startDate != null || endDate != null;
     final hasPlatform = (platformKey ?? '').trim().isNotEmpty;
-    return hasStatus || hasDate || hasPlatform;
+    return hasStatus || hasTransactionStatus || hasDate || hasPlatform;
   }
 
   int get rebuildToken => Object.hash(
     (status ?? '').trim(),
+    (transactionStatus ?? '').trim().toLowerCase(),
     startDate?.millisecondsSinceEpoch,
     endDate?.millisecondsSinceEpoch,
     (platformKey ?? '').trim(),
@@ -669,6 +675,7 @@ class _AdvancedFilterSheet extends StatefulWidget {
 
 class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
   String? _status;
+  String? _transactionStatus;
   DateTime? _start;
   DateTime? _end;
 
@@ -679,6 +686,7 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
   void initState() {
     super.initState();
     _status = widget.initial.status;
+    _transactionStatus = widget.initial.transactionStatus;
     _start = widget.initial.startDate;
     _end = widget.initial.endDate;
     _platformKey = widget.initial.platformKey;
@@ -686,6 +694,7 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
 
   bool get _hasAnyOptional =>
       (_status ?? '').trim().isNotEmpty ||
+      (_transactionStatus ?? '').trim().isNotEmpty ||
       _start != null ||
       _end != null ||
       (_platformKey ?? '').trim().isNotEmpty;
@@ -715,6 +724,17 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
         return 'Shopee';
       default:
         return 'All platform';
+    }
+  }
+
+  String _transactionStatusLabel(String token) {
+    switch (token.trim().toLowerCase()) {
+      case 'processed':
+        return 'Processed';
+      case 'unprocessed':
+        return 'Unprocessed';
+      default:
+        return token;
     }
   }
 
@@ -750,6 +770,7 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
   void _resetOptionalFilters() {
     setState(() {
       _status = null;
+      _transactionStatus = null;
       _start = null;
       _end = null;
       _platformKey = null;
@@ -760,11 +781,17 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
     final s = (_status ?? '').trim();
     final sanitizedStatus = s.isEmpty ? null : s;
 
+    final tx = (_transactionStatus ?? '').trim().toLowerCase();
+    final sanitizedTransactionStatus = (tx == 'processed' || tx == 'unprocessed')
+        ? tx
+        : null;
+
     final p = (_platformKey ?? '').trim().toLowerCase();
     final sanitizedPlatform = (p == 'tiktok' || p == 'shopee') ? p : null;
 
     final next = _OrderFilters(
       status: sanitizedStatus,
+      transactionStatus: sanitizedTransactionStatus,
       startDate: _start,
       endDate: _end,
       platformKey: sanitizedPlatform,
@@ -804,6 +831,15 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
         _MiniChip(
           label: 'Status: ${_statusLabel(_status!)}',
           onClear: () => setState(() => _status = null),
+        ),
+      );
+    }
+    if ((_transactionStatus ?? '').trim().isNotEmpty) {
+      chips.add(
+        _MiniChip(
+          label:
+              'Transaction: ${_transactionStatusLabel(_transactionStatus!)}',
+          onClear: () => setState(() => _transactionStatus = null),
         ),
       );
     }
@@ -925,6 +961,104 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                           ),
                         ),
                       ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF9FAFB),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE5E7EB)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF3F4F6),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFFE5E7EB),
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.sync_alt_rounded,
+                                  size: 18,
+                                  color: Color(0xFF6B7280),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Text(
+                                  'Transaction Status',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF111827),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                              if ((_transactionStatus ?? '').isNotEmpty)
+                                IconButton(
+                                  tooltip: 'Clear',
+                                  onPressed: () =>
+                                      setState(() => _transactionStatus = null),
+                                  icon: const Icon(
+                                    Icons.close_rounded,
+                                    size: 18,
+                                  ),
+                                  color: const Color(0xFF6B7280),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              _FilterStatusChip(
+                                label: 'All',
+                                selected: (_transactionStatus ?? '').isEmpty,
+                                selectedColor: const Color(0xFF111827),
+                                onTap: () => setState(
+                                  () => _transactionStatus = null,
+                                ),
+                              ),
+                              _FilterStatusChip(
+                                label: 'Processed',
+                                selected: _transactionStatus == 'processed',
+                                selectedColor: widget.blue,
+                                onTap: () => setState(() {
+                                  _transactionStatus =
+                                      (_transactionStatus == 'processed')
+                                      ? null
+                                      : 'processed';
+                                }),
+                              ),
+                              _FilterStatusChip(
+                                label: 'Unprocessed',
+                                selected: _transactionStatus == 'unprocessed',
+                                selectedColor: widget.blue,
+                                onTap: () => setState(() {
+                                  _transactionStatus =
+                                      (_transactionStatus == 'unprocessed')
+                                      ? null
+                                      : 'unprocessed';
+                                }),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
 
                     const SizedBox(height: 12),

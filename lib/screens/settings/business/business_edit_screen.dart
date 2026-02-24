@@ -2,7 +2,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -565,6 +564,24 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            const _FieldLabel('Business Logo'),
+                            const SizedBox(height: 8),
+                            _BusinessLogoPicker(
+                              currentLogoUrl: _currentLogoUrl,
+                              pickedFile: _pickedOrgLogoFile,
+                              fallbackInitial:
+                                  (_currentName.isNotEmpty
+                                          ? _currentName[0].toUpperCase()
+                                          : '?')
+                                      .toString(),
+                              onPick: _pickLogo,
+                              onRemovePicked: _removePickedLogo,
+                              onClearCurrent: () {
+                                setState(() => _currentLogoUrl = '');
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
                             // ===== Business Name =====
                             _AccountField(
                               label: 'Business Name',
@@ -755,26 +772,6 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
                             ),
 
                             const SizedBox(height: 18),
-
-                            // ===== Label di atas Logo Picker =====
-                            const _FieldLabel('Business Logo'),
-                            const SizedBox(height: 8),
-
-                            // ===== Logo Uploader (dotted, sama feel) =====
-                            _BusinessLogoPicker(
-                              currentLogoUrl: _currentLogoUrl,
-                              pickedFile: _pickedOrgLogoFile,
-                              fallbackInitial:
-                                  (_currentName.isNotEmpty
-                                          ? _currentName[0].toUpperCase()
-                                          : '?')
-                                      .toString(),
-                              onPick: _pickLogo,
-                              onRemovePicked: _removePickedLogo,
-                              onClearCurrent: () {
-                                setState(() => _currentLogoUrl = '');
-                              },
-                            ),
                           ],
                         ),
                       ),
@@ -859,178 +856,155 @@ class _BusinessLogoPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double boxHeight = 110;
-    const Radius boxRadius = Radius.circular(12);
+    const double avatarSize = 108;
+    final hasPicked = pickedFile != null;
+    final hasCurrent = currentLogoUrl.trim().isNotEmpty;
+    final hasImage = hasPicked || hasCurrent;
 
-    // STATE: ada gambar (dipilih / dari URL)
-    if (pickedFile != null || (currentLogoUrl).isNotEmpty) {
-      Widget image;
-      if (pickedFile != null) {
-        image = Image.file(
-          pickedFile!,
-          width: double.infinity,
-          height: boxHeight,
-          fit: BoxFit.cover,
-        );
-      } else {
-        image = Image.network(
-          currentLogoUrl,
-          width: double.infinity,
-          height: boxHeight,
-          fit: BoxFit.cover,
-          errorBuilder: (ctx, err, st) => _fallbackBox(boxHeight),
-        );
-      }
-
-      return DottedBorder(
-        options: const RoundedRectDottedBorderOptions(
-          color: AppColors.blueButton,
-          dashPattern: <double>[8, 6],
-          strokeWidth: 2,
-          radius: boxRadius,
-          padding: EdgeInsets.all(0),
-        ),
-        child: Stack(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(boxRadius.x),
-              child: image,
-            ),
-            Positioned(
-              top: 6,
-              right: 6,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Remove/clear button
-                  InkWell(
-                    onTap: pickedFile != null ? onRemovePicked : onClearCurrent,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppColors.black.withOpacity(0.54),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.close_rounded,
-                        size: 16,
-                        color: AppColors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  // Change button
-                  InkWell(
-                    onTap: onPick,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppColors.black.withOpacity(0.54),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.image_rounded,
-                        size: 16,
-                        color: AppColors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+    Widget avatarContent;
+    if (hasPicked) {
+      avatarContent = Image.file(
+        pickedFile!,
+        fit: BoxFit.cover,
+        width: avatarSize,
+        height: avatarSize,
       );
-    }
-
-    // STATE: kosong
-    return DottedBorder(
-      options: const RoundedRectDottedBorderOptions(
-        color: AppColors.blueButton,
-        dashPattern: <double>[8, 6],
-        strokeWidth: 2,
-        radius: boxRadius,
-        padding: EdgeInsets.all(0),
-      ),
-      child: InkWell(
-        onTap: onPick,
-        child: Container(
-          height: boxHeight,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: AppColors.white,
-            borderRadius: BorderRadius.circular(boxRadius.x),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+    } else if (hasCurrent) {
+      avatarContent = Image.network(
+        currentLogoUrl,
+        fit: BoxFit.cover,
+        width: avatarSize,
+        height: avatarSize,
+        errorBuilder: (ctx, err, st) => _fallbackAvatar(avatarSize),
+        loadingBuilder: (ctx, child, progress) {
+          if (progress == null) return child;
+          return Stack(
+            alignment: Alignment.center,
             children: [
-              // Kotak thumbnail kecil kiri
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.greyBackground,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  fallbackInitial,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.blueButton,
-                    fontSize: 18,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text.rich(
-                      TextSpan(
-                        text: 'Add your logo Business',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                        ),
-                        children: [
-                          TextSpan(
-                            text: ' *',
-                            style: TextStyle(color: AppColors.red),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Format JPG, PNG',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.disabledFg,
-                      ),
-                    ),
-                  ],
+              _fallbackAvatar(avatarSize),
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  value: progress.expectedTotalBytes != null
+                      ? progress.cumulativeBytesLoaded /
+                            (progress.expectedTotalBytes ?? 1)
+                      : null,
                 ),
               ),
             ],
+          );
+        },
+      );
+    } else {
+      avatarContent = _fallbackAvatar(avatarSize);
+    }
+
+    return Container(
+      width: double.infinity,
+      alignment: Alignment.center,
+      child: Column(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: avatarSize,
+                height: avatarSize,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.greyBackground, width: 2),
+                ),
+                child: ClipOval(child: avatarContent),
+              ),
+              Positioned(
+                bottom: -2,
+                right: -2,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onPick,
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppColors.blueButton,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.blueButton.withValues(alpha: 0.3),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.edit_rounded,
+                        color: AppColors.white,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (hasImage)
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: hasPicked ? onRemovePicked : onClearCurrent,
+                      borderRadius: BorderRadius.circular(18),
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: AppColors.black.withValues(alpha: 0.6),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close_rounded,
+                          color: AppColors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
-        ),
+          const SizedBox(height: 10),
+          TextButton(
+            onPressed: onPick,
+            child: Text(
+              hasImage ? 'Change logo' : 'Add logo',
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.blueButton,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _fallbackBox(double boxHeight) {
+  Widget _fallbackAvatar(double size) {
     return Container(
-      width: double.infinity,
-      height: boxHeight,
       color: AppColors.greyBackground,
+      width: size,
+      height: size,
       alignment: Alignment.center,
-      child: const Icon(
-        Icons.broken_image_rounded,
-        size: 36,
-        color: AppColors.grey,
+      child: Text(
+        fallbackInitial,
+        style: const TextStyle(
+          fontWeight: FontWeight.w800,
+          color: AppColors.blueButton,
+          fontSize: 32,
+        ),
       ),
     );
   }

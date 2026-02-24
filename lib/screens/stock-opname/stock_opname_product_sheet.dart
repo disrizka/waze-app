@@ -1,12 +1,10 @@
 // lib/screens/stock/widgets/stock_opname_product_sheet.dart
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wa_blast/constants/app_colors.dart';
-import 'package:wa_blast/models/product_model.dart';
+import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 
 /// ==========================================================
@@ -71,7 +69,6 @@ class _StockOpnameProductSheetState extends State<_StockOpnameProductSheet> {
   final _searchC = TextEditingController();
   final _scrollC = ScrollController();
 
-  Timer? _debounce;
   bool _loadMoreArmed = false;
   bool _kicked = false;
 
@@ -83,7 +80,6 @@ class _StockOpnameProductSheetState extends State<_StockOpnameProductSheet> {
 
   @override
   void dispose() {
-    _debounce?.cancel();
     _searchC.dispose();
     _scrollC.dispose();
     super.dispose();
@@ -148,17 +144,6 @@ class _StockOpnameProductSheetState extends State<_StockOpnameProductSheet> {
     }
     prov.pagingController?.fetchNextPage();
     if (mounted) setState(() {});
-  }
-
-  void _debouncedSearch(String raw) {
-    final q = raw.trim();
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 250), () async {
-      final prov = context.read<ProductProvider>();
-      await prov.setInfiniteSearch(context, q);
-      await prov.refreshInfinite(context);
-      if (mounted) setState(() {});
-    });
   }
 
   void _armLoadMore() {
@@ -270,7 +255,6 @@ class _StockOpnameProductSheetState extends State<_StockOpnameProductSheet> {
                 },
                 onChanged: (t) {
                   setState(() {});
-                  _debouncedSearch(t);
                 },
                 decoration: InputDecoration(
                   hintText: 'Search product / SKU',
