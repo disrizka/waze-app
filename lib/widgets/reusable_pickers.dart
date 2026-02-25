@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:wa_blast/models/city_model.dart';
-import 'package:wa_blast/models/supplier_model.dart';
+import 'package:wa_blast/models/purchase_models/city_model.dart';
+import 'package:wa_blast/models/purchase_models/supplier_model.dart';
 import 'package:wa_blast/providers/purchase_provider.dart';
 import 'package:wa_blast/providers/product_provider.dart';
-import 'package:wa_blast/models/product_model.dart' hide City, StoreLocation;
+import 'package:wa_blast/models/product_models/product_model.dart'
+    hide City, StoreLocation;
 import 'package:wa_blast/providers/store_provider.dart' hide City;
 import 'package:wa_blast/providers/sales_provider.dart';
 

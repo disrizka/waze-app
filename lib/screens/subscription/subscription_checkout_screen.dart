@@ -56,6 +56,7 @@ class _SubscriptionCheckoutScreenState
   String? _appliedVoucherCode;
   String? _voucherName;
   String? _voucherDesc;
+  bool _hasValidVoucher = false;
 
   // ---------------------------------------------------------------------------
   // PAYMENT BACK-GUARD (cancel modal when pending/loading)
@@ -341,8 +342,6 @@ class _SubscriptionCheckoutScreenState
     final isIOS = subscription.isIOS;
 
     if (isIOS) {
-      final cached = subscription.iosCachedProductForPricing(_selectedPricing!);
-
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -363,19 +362,6 @@ class _SubscriptionCheckoutScreenState
               height: 1.3,
             ),
           ),
-          if (subscription.iosIapAvailable) ...[
-            const SizedBox(height: 6),
-            Text(
-              cached != null
-                  ? 'Product loaded: ${cached.title} (${cached.price})'
-                  : 'Product is not loaded yet (check StoreKit config / App Store Connect).',
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.black45,
-                height: 1.3,
-              ),
-            ),
-          ],
           const SizedBox(height: 12),
           _PaymentRadioTileMinimal(
             title: 'App Store Subscription',
@@ -613,14 +599,11 @@ class _SubscriptionCheckoutScreenState
     _appliedVoucherCode = null;
     _voucherName = null;
     _voucherDesc = null;
+    _hasValidVoucher = false;
     _voucherC.text = '';
   }
 
-  bool get _voucherApplied =>
-      _appliedVoucherCode != null &&
-      _voucherDiscountValue != null &&
-      _voucherDiscountValue! > 0 &&
-      _voucherFinalPrice != null;
+  bool get _voucherApplied => _hasValidVoucher;
 
   // ---------------------------------------------------------------------------
   // CHECK VOUCHER
@@ -668,6 +651,10 @@ class _SubscriptionCheckoutScreenState
           _appliedVoucherCode = code;
           _voucherName = result.voucherName;
           _voucherDesc = result.voucherDesc;
+          _hasValidVoucher = true;
+          debugPrint(
+            '[Checkout][Voucher] applied code=$code finalPrice=${result.finalPrice} discount=${result.discount}',
+          );
 
           _voucherC.text = '';
           FocusManager.instance.primaryFocus?.unfocus();
@@ -680,6 +667,7 @@ class _SubscriptionCheckoutScreenState
           _appliedVoucherCode = null;
           _voucherName = null;
           _voucherDesc = null;
+          _hasValidVoucher = false;
 
           final msg =
               result.message ?? 'Voucher is not valid for this plan / price.';
@@ -701,6 +689,7 @@ class _SubscriptionCheckoutScreenState
         _appliedVoucherCode = null;
         _voucherName = null;
         _voucherDesc = null;
+        _hasValidVoucher = false;
       });
     } finally {
       if (!mounted) return;
@@ -717,6 +706,7 @@ class _SubscriptionCheckoutScreenState
       _appliedVoucherCode = null;
       _voucherName = null;
       _voucherDesc = null;
+      _hasValidVoucher = false;
 
       _voucherC.text = '';
     });
@@ -1731,10 +1721,22 @@ class _SubscriptionCheckoutScreenState
                                       }
 
                                       if (isIOS) {
+                                        final usePromo = _voucherApplied;
+                                        final selectedProductId = subscription
+                                            .iosProductIdForPricing(
+                                              _selectedPricing!,
+                                              usePromoProduct: usePromo,
+                                            );
+                                        debugPrint(
+                                          '[Checkout][iOS] start purchase usePromo=$usePromo '
+                                          'voucherCode=${_appliedVoucherCode ?? '-'} '
+                                          'selectedProductId=$selectedProductId',
+                                        );
                                         await subscription
                                             .startIosSubscriptionPurchase(
                                               context: context,
                                               pricing: _selectedPricing!,
+                                              usePromoProduct: usePromo,
                                             );
                                         return;
                                       }
@@ -1742,7 +1744,7 @@ class _SubscriptionCheckoutScreenState
                                       final planId = _selectedPlan!.idPlan;
                                       final pricingId = _selectedPricing!.id;
                                       final voucherCode = _voucherApplied
-                                          ? _appliedVoucherCode!
+                                          ? (_appliedVoucherCode ?? '')
                                           : '';
 
                                       // ✅ mulai guard timer (kalau user back saat pending/loading)
