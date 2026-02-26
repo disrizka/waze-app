@@ -143,10 +143,7 @@ class _ProductSkuStockHistoryScreenState
             .map(
               (sku) => PickerResult<ProductSku>(
                 id: sku.idProductSku,
-                label: _skuLabel(
-                  sku,
-                  fallback: l10n.stockHistorySkuFallback,
-                ),
+                label: _skuLabel(sku, fallback: l10n.stockHistorySkuFallback),
                 subtitle: _skuSubtitle(sku),
                 data: sku,
               ),
@@ -463,22 +460,23 @@ class _ProductSkuStockHistoryScreenState
                       children: [
                         _FilterChip(
                           label: l10n.stockHistoryFilterDatePresetLast7Days,
-                          selected: nextDateFrom != null &&
+                          selected:
+                              nextDateFrom != null &&
                               nextDateTo != null &&
                               DateTime(
-                                    nextDateTo!.year,
-                                    nextDateTo!.month,
-                                    nextDateTo!.day,
-                                  )
-                                  .difference(
-                                    DateTime(
-                                      nextDateFrom!.year,
-                                      nextDateFrom!.month,
-                                      nextDateFrom!.day,
-                                    ),
-                                  )
-                                  .inDays ==
-                              6,
+                                        nextDateTo!.year,
+                                        nextDateTo!.month,
+                                        nextDateTo!.day,
+                                      )
+                                      .difference(
+                                        DateTime(
+                                          nextDateFrom!.year,
+                                          nextDateFrom!.month,
+                                          nextDateFrom!.day,
+                                        ),
+                                      )
+                                      .inDays ==
+                                  6,
                           onTap: () => setModal(() {
                             final now = DateTime.now();
                             nextDateTo = DateTime(now.year, now.month, now.day);
@@ -489,7 +487,8 @@ class _ProductSkuStockHistoryScreenState
                         ),
                         _FilterChip(
                           label: l10n.stockHistoryFilterDatePresetThisMonth,
-                          selected: nextDateFrom != null &&
+                          selected:
+                              nextDateFrom != null &&
                               nextDateTo != null &&
                               nextDateFrom!.day == 1 &&
                               nextDateFrom!.month == DateTime.now().month &&
@@ -1089,9 +1088,7 @@ class _DateFilterField extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
-                      color: active
-                          ? AppColors.primary
-                          : AppColors.textPrimary,
+                      color: active ? AppColors.primary : AppColors.textPrimary,
                     ),
                   ),
                 ],
@@ -2038,47 +2035,57 @@ class _GuideSlideCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          data.illustration,
-          const SizedBox(height: 16),
-          Container(
-            height: 4,
-            width: 56,
-            decoration: BoxDecoration(
-              color: data.accentColor,
-              borderRadius: BorderRadius.circular(999),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  data.illustration,
+                  const SizedBox(height: 16),
+                  Container(
+                    height: 4,
+                    width: 56,
+                    decoration: BoxDecoration(
+                      color: data.accentColor,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    data.title,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 23,
+                      height: 1.12,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    data.subtitle,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ...data.points.map(
+                    (point) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _GuidePointTile(point: point),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            data.title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w800,
-              fontSize: 23,
-              height: 1.12,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            data.subtitle,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              height: 1.35,
-            ),
-          ),
-          const SizedBox(height: 14),
-          ...data.points.map(
-            (point) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _GuidePointTile(point: point),
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }

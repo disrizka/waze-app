@@ -105,12 +105,25 @@ class _InventoryScreenState extends State<InventoryScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _prov.initInfinitePaging(context, initialSearch: '');
+
+      String? defaultStoreId;
       try {
-        await _prov
-            .ensureDefaultStoreLocation(context)
-            .timeout(const Duration(seconds: 6));
+        defaultStoreId = await _prov.ensureDefaultStoreLocation(context);
       } catch (_) {}
-      await _prov.refreshInfinite(context);
+
+      if (!mounted) return;
+
+      if ((defaultStoreId ?? '').isNotEmpty) {
+        final nextFilters = _filters.copyWith(storeLocationId: defaultStoreId);
+        setState(() => _filters = nextFilters);
+
+        final composed = nextFilters.toSearchString(
+          rawQuery: _searchC.text.trim(),
+        );
+        await _prov.setInfiniteSearch(context, composed);
+      } else {
+        await _prov.refreshInfinite(context);
+      }
     });
   }
 
@@ -739,6 +752,21 @@ class _ProductTile extends StatefulWidget {
 class _ProductTileState extends State<_ProductTile>
     with SingleTickerProviderStateMixin {
   bool _expanded = false;
+  bool _showAllVariants = false;
+  static const int _maxVisibleVariants = 4;
+
+  String _skuLabel(ProductSku sku) {
+    final code = sku.code.trim();
+    if (code.isNotEmpty) return code;
+
+    final attrs = sku.attributes
+        .map((a) => a.value.trim())
+        .where((v) => v.isNotEmpty)
+        .toList(growable: false);
+    if (attrs.isNotEmpty) return attrs.join(' / ');
+
+    return 'Default SKU';
+  }
 
   int _stockForSku(ProductSku sku) {
     final int qty = sku.stockQty ?? 0;
@@ -746,9 +774,16 @@ class _ProductTileState extends State<_ProductTile>
   }
 
   void _toggleExpanded() {
-    if (widget.skus.isEmpty) return;
+    if (widget.skus.length <= 1) return;
     setState(() {
       _expanded = !_expanded;
+      if (!_expanded) _showAllVariants = false;
+    });
+  }
+
+  void _toggleShowAllVariants() {
+    setState(() {
+      _showAllVariants = !_showAllVariants;
     });
   }
 
@@ -757,6 +792,16 @@ class _ProductTileState extends State<_ProductTile>
     final bool isOut = widget.isOutOfStock;
     final Color bg = isOut ? const Color(0xFFF3F4F6) : Colors.white;
     final Color border = const Color(0xFFE5E7EB);
+    final bool hasSingleSku = widget.skus.length == 1;
+    final bool hasMultipleSkus = widget.skus.length > 1;
+    final ProductSku? singleSku = hasSingleSku ? widget.skus.first : null;
+    final List<ProductSku> visibleSkus =
+        (hasMultipleSkus &&
+            !_showAllVariants &&
+            widget.skus.length > _maxVisibleVariants)
+        ? widget.skus.take(_maxVisibleVariants).toList(growable: false)
+        : widget.skus;
+    final int hiddenCount = widget.skus.length - visibleSkus.length;
 
     return Material(
       color: Colors.transparent,
@@ -808,6 +853,19 @@ class _ProductTileState extends State<_ProductTile>
                                 : const Color(0xFF16A34A),
                           ),
                         ),
+                        if (singleSku != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Variant: ${_skuLabel(singleSku)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF4B5563),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -821,43 +879,90 @@ class _ProductTileState extends State<_ProductTile>
 
               const SizedBox(height: 8),
 
-              // ===== TOMBOL VIEW SUMMARY STOCK (hitam, dengan animasi icon) =====
-              if (widget.skus.isNotEmpty)
+              // ===== TOMBOL VIEW VARIANTS (khusus jika SKU > 1) =====
+              if (hasMultipleSkus)
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: InkWell(
-                    onTap: _toggleExpanded,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 2,
-                        vertical: 4,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AnimatedRotation(
-                            turns: _expanded
-                                ? 0.5
-                                : 0.0, // panah muter naik/turun
-                            duration: const Duration(milliseconds: 220),
-                            curve: Curves.easeOutCubic,
-                            child: const Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              size: 18,
-                              color: Colors.black87,
-                            ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: _toggleExpanded,
+                      borderRadius: BorderRadius.circular(12),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 9,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _expanded
+                              ? const Color(0xFFEFF6FF)
+                              : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _expanded
+                                ? const Color(0xFFBFDBFE)
+                                : const Color(0xFFE5E7EB),
                           ),
-                          const SizedBox(width: 4),
-                          const Text(
-                            'View summary stock',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.black87, // ⬅️ warna hitam
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: const Color(0xFFD1D5DB),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.inventory_2_rounded,
+                                size: 16,
+                                color: Color(0xFF334155),
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'View Variants',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${widget.skus.length} variants',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            AnimatedRotation(
+                              turns: _expanded ? 0.5 : 0.0,
+                              duration: const Duration(milliseconds: 220),
+                              curve: Curves.easeOutCubic,
+                              child: const Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                size: 20,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -868,7 +973,7 @@ class _ProductTileState extends State<_ProductTile>
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOutCubic,
                 alignment: Alignment.topCenter,
-                child: (!_expanded || widget.skus.isNotEmpty == false)
+                child: (!_expanded || !hasMultipleSkus)
                     ? const SizedBox.shrink()
                     : Padding(
                         padding: const EdgeInsets.only(top: 6),
@@ -911,8 +1016,23 @@ class _ProductTileState extends State<_ProductTile>
                                 ],
                               ),
                               const SizedBox(height: 6),
-                              ...widget.skus.map((sku) {
+                              ...visibleSkus.map((sku) {
                                 final skuStock = _stockForSku(sku);
+                                final bool isLowStock =
+                                    skuStock > 0 && skuStock <= 5;
+                                final bool isEmptyStock = skuStock <= 0;
+
+                                final Color chipBg = isEmptyStock
+                                    ? const Color(0xFFFEF2F2)
+                                    : (isLowStock
+                                          ? const Color(0xFFFFF7ED)
+                                          : const Color(0xFFE0F2FE));
+                                final Color chipFg = isEmptyStock
+                                    ? const Color(0xFFB91C1C)
+                                    : (isLowStock
+                                          ? const Color(0xFFC2410C)
+                                          : const Color(0xFF0F172A));
+
                                 return Container(
                                   margin: const EdgeInsets.symmetric(
                                     vertical: 3,
@@ -932,7 +1052,7 @@ class _ProductTileState extends State<_ProductTile>
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          sku.code,
+                                          _skuLabel(sku),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
@@ -949,24 +1069,58 @@ class _ProductTileState extends State<_ProductTile>
                                           vertical: 3,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFE0F2FE),
+                                          color: chipBg,
                                           borderRadius: BorderRadius.circular(
                                             999,
                                           ),
                                         ),
                                         child: Text(
                                           skuStock.toString(),
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontSize: 11,
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFF0F172A),
+                                            fontWeight: FontWeight.w700,
+                                            color: chipFg,
                                           ),
                                         ),
                                       ),
                                     ],
                                   ),
                                 );
-                              }).toList(),
+                              }),
+                              if (widget.skus.length > _maxVisibleVariants) ...[
+                                const SizedBox(height: 6),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton.icon(
+                                    onPressed: _toggleShowAllVariants,
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      foregroundColor: const Color(0xFF1D4ED8),
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                      minimumSize: Size.zero,
+                                    ),
+                                    icon: Icon(
+                                      _showAllVariants
+                                          ? Icons.unfold_less_rounded
+                                          : Icons.unfold_more_rounded,
+                                      size: 16,
+                                    ),
+                                    label: Text(
+                                      _showAllVariants
+                                          ? 'Show less'
+                                          : 'Show $hiddenCount more',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -1891,13 +2045,21 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
       if (!mounted) return;
 
       final sp = context.read<StoreProvider>();
-      final sel = sp.stores.firstWhere(
-        (s) => s.idStoreLocation == (id ?? ''),
-        orElse: () => sp.stores.isNotEmpty ? sp.stores.first : null as dynamic,
-      );
+      final preferredId = (widget.initial.storeLocationId?.isNotEmpty == true)
+          ? widget.initial.storeLocationId!
+          : (id ?? '');
+
+      dynamic sel;
+      for (final s in sp.stores) {
+        if (s.idStoreLocation == preferredId) {
+          sel = s;
+          break;
+        }
+      }
+      sel ??= sp.stores.isNotEmpty ? sp.stores.first : null;
 
       setState(() {
-        _storeId = id ?? sel?.idStoreLocation;
+        _storeId = preferredId.isNotEmpty ? preferredId : sel?.idStoreLocation;
         _storeName = sel?.name;
         _storeError = (_storeId == null || _storeId!.isEmpty)
             ? 'Store location is required'
@@ -2023,6 +2185,10 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                           brandId: _brandId,
                           categoryId: _categoryId,
                           query: widget.initial.query,
+                          storeLocationId: _storeId,
+                          minPrice: widget.initial.minPrice,
+                          maxPrice: widget.initial.maxPrice,
+                          createdRange: widget.initial.createdRange,
                         ),
                       );
                     },

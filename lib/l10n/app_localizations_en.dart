@@ -158,7 +158,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get profile_menu_language => 'Language';
 
   @override
+  String get profile_menu_check_updates => 'Check for updates';
+
+  @override
+  String get profile_menu_checking_updates => 'Checking updates...';
+
+  @override
   String get profile_thermal_pinter => 'Thermal Printer';
+
+  @override
+  String get profile_update_title_available => 'Update available';
+
+  @override
+  String get profile_update_title_latest => 'You\'re on the latest version';
+
+  @override
+  String get profile_update_title_unavailable => 'Update check unavailable';
+
+  @override
+  String get profile_update_msg_available => 'A newer app version is available.';
+
+  @override
+  String get profile_update_msg_latest => 'Your app is already on the latest version.';
+
+  @override
+  String get profile_update_msg_unavailable => 'We couldn\'t check updates right now. Please try again later.';
+
+  @override
+  String get profile_update_label_current => 'Current version';
+
+  @override
+  String get profile_update_label_latest => 'Latest version';
+
+  @override
+  String get profile_update_btn_later => 'Later';
+
+  @override
+  String get profile_update_btn_update_now => 'Update now';
+
+  @override
+  String get profile_update_btn_ok => 'OK';
 
   @override
   String get language_sheet_title => 'Change Language';

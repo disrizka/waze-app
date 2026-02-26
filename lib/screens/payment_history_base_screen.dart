@@ -661,10 +661,6 @@ class _HistoryCard extends StatelessWidget {
     final isUnknownMethod =
         rawMethod.isEmpty || rawMethod.toLowerCase() == 'unknown';
 
-    final isTransactionFee =
-        row.type.trim().toLowerCase() ==
-        SubscriptionProvider.kHistoryTypeTransactionFee;
-
     // kalau unknown, kita set null biar gampang hide
     final String? methodText = isUnknownMethod ? null : rawMethod;
 
@@ -873,62 +869,46 @@ class _HistoryCard extends StatelessWidget {
 
             const SizedBox(height: 12),
 
-            // ✅ View detail transaction fee
-            if (isTransactionFee) ...[
-              SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    // ✅ Aman walau field transactionFeeId belum ada di model
-                    var feeId = row.id.trim();
+            // ✅ View detail transaction (semua tipe & status)
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  final txIdRaw = row.transactionFeeId.trim();
+                  final txId = txIdRaw.isNotEmpty ? txIdRaw : row.id.trim();
 
-                    try {
-                      final dyn = row as dynamic;
-                      final v = dyn.transactionFeeId;
-                      final s = v?.toString().trim() ?? '';
-                      if (s.isNotEmpty && s.toLowerCase() != 'null') {
-                        feeId = s;
-                      }
-                    } catch (_) {
-                      // ignore: kalau getter tidak ada, tetap pakai row.id
-                    }
-
-                    if (feeId.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Transaction fee id not available.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.pushNamed(
-                      context,
-                      '/business/transaction-fee/detail',
-                      arguments: {'idTransactionFee': feeId},
+                  if (txId.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Transaction id not available.'),
+                      ),
                     );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: blue,
-                    side: const BorderSide(color: Color(0xFFBFDBFE)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(_innerRadius),
-                    ),
-                    backgroundColor: Colors.white,
+                    return;
+                  }
+
+                  Navigator.pushNamed(
+                    context,
+                    '/business/transaction-fee/detail',
+                    arguments: {'idTransactionFee': txId},
+                  );
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: blue,
+                  side: const BorderSide(color: Color(0xFFBFDBFE)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(_innerRadius),
                   ),
-                  icon: const Icon(Icons.receipt_long_rounded, size: 18),
-                  label: const Text(
-                    'View detail transaction',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 13.5,
-                    ),
-                  ),
+                  backgroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.receipt_long_rounded, size: 18),
+                label: const Text(
+                  'View detail transaction',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5),
                 ),
               ),
-              const SizedBox(height: 10),
-            ],
+            ),
+            const SizedBox(height: 10),
 
             if (showPayAgain && showDownloadInvoice) ...[
               Row(

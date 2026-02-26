@@ -258,6 +258,25 @@ class EditProfileProvider with ChangeNotifier {
     }
   }
 
+  Future<(bool isAvailable, String message)> checkUsernameAvailability(
+    String username,
+  ) async {
+    final clean = username.trim();
+    if (clean.isEmpty) {
+      return (false, 'Username is required');
+    }
+
+    final (status, message) = await _checkUsernameAvailability(clean);
+    switch (status) {
+      case _UsernameCheck.available:
+        return (true, message ?? 'Username available');
+      case _UsernameCheck.taken:
+        return (false, message ?? 'Username has been taken');
+      case _UsernameCheck.error:
+        return (false, message ?? 'Unable to check username');
+    }
+  }
+
   // ===================== SUBMIT PROFILE =====================
   Future<bool> submitEditProfile(BuildContext context) async {
     _saving = true;
@@ -439,6 +458,7 @@ class EditProfileProvider with ChangeNotifier {
     String? name,
     String? about,
     String? organisationName,
+    String? businessUsername,
     File? organisationLogoFile,
 
     /// business out of stock flag:
@@ -513,6 +533,10 @@ class EditProfileProvider with ChangeNotifier {
         debugPrint(
           '🧩 Payload add: organisation_name="${payload['organisation_name']}"',
         );
+      }
+      if (businessUsername != null && businessUsername.trim().isNotEmpty) {
+        payload['username'] = businessUsername.trim();
+        debugPrint('🧩 Payload add: username="${payload['username']}"');
       }
       if (uploadedFilename != null && uploadedFilename.isNotEmpty) {
         payload['organisation_logo'] = uploadedFilename;

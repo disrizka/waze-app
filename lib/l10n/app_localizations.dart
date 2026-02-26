@@ -389,11 +389,89 @@ abstract class AppLocalizations {
   /// **'Language'**
   String get profile_menu_language;
 
+  /// No description provided for @profile_menu_check_updates.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for updates'**
+  String get profile_menu_check_updates;
+
+  /// No description provided for @profile_menu_checking_updates.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking updates...'**
+  String get profile_menu_checking_updates;
+
   /// No description provided for @profile_thermal_pinter.
   ///
   /// In en, this message translates to:
   /// **'Thermal Printer'**
   String get profile_thermal_pinter;
+
+  /// No description provided for @profile_update_title_available.
+  ///
+  /// In en, this message translates to:
+  /// **'Update available'**
+  String get profile_update_title_available;
+
+  /// No description provided for @profile_update_title_latest.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re on the latest version'**
+  String get profile_update_title_latest;
+
+  /// No description provided for @profile_update_title_unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Update check unavailable'**
+  String get profile_update_title_unavailable;
+
+  /// No description provided for @profile_update_msg_available.
+  ///
+  /// In en, this message translates to:
+  /// **'A newer app version is available.'**
+  String get profile_update_msg_available;
+
+  /// No description provided for @profile_update_msg_latest.
+  ///
+  /// In en, this message translates to:
+  /// **'Your app is already on the latest version.'**
+  String get profile_update_msg_latest;
+
+  /// No description provided for @profile_update_msg_unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn\'t check updates right now. Please try again later.'**
+  String get profile_update_msg_unavailable;
+
+  /// No description provided for @profile_update_label_current.
+  ///
+  /// In en, this message translates to:
+  /// **'Current version'**
+  String get profile_update_label_current;
+
+  /// No description provided for @profile_update_label_latest.
+  ///
+  /// In en, this message translates to:
+  /// **'Latest version'**
+  String get profile_update_label_latest;
+
+  /// No description provided for @profile_update_btn_later.
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get profile_update_btn_later;
+
+  /// No description provided for @profile_update_btn_update_now.
+  ///
+  /// In en, this message translates to:
+  /// **'Update now'**
+  String get profile_update_btn_update_now;
+
+  /// No description provided for @profile_update_btn_ok.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get profile_update_btn_ok;
 
   /// No description provided for @language_sheet_title.
   ///

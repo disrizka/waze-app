@@ -1,13 +1,16 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wa_blast/app_nav.dart';
+import 'package:wa_blast/core/provider_helper.dart';
 import 'package:wa_blast/providers/locale_provider.dart';
 import 'package:wa_blast/widgets/modal_login.dart';
 import 'package:wa_blast/widgets/simple_web_view.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
@@ -294,6 +297,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   String? _versionLabel; // ⬅️ state untuk simpan versi app
+  bool _checkingForUpdate = false;
 
   @override
   void initState() {
@@ -311,6 +315,207 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
     } catch (_) {
       // kalau gagal, biarkan saja (tidak tampil apa-apa)
+    }
+  }
+
+  bool _toBool(dynamic v) {
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    final s = (v ?? '').toString().trim().toLowerCase();
+    return s == '1' || s == 'true' || s == 'yes';
+  }
+
+  String? _buildStoreUrl(PackageInfo info) {
+    if (Platform.isAndroid) {
+      return 'https://play.google.com/store/apps/details?id=${info.packageName}';
+    }
+    if (Platform.isIOS) {
+      return Uri.https('apps.apple.com', '/us/search', {
+        'term': info.appName,
+      }).toString();
+    }
+    return null;
+  }
+
+  Future<_HomeAppVersionInfo?> _fetchHomeAppVersion(PackageInfo info) async {
+    final j = await ApiJson.getMap(
+      context,
+      '/app/home',
+      withAccessToken: false,
+    );
+    if (j == null) return null;
+
+    final status = int.tryParse('${j['status'] ?? ''}') ?? -1;
+    if (status != 200) return null;
+
+    final raw = j['app_version'];
+    if (raw is! Map<String, dynamic>) return null;
+
+    if (Platform.isAndroid) {
+      return _HomeAppVersionInfo(
+        latestVersion: (raw['android_version'] ?? '').toString().trim(),
+        mustUpdate: _toBool(raw['android_must_update']),
+        storeUrl: _buildStoreUrl(info),
+      );
+    }
+
+    if (Platform.isIOS) {
+      return _HomeAppVersionInfo(
+        latestVersion: (raw['ios_version'] ?? '').toString().trim(),
+        mustUpdate: _toBool(raw['ios_must_update']),
+        storeUrl: _buildStoreUrl(info),
+      );
+    }
+
+    return null;
+  }
+
+  bool _isStoreVersionNewer(String latest, String current) {
+    final latestParts = latest
+        .split(RegExp(r'[^0-9]+'))
+        .where((e) => e.isNotEmpty)
+        .map((e) => int.tryParse(e) ?? 0)
+        .toList();
+    final currentParts = current
+        .split(RegExp(r'[^0-9]+'))
+        .where((e) => e.isNotEmpty)
+        .map((e) => int.tryParse(e) ?? 0)
+        .toList();
+
+    final maxLen = latestParts.length > currentParts.length
+        ? latestParts.length
+        : currentParts.length;
+    for (var i = 0; i < maxLen; i++) {
+      final lv = i < latestParts.length ? latestParts[i] : 0;
+      final cv = i < currentParts.length ? currentParts[i] : 0;
+      if (lv != cv) return lv > cv;
+    }
+    return false;
+  }
+
+  Future<void> _checkForUpdates() async {
+    if (_checkingForUpdate) return;
+    setState(() => _checkingForUpdate = true);
+
+    final t = AppLocalizations.of(context)!;
+
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final currentVersion = '${info.version} (${info.buildNumber})';
+
+      final versionInfo = await _fetchHomeAppVersion(info);
+      if (!mounted) return;
+
+      if (versionInfo == null) {
+        await showDialog<void>(
+          context: context,
+          builder: (_) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text(t.profile_update_title_unavailable),
+            content: Text(
+              '${t.profile_update_msg_unavailable}\n\n'
+              '${t.profile_update_label_current}: $currentVersion',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(t.profile_update_btn_ok),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      final hasLatestVersion = versionInfo.latestVersion.isNotEmpty;
+      final hasUpdate =
+          versionInfo.mustUpdate ||
+          (hasLatestVersion &&
+              _isStoreVersionNewer(versionInfo.latestVersion, info.version));
+
+      final latestLine = hasLatestVersion
+          ? '\n${t.profile_update_label_latest}: ${versionInfo.latestVersion}'
+          : '';
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: !versionInfo.mustUpdate,
+        builder: (dialogContext) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Text(
+            hasUpdate
+                ? t.profile_update_title_available
+                : t.profile_update_title_latest,
+          ),
+          content: Text(
+            hasUpdate
+                ? '${t.profile_update_msg_available}\n\n'
+                      '${t.profile_update_label_current}: $currentVersion'
+                      '$latestLine'
+                : '${t.profile_update_msg_latest}\n\n'
+                      '${t.profile_update_label_current}: $currentVersion',
+          ),
+          actions: [
+            if (!hasUpdate || !versionInfo.mustUpdate)
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(
+                  hasUpdate
+                      ? t.profile_update_btn_later
+                      : t.profile_update_btn_ok,
+                ),
+              ),
+            if (hasUpdate && versionInfo.storeUrl != null)
+              ElevatedButton(
+                onPressed: () async {
+                  final nav = Navigator.of(dialogContext);
+                  final uri = Uri.parse(versionInfo.storeUrl!);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                  if (nav.mounted) nav.pop();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                ),
+                child: Text(t.profile_update_btn_update_now),
+              ),
+            if (hasUpdate &&
+                versionInfo.mustUpdate &&
+                versionInfo.storeUrl == null)
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(t.profile_update_btn_ok),
+              ),
+          ],
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Text(t.profile_update_title_unavailable),
+          content: Text(t.profile_update_msg_unavailable),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(t.profile_update_btn_ok),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _checkingForUpdate = false);
+      }
     }
   }
 
@@ -443,6 +648,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onTap: () => _showLanguageSheet(context),
             ),
             _MenuTile(
+              title: t.profile_menu_check_updates,
+              subtitle: _checkingForUpdate
+                  ? t.profile_menu_checking_updates
+                  : null,
+              icon: LucideIcons.download,
+              onTap: _checkingForUpdate ? null : _checkForUpdates,
+            ),
+            _MenuTile(
               title: t.profile_thermal_pinter,
               icon: LucideIcons.printer,
               onTap: () {
@@ -522,6 +735,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
+}
+
+class _HomeAppVersionInfo {
+  final String latestVersion;
+  final bool mustUpdate;
+  final String? storeUrl;
+
+  const _HomeAppVersionInfo({
+    required this.latestVersion,
+    required this.mustUpdate,
+    this.storeUrl,
+  });
 }
 
 class _AccountSwitcher extends StatelessWidget {

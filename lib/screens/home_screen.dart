@@ -87,29 +87,25 @@ class _HomeScreenState extends State<HomeScreen>
     final lockedLogoPath = prefs.getString('activeBizLogoPath') ?? '';
     final lockedRoleId = (prefs.getString('activeBizRoleId') ?? '').trim();
     final lockedRoleName = prefs.getString('activeBizRoleName') ?? '';
-    final lockedRoleIsPrimary = prefs.getBool('activeBizRoleIsPrimary') ?? false;
+    final lockedRoleIsPrimary =
+        prefs.getBool('activeBizRoleIsPrimary') ?? false;
     final ok = await auth.refreshCurrentUser(context);
 
     final currentId = (prefs.getString('activeBizId') ?? '').trim();
 
-    // Pertahankan bisnis aktif sebelumnya bila masih valid di daftar terbaru.
-    if (lockedId.isNotEmpty && lockedId != currentId) {
-      final switched = lockedUsername.trim().isNotEmpty
-          ? await auth.switchActiveBusinessByUsername(lockedUsername)
-          : await auth.switchActiveBusiness(lockedId);
-      if (!switched) {
-        await auth.restoreActiveBusinessFromCache(
-          idBusiness: lockedId,
-          name: lockedName,
-          username: lockedUsername,
-          logoPath: lockedLogoPath,
-          roleId: lockedRoleId,
-          roleName: lockedRoleName,
-          roleIsPrimary: lockedRoleIsPrimary,
-        );
-      }
+    // Fallback jika refresh gagal set active business.
+    if (currentId.isEmpty && lockedId.isNotEmpty) {
+      await auth.restoreActiveBusinessFromCache(
+        idBusiness: lockedId,
+        name: lockedName,
+        username: lockedUsername,
+        logoPath: lockedLogoPath,
+        roleId: lockedRoleId,
+        roleName: lockedRoleName,
+        roleIsPrimary: lockedRoleIsPrimary,
+      );
       debugPrint(
-        '[HomeScreen] restore activeBiz locked=$lockedId current=$currentId switched=$switched',
+        '[HomeScreen] fallback restore activeBiz lockedId=$lockedId currentId=$currentId',
       );
     }
 
@@ -1143,9 +1139,8 @@ class _HeaderGradientState extends State<_HeaderGradient> {
                       padding: const EdgeInsets.only(top: 2),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(18),
-                        onTap: () => Navigator.of(context).pushNamed(
-                          '/notification',
-                        ),
+                        onTap: () =>
+                            Navigator.of(context).pushNamed('/notification'),
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [
@@ -4499,7 +4494,7 @@ class _BusinessSwitcherSheetState extends State<_BusinessSwitcherSheet> {
                           }
                           final ok = await context
                               .read<AuthProvider>()
-                              .switchActiveBusinessByUsername(b.username);
+                              .switchActiveBusiness(b.idBusiness);
                           if (ok && mounted) {
                             Navigator.pop(context, true);
                           }

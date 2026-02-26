@@ -158,7 +158,46 @@ class AppLocalizationsId extends AppLocalizations {
   String get profile_menu_language => 'Bahasa';
 
   @override
+  String get profile_menu_check_updates => 'Cek pembaruan';
+
+  @override
+  String get profile_menu_checking_updates => 'Memeriksa pembaruan...';
+
+  @override
   String get profile_thermal_pinter => 'Printer Thermal';
+
+  @override
+  String get profile_update_title_available => 'Pembaruan tersedia';
+
+  @override
+  String get profile_update_title_latest => 'Aplikasi sudah versi terbaru';
+
+  @override
+  String get profile_update_title_unavailable => 'Cek pembaruan tidak tersedia';
+
+  @override
+  String get profile_update_msg_available => 'Versi aplikasi yang lebih baru tersedia.';
+
+  @override
+  String get profile_update_msg_latest => 'Aplikasi kamu sudah menggunakan versi terbaru.';
+
+  @override
+  String get profile_update_msg_unavailable => 'Saat ini pembaruan belum bisa diperiksa. Coba lagi nanti.';
+
+  @override
+  String get profile_update_label_current => 'Versi saat ini';
+
+  @override
+  String get profile_update_label_latest => 'Versi terbaru';
+
+  @override
+  String get profile_update_btn_later => 'Nanti';
+
+  @override
+  String get profile_update_btn_update_now => 'Perbarui sekarang';
+
+  @override
+  String get profile_update_btn_ok => 'OK';
 
   @override
   String get language_sheet_title => 'Ubah Bahasa';
