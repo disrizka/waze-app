@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -14,6 +14,7 @@ import 'package:wa_blast/constants/app_colors.dart';
 
 import '../../models/subscription_models/premium_plan_model.dart';
 import '../../providers/subscription_provider.dart';
+import '../../widgets/simple_web_view.dart';
 
 class SubscriptionCheckoutScreen extends StatefulWidget {
   const SubscriptionCheckoutScreen({super.key});
@@ -27,6 +28,10 @@ class SubscriptionCheckoutScreen extends StatefulWidget {
 
 class _SubscriptionCheckoutScreenState
     extends State<SubscriptionCheckoutScreen> {
+  static const String _applePolicyUrl =
+      'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
+  static const String _privacyPolicyUrl = 'https://wave.id/privacy-policy';
+
   String _businessName = '—';
   String _businessUsername = '—';
   String _businessLogoPath = '';
@@ -333,13 +338,124 @@ class _SubscriptionCheckoutScreenState
     }
   }
 
+  void _openApplePolicy() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: '/web/apple-policy'),
+        builder: (_) => const SimpleWebView(
+          title: 'Apple Policy EULA',
+          initialUrl: _applePolicyUrl,
+        ),
+      ),
+    );
+  }
+
+  void _openPrivacyPolicy() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: '/web/privacy'),
+        builder: (_) => const SimpleWebView(
+          title: 'Privacy Policy',
+          initialUrl: _privacyPolicyUrl,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIosRestorePurchasesAction(SubscriptionProvider subscription) {
+    if (kIsWeb || !Platform.isIOS) {
+      return const SizedBox.shrink();
+    }
+
+    final bool isRestoring = subscription.iosRestoringPurchases;
+    final bool isDisabled =
+        isRestoring ||
+        subscription.iosPurchasing ||
+        subscription.iosIapInitLoading ||
+        !subscription.iosIapAvailable;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: const Color(0xFFF8FAFF),
+        border: Border.all(color: const Color(0xFFDCE7FF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.restore_rounded,
+                size: 16,
+                color: SubscriptionCheckoutScreen._primaryBlue,
+              ),
+              SizedBox(width: 6),
+              Text(
+                'Already subscribed?',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: isDisabled
+                  ? null
+                  : () async {
+                      await subscription.restoreIosPurchases(context: context);
+                    },
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(40),
+                foregroundColor: SubscriptionCheckoutScreen._primaryBlue,
+                side: const BorderSide(
+                  color: SubscriptionCheckoutScreen._primaryBlue,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: isRestoring
+                  ? const SizedBox(
+                      height: 14,
+                      width: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.restore_page_rounded, size: 16),
+              label: Text(
+                isRestoring ? 'Restoring Purchases...' : 'Restore Purchases',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Use the same Apple ID you used previously to unlock your subscription.',
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.35,
+              color: Color(0xFF6B7280),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // PAYMENT METHODS SECTION
   // ---------------------------------------------------------------------------
   Widget _buildPaymentMethodsSection(SubscriptionProvider subscription) {
     if (_selectedPricing == null) return const SizedBox.shrink();
 
-    final isIOS = subscription.isIOS;
+    final isIOS = !kIsWeb && Platform.isIOS;
 
     if (isIOS) {
       return Column(
@@ -371,6 +487,64 @@ class _SubscriptionCheckoutScreenState
             groupValue: 2,
             leadingIcon: Icons.apple,
             onChanged: (_) {},
+          ),
+          const SizedBox(height: 10),
+          _buildIosRestorePurchasesAction(subscription),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.center,
+            child: Wrap(
+              spacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                TextButton(
+                  onPressed: _openApplePolicy,
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    foregroundColor: const Color(0xFF9CA3AF),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    minimumSize: Size.zero,
+                  ),
+                  child: const Text(
+                    'Terms and Conditions',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                      color: Color(0xFF9CA3AF),
+                      decoration: TextDecoration.underline,
+                      decorationColor: Color(0xFF9CA3AF),
+                      decorationThickness: 0.8,
+                    ),
+                  ),
+                ),
+                const Text(
+                  '•',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+                ),
+                TextButton(
+                  onPressed: _openPrivacyPolicy,
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    foregroundColor: const Color(0xFF9CA3AF),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    minimumSize: Size.zero,
+                  ),
+                  child: const Text(
+                    'Privacy Policy',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                      color: Color(0xFF9CA3AF),
+                      decoration: TextDecoration.underline,
+                      decorationColor: Color(0xFF9CA3AF),
+                      decorationThickness: 0.8,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       );
@@ -1346,6 +1520,9 @@ class _SubscriptionCheckoutScreenState
           if (_selectedPlan == null || _selectedPricing == null) {
             bottomInfoText =
                 'Please go back and choose a plan and billing period first.';
+          } else if (isIOS && subscription.iosRestoringPurchases) {
+            bottomInfoText =
+                'Restoring your previous App Store purchases. Please wait...';
           } else if (isIOS) {
             bottomInfoText =
                 'You will be charged via App Store every ${_periodLabelForMonths(_selectedPricing!.period)}. Auto-renews unless canceled.';
@@ -1361,6 +1538,7 @@ class _SubscriptionCheckoutScreenState
         final bool canProceed =
             !subscription.isProcessing &&
             !subscription.iosPurchasing &&
+            !subscription.iosRestoringPurchases &&
             _selectedPlan != null &&
             _selectedPricing != null &&
             (_currentStep == 0 || !isIOS || subscription.iosIapInitDone) &&

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -23,7 +24,7 @@ class BusinessEditScreen extends StatefulWidget {
 class _BusinessEditScreenState extends State<BusinessEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final _aboutC = TextEditingController(); // default: kosong (tidak dari prefs)
-  final _usernameC = TextEditingController(); // read-only (dari prefs)
+  final _usernameC = TextEditingController();
   final _businessNameC = TextEditingController(); // read-only (dari prefs)
 
   bool _loading = true;
@@ -38,11 +39,34 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
 
   /// Switch: allow selling when stock is empty (out of stock)
   bool _allowOutOfStock = false;
+  bool _isCheckingUsername = false;
+  bool _isUsernameChecked = false;
+  bool _isUsernameAvailable = false;
+  String _originalUsername = '';
+  String _lastCheckedUsername = '';
+  String? _usernameCheckMessage;
 
   @override
   void initState() {
     super.initState();
+    _usernameC.addListener(_onUsernameChanged);
     _loadDefaultsFromPrefs();
+  }
+
+  void _onUsernameChanged() {
+    final current = _usernameC.text.trim();
+    final shouldReset =
+        current != _lastCheckedUsername &&
+        (_isUsernameChecked ||
+            _isUsernameAvailable ||
+            _usernameCheckMessage != null);
+    if (!shouldReset || !mounted) return;
+
+    setState(() {
+      _isUsernameChecked = false;
+      _isUsernameAvailable = false;
+      _usernameCheckMessage = null;
+    });
   }
 
   bool _parseOutOfStockFlag(dynamic raw, bool defaultValue) {
@@ -244,6 +268,11 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
       _currentLogoUrl = businessLogoPath;
       _isPremiumBiz = isPremiumBiz;
       _allowOutOfStock = allowOutOfStock;
+      _originalUsername = businessUsername.trim();
+      _lastCheckedUsername = businessUsername.trim();
+      _isUsernameChecked = false;
+      _isUsernameAvailable = false;
+      _usernameCheckMessage = null;
       _loading = false;
     });
   }
@@ -251,6 +280,7 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
   @override
   void dispose() {
     _aboutC.dispose();
+    _usernameC.removeListener(_onUsernameChanged);
     _usernameC.dispose();
     _businessNameC.dispose();
     super.dispose();
@@ -269,6 +299,85 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
 
   void _removePickedLogo() {
     setState(() => _pickedOrgLogoFile = null);
+  }
+
+  Future<void> _onCheckUsername() async {
+    final username = _usernameC.text.trim();
+    final validPattern = RegExp(r'^[A-Za-z0-9_.]+$');
+    if (username.isEmpty) {
+      setState(() {
+        _isUsernameChecked = false;
+        _isUsernameAvailable = false;
+        _usernameCheckMessage = 'Business username is required';
+      });
+      return;
+    }
+    if (!validPattern.hasMatch(username)) {
+      setState(() {
+        _isUsernameChecked = false;
+        _isUsernameAvailable = false;
+        _usernameCheckMessage =
+            'Only alphabets, numbers, underscores (_), and periods (.) are allowed';
+      });
+      return;
+    }
+    if (username.startsWith('.') || username.endsWith('.')) {
+      setState(() {
+        _isUsernameChecked = false;
+        _isUsernameAvailable = false;
+        _usernameCheckMessage =
+            'Username cannot start or end with a period (.)';
+      });
+      return;
+    }
+
+    if (username == _originalUsername.trim()) {
+      setState(() {
+        _lastCheckedUsername = username;
+        _isUsernameChecked = true;
+        _isUsernameAvailable = true;
+        _usernameCheckMessage = 'Username is unchanged';
+      });
+      return;
+    }
+
+    setState(() {
+      _isCheckingUsername = true;
+      _usernameCheckMessage = null;
+      _isUsernameChecked = false;
+      _isUsernameAvailable = false;
+    });
+
+    final prov = context.read<EditProfileProvider>();
+    final (ok, message) = await prov.checkUsernameAvailability(username);
+
+    if (!mounted) return;
+    if (_usernameC.text.trim() != username) {
+      setState(() {
+        _isCheckingUsername = false;
+        _isUsernameChecked = false;
+        _isUsernameAvailable = false;
+        _usernameCheckMessage = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isCheckingUsername = false;
+      _lastCheckedUsername = username;
+      _isUsernameChecked = true;
+      _isUsernameAvailable = ok;
+      _usernameCheckMessage = message;
+    });
+  }
+
+  bool _canSaveWithUsernameCheck() {
+    final username = _usernameC.text.trim();
+    final changed = username != _originalUsername.trim();
+    if (!changed) return true;
+    return _isUsernameChecked &&
+        _isUsernameAvailable &&
+        _lastCheckedUsername == username;
   }
 
   Future<void> _applyLatestBusinessFromPrefs(String lockedId) async {
@@ -328,6 +437,11 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
       _currentUsername = businessUsername;
       _currentLogoUrl = businessLogoPath;
       _allowOutOfStock = allowOutOfStock;
+      _originalUsername = businessUsername.trim();
+      _lastCheckedUsername = businessUsername.trim();
+      _isUsernameChecked = false;
+      _isUsernameAvailable = false;
+      _usernameCheckMessage = null;
     });
 
     debugPrint(
@@ -336,19 +450,33 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
   }
 
   Future<void> _onSave() async {
-    if (_saving) return;
+    if (_saving || _isCheckingUsername) return;
     if (!_formKey.currentState!.validate()) return;
+    if (!_canSaveWithUsernameCheck()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text('Please tap Check for new username before saving'),
+        ),
+      );
+      return;
+    }
 
     setState(() => _saving = true);
 
     try {
       final prov = context.read<EditProfileProvider>();
+      final username = _usernameC.text.trim();
+      final businessUsername = username != _originalUsername.trim()
+          ? username
+          : null;
 
       final (ok, uploadedFilename) = await prov.submitEditBusiness(
         context,
         organisationName: _businessNameC.text.trim().isEmpty
             ? null
             : _businessNameC.text.trim(),
+        businessUsername: businessUsername,
         about: _aboutC.text.trim().isEmpty ? null : _aboutC.text.trim(),
         organisationLogoFile: _pickedOrgLogoFile,
         canBeSoldOutOfStock: _allowOutOfStock,
@@ -517,7 +645,9 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
                   child: SizedBox(
                     height: 28,
                     child: TextButton(
-                      onPressed: _saving ? null : _onSave,
+                      onPressed: (_saving || _isCheckingUsername)
+                          ? null
+                          : _onSave,
                       style: ButtonStyle(
                         padding: WidgetStateProperty.all(
                           const EdgeInsets.symmetric(horizontal: 12),
@@ -595,13 +725,18 @@ class _BusinessEditScreenState extends State<BusinessEditScreen> {
                               },
                             ),
 
-                            // ===== Business Username (read-only, from prefs) =====
-                            _AccountField(
-                              label: 'Business Username',
+                            // ===== Business Username =====
+                            _BusinessUsernameField(
                               controller: _usernameC,
-                              hint: 'Business Username',
-                              enabled: false,
-                              readOnly: true,
+                              checking: _isCheckingUsername,
+                              saving: _saving,
+                              checkMessage: _usernameCheckMessage,
+                              checkOk:
+                                  _isUsernameChecked &&
+                                  _isUsernameAvailable &&
+                                  _lastCheckedUsername ==
+                                      _usernameC.text.trim(),
+                              onCheck: _onCheckUsername,
                             ),
 
                             // ===== About (optional, tidak default dari prefs) =====
@@ -1005,6 +1140,122 @@ class _BusinessLogoPicker extends StatelessWidget {
           color: AppColors.blueButton,
           fontSize: 32,
         ),
+      ),
+    );
+  }
+}
+
+class _BusinessUsernameField extends StatelessWidget {
+  const _BusinessUsernameField({
+    required this.controller,
+    required this.checking,
+    required this.saving,
+    required this.checkOk,
+    required this.onCheck,
+    this.checkMessage,
+  });
+
+  final TextEditingController controller;
+  final bool checking;
+  final bool saving;
+  final bool checkOk;
+  final String? checkMessage;
+  final VoidCallback onCheck;
+
+  @override
+  Widget build(BuildContext context) {
+    final canCheck = !checking && !saving && controller.text.trim().isNotEmpty;
+    final hasMessage = checkMessage != null && checkMessage!.trim().isNotEmpty;
+    final validPattern = RegExp(r'^[A-Za-z0-9_.]+$');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _FieldLabel('Business Username'),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: controller,
+                  enabled: !checking && !saving,
+                  readOnly: checking || saving,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9_.]')),
+                  ],
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Business username is required';
+                    }
+                    if (!validPattern.hasMatch(v.trim())) {
+                      return 'Only alphabets, numbers, underscores (_), and periods (.) are allowed';
+                    }
+                    if (v.trim().startsWith('.') || v.trim().endsWith('.')) {
+                      return 'Username cannot start or end with a period (.)';
+                    }
+                    return null;
+                  },
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    color: AppColors.textPrimary,
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'Business Username',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 44,
+                child: TextButton(
+                  onPressed: canCheck ? onCheck : null,
+                  style: ButtonStyle(
+                    padding: WidgetStateProperty.all(
+                      const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    shape: WidgetStateProperty.all(
+                      RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    backgroundColor: WidgetStateProperty.resolveWith(
+                      (states) => states.contains(WidgetState.disabled)
+                          ? AppColors.blueButton.withOpacity(0.5)
+                          : AppColors.blueButton,
+                    ),
+                    foregroundColor: WidgetStateProperty.all(AppColors.white),
+                  ),
+                  child: Text(
+                    checking ? 'checking...' : 'check',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Allowed: alphabets, numbers, underscores (_), and periods (.) only. Period (.) cannot be at the start or end.',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.disabledFg,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (hasMessage) ...[
+            const SizedBox(height: 6),
+            Text(
+              checkMessage!,
+              style: TextStyle(
+                fontSize: 12,
+                color: checkOk ? Colors.green.shade700 : AppColors.red,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

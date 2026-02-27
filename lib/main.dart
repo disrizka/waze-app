@@ -6,7 +6,7 @@ Future<void> main() async {
   final flavor = flavorStr.toLowerCase() == 'prod' ? Flavor.prod : Flavor.dev;
 
   final base = flavor == Flavor.prod
-      ? 'https://wave-api.eon.id'
+      ? 'https://api.wave.id'
       : 'https://wave-api.eon.id';
 
   Env.setup(flavor: flavor, apiBaseUrl: base);

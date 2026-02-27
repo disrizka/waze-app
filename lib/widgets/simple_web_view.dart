@@ -31,6 +31,11 @@ class _SimpleWebViewState extends State<SimpleWebView> {
   late final WebViewController _controller;
   double _progress = 0;
 
+  void _setProgress(double value) {
+    if (!mounted) return;
+    setState(() => _progress = value);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -70,9 +75,9 @@ class _SimpleWebViewState extends State<SimpleWebView> {
       ..setBackgroundColor(widget.backgroundColor)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onProgress: (p) => setState(() => _progress = p / 100),
-          onPageStarted: (_) => setState(() => _progress = 0.05),
-          onPageFinished: (_) => setState(() => _progress = 0),
+          onProgress: (p) => _setProgress(p / 100),
+          onPageStarted: (_) => _setProgress(0.05),
+          onPageFinished: (_) => _setProgress(0),
           onNavigationRequest: (req) {
             final uri = Uri.tryParse(req.url);
             // Biarkan http/https di dalam webview

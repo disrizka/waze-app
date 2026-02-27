@@ -12,6 +12,8 @@ import 'package:wa_blast/constants/design_system.dart';
 import 'package:wa_blast/models/product_models/product_model.dart';
 import 'package:wa_blast/providers/product_provider.dart';
 import 'package:wa_blast/providers/purchase_provider.dart';
+import 'package:wa_blast/widgets/product_picker_sheet.dart';
+import 'package:wa_blast/widgets/product_variant_picker_sheet.dart';
 import 'package:wa_blast/widgets/stepper_header.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 
@@ -43,6 +45,7 @@ class _PurchaseRow {
     this.qty = 1,
   }) : customPrice = customPrice ?? 0,
        discountPerItem = 0;
+
 }
 
 class AddPurchasePage extends StatefulWidget {
@@ -119,6 +122,59 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  bool _hasUnsavedProgress() {
+    if (_rows.isNotEmpty) return true;
+    if ((_storeId ?? '').trim().isNotEmpty) return true;
+    if ((_supplierId ?? '').trim().isNotEmpty) return true;
+    if (_noteC.text.trim().isNotEmpty) return true;
+    if (_orderDiscount > 0) return true;
+    if (_shippingFee > 0) return true;
+    if (_numberC.text.trim().isNotEmpty) return true;
+    return false;
+  }
+
+  Future<void> _exitPurchaseFlow() async {
+    if (!mounted) return;
+    final nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.pop();
+      return;
+    }
+    nav.pushReplacementNamed('/purchase/list');
+  }
+
+  Future<void> _showExitStepOneDialog() async {
+    if (!_hasUnsavedProgress()) {
+      await _exitPurchaseFlow();
+      return;
+    }
+
+    final shouldLeave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Leave this transaction?'),
+          content: const Text('Your changes will be lost.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Leave'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || shouldLeave != true) {
+      return;
+    }
+    await _exitPurchaseFlow();
+  }
+
   void _goToStep(int step) {
     setState(() {
       _currentStep = step.clamp(0, 2);
@@ -130,13 +186,7 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
       _goToStep(_currentStep - 1);
       return;
     }
-    if (!mounted) return;
-    final nav = Navigator.of(context);
-    if (nav.canPop()) {
-      nav.pop();
-      return;
-    }
-    nav.pushReplacementNamed('/purchase/list');
+    await _showExitStepOneDialog();
   }
 
   Future<void> _pickStore() async {
@@ -172,7 +222,7 @@ class _AddPurchasePageState extends State<AddPurchasePage> {
         value: context.read<ProductProvider>(),
         child: _CenteredConstrainedSheet(
           maxWidth: _isTablet ? 720 : double.infinity,
-          child: _ProductGridPicker(initial: _rows),
+          child: _ProductListPicker(initial: _rows),
         ),
       ),
     );
@@ -1027,15 +1077,15 @@ class _CenteredConstrainedSheet extends StatelessWidget {
   }
 }
 
-class _ProductGridPicker extends StatefulWidget {
-  const _ProductGridPicker({required this.initial});
+class _ProductListPicker extends StatefulWidget {
+  const _ProductListPicker({required this.initial});
   final Map<String, _PurchaseRow> initial; // skuId -> row
 
   @override
-  State<_ProductGridPicker> createState() => _ProductGridPickerState();
+  State<_ProductListPicker> createState() => _ProductListPickerState();
 }
 
-class _ProductGridPickerState extends State<_ProductGridPicker> {
+class _ProductListPickerState extends State<_ProductListPicker> {
   final _searchC = TextEditingController();
   String _q = '';
   late Map<String, _PurchaseRow> _temp;
@@ -1067,47 +1117,44 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
     super.dispose();
   }
 
-  // Ambil URL gambar utama dari Product.primaryImageUrl (sudah ada di model)
-  String? _thumb(Product p) => p.primaryImageUrl;
+  void _applyRow(_PurchaseRow row) {
+    final cur = _temp[row.skuId];
+    if (cur == null) {
+      _temp[row.skuId] = row;
+    } else {
+      _temp[row.skuId] = cur..qty = cur.qty + row.qty;
+    }
+  }
+
+  void _closeWithCurrentSelection() {
+    Navigator.pop(context, _temp.values.toList());
+  }
 
   Future<void> _pickVariant(Product p) async {
     // QUICK-ADD: jika tidak ada atribut varian sama sekali
     if (_hasNoVariantAttrs(p)) {
       final s = _defaultSku(p);
       if (s == null) return;
-
-      setState(() {
-        final key = s.idProductSku;
-        final cur = _temp[key];
-        if (cur == null) {
-          _temp[key] = _PurchaseRow(
-            productId: p.idProduct,
-            skuId: s.idProductSku,
-            productName: p.name,
-            skuLabel: s.code,
-            imageUrl: p.primaryImageUrl,
-            defaultPrice: s.price,
-            qty: 1,
-          );
-        } else {
-          _temp[key] = cur..qty = cur.qty + 1;
-        }
-      });
-
+      _applyRow(
+        _PurchaseRow(
+          productId: p.idProduct,
+          skuId: s.idProductSku,
+          productName: p.name,
+          skuLabel: s.code,
+          imageUrl: p.primaryImageUrl,
+          defaultPrice: s.price,
+          qty: 1,
+        ),
+      );
+      _closeWithCurrentSelection();
       return;
     }
 
     // NORMAL: ada atribut varian → buka sheet
-    final row = await showProductVariantSheet(context, p);
+    final row = await _showProductVariantSheet(context, p);
     if (!mounted || row == null) return;
-    setState(() {
-      final cur = _temp[row.skuId];
-      if (cur == null) {
-        _temp[row.skuId] = row;
-      } else {
-        _temp[row.skuId] = cur..qty = cur.qty + row.qty;
-      }
-    });
+    _applyRow(row);
+    _closeWithCurrentSelection();
   }
 
   @override
@@ -1133,541 +1180,98 @@ class _ProductGridPickerState extends State<_ProductGridPicker> {
       return base;
     }();
 
-    final hasAnyNoVariant = list.any(
-      (p) => p.productSkus.every((s) => s.attributes.isEmpty),
-    );
-
     final selectedCount = _temp.length;
     final selectedQty = _temp.values.fold<int>(0, (s, r) => s + r.qty);
 
     Widget body() {
       if (prov.loadingProducts && prov.products.isEmpty) {
-        return const Expanded(
-          child: Center(child: CircularProgressIndicator()),
-        );
+        return const Center(child: CircularProgressIndicator());
       }
       if (prov.productError != null) {
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  color: Color(0xFFDC2626),
-                  size: 32,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Failed to load products',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  prov.productError!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Color(0xFF6B7280)),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: () => prov.loadProducts(context),
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                color: Color(0xFFDC2626),
+                size: 32,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Failed to load products',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                prov.productError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFF6B7280)),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: () async {
+                  await prov.loadProducts(context);
+                  if (mounted) setState(() {});
+                },
+                child: const Text('Retry'),
+              ),
+            ],
           ),
         );
       }
       if (list.isEmpty) {
-        return const Expanded(child: Center(child: Text('No products found')));
+        return const Center(child: Text('No products found'));
       }
 
-      final cols = _isTablet
-          ? (MediaQuery.of(context).size.width >= 1024 ? 4 : 3)
-          : 2;
-      final cardAR = _isTablet
-          ? (MediaQuery.of(context).size.width >= 1024 ? 0.72 : 0.68)
-          : 0.62;
+      return ListView.builder(
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+        itemCount: list.length,
+        itemBuilder: (_, i) {
+          final p = list[i];
+          final selectedForProduct = _temp.values
+              .where((r) => r.productId == p.idProduct)
+              .fold<int>(0, (s, r) => s + r.qty);
 
-      return Expanded(
-        child: GridView.builder(
-          padding: _isTablet
-              ? const EdgeInsets.fromLTRB(16, 8, 16, 16)
-              : const EdgeInsets.fromLTRB(12, 8, 12, 12),
-
-          // 🔧 iPad: 3 kolom fix + mainAxisExtent untuk cegah overflow
-          gridDelegate: _isTablet
-              ? const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  mainAxisExtent: 320, // tinggi sel tetap → tidak overflow
-                )
-              : const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 0.62, // iPhone tetap sama
-                ),
-
-          itemCount: list.length,
-          itemBuilder: (_, i) {
-            final p = list[i];
-            final qtyOfThisProduct = _temp.values
-                .where((r) => r.productId == p.idProduct)
-                .fold<int>(0, (s, r) => s + r.qty);
-
-            return _ProductCardFromModel(
-              product: p,
-              onAdd: () => _pickVariant(p),
-              selectedQty: qtyOfThisProduct,
-              thumbUrl: _thumb(p),
-            );
-          },
-        ),
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: ProductPickerListCard(
+              title: p.name,
+              imageUrl: p.primaryImageUrl,
+              selectedQty: selectedForProduct,
+              primaryColor: const Color(0xFF426FD4),
+              onChoose: () => _pickVariant(p),
+            ),
+          );
+        },
       );
     }
 
-    return SafeArea(
-      minimum: _isTablet
+    return ProductPickerSheet(
+      title: 'Select Products',
+      searchController: _searchC,
+      searchHintText: 'Search product / SKU',
+      onClearSearch: () async => _searchC.clear(),
+      body: body(),
+      footerText: (selectedCount > 0)
+          ? '$selectedCount SKU • $selectedQty qty'
+          : 'Pilih produk, lalu tentukan variannya',
+      onUseSelected: () async {
+        Navigator.pop(context, _temp.values.toList());
+      },
+      useSelectedLabel: 'Use selected',
+      primaryColor: const Color(0xFF426FD4),
+      minimumSafeArea: _isTablet
           ? const EdgeInsets.fromLTRB(24, 12, 24, 16)
           : const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: _isTablet ? 900 : double.infinity,
-          ),
-          child: SizedBox(
-            height:
-                MediaQuery.of(context).size.height * (_isTablet ? 0.86 : 0.9),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const _SheetHeader(title: 'Select Products'),
-                // Search
-                Material(
-                  elevation: 1,
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  child: TextField(
-                    controller: _searchC,
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      hintText: 'Search product / SKU',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: (_searchC.text.trim().isEmpty)
-                          ? null
-                          : IconButton(
-                              onPressed: _searchC.clear,
-                              icon: const Icon(Icons.close),
-                            ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                      ),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // Body
-                body(),
-
-                // Footer
-                SafeArea(
-                  top: false,
-                  minimum: const EdgeInsets.only(top: 8),
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-                        child: Text(
-                          (selectedCount > 0)
-                              ? '$selectedCount SKU • $selectedQty qty'
-                              : 'Pilih produk, lalu tentukan variannya',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF6B7280),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-                        child: SizedBox(
-                          width: double.infinity,
-                          height: 50, // <<< lebih besar
-                          child: FilledButton.icon(
-                            onPressed: () =>
-                                Navigator.pop(context, _temp.values.toList()),
-                            icon: const Icon(Icons.check, size: 22),
-                            label: const Text('Use selected'),
-                            style: FilledButton.styleFrom(
-                              elevation: 0,
-                              backgroundColor: const Color(0xFF426FD4),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              textStyle: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                                letterSpacing: .2,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      heightFactor: _isTablet ? 0.86 : 0.9,
+      maxWidth: _isTablet ? 900 : double.infinity,
     );
-  }
-}
-
-class _ProductCardFromModel extends StatelessWidget {
-  const _ProductCardFromModel({
-    required this.product,
-    required this.onAdd,
-    required this.selectedQty,
-    this.thumbUrl,
-  });
-
-  final Product product;
-  final VoidCallback onAdd;
-  final int selectedQty;
-  final String? thumbUrl;
-
-  @override
-  Widget build(BuildContext context) {
-    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-
-    Widget image() {
-      final fallback = Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFF3F4F6),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Center(child: Icon(Icons.image, color: Color(0xFFA3A3A3))),
-      );
-      final h = isTablet ? 128.0 : 110.0; // 🔧 sedikit lebih pendek biar pas
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: (thumbUrl != null && thumbUrl!.isNotEmpty)
-            ? Image.network(
-                thumbUrl!,
-                height: h,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
-                    SizedBox(height: h, child: fallback),
-              )
-            : SizedBox(height: h, child: fallback),
-      );
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 16,
-            offset: Offset(0, 6),
-          ),
-        ],
-        border: Border.all(color: UI.line),
-      ),
-      child: Padding(
-        padding: EdgeInsets.all(isTablet ? 12 : 12), // keep compact
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                image(),
-                if (selectedQty > 0)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: const [
-                          BoxShadow(color: Color(0x1A000000), blurRadius: 10),
-                        ],
-                      ),
-                      child: Text(
-                        '$selectedQty',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 48,
-              child: Text(
-                product.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: UI.text,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: isTablet ? 42 : 40,
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: onAdd,
-                style: FilledButton.styleFrom(
-                  backgroundColor: UI.blue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Add',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SkuRowForPurchase extends StatelessWidget {
-  final PosSku sku;
-  final bool selected;
-  final int qty;
-  final VoidCallback onChoose;
-  final VoidCallback? onMinus;
-  final VoidCallback? onPlus;
-
-  const _SkuRowForPurchase({
-    required this.sku,
-    required this.selected,
-    required this.qty,
-    required this.onChoose,
-    this.onMinus,
-    this.onPlus,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final image = ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: (sku.imageUrl.isNotEmpty == true)
-          ? Image.network(
-              sku.imageUrl,
-              width: 60,
-              height: 60,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const _ImageFallback(),
-            )
-          : const _ImageFallback(),
-    );
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          image,
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  sku.productName,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                    color: Color(0xFF111827),
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  sku.skuCode,
-                  style: const TextStyle(
-                    color: Color(0xFF6B7280),
-                    fontSize: 12,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          selected
-              ? _QtyPill(qty: qty, onMinus: onMinus!, onPlus: onPlus!)
-              : ElevatedButton(
-                  onPressed: onChoose,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: const Text('Choose'),
-                ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ImageFallback extends StatelessWidget {
-  const _ImageFallback();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 60,
-      height: 60,
-      color: const Color(0xFFF3F4F6),
-      child: const Icon(
-        Icons.image_not_supported_outlined,
-        size: 22,
-        color: Color(0xFFA3A3A3),
-      ),
-    );
-  }
-}
-
-// ===== Sticky search header ala AddProductSheet =====
-class _StickySearchHeaderDelegate extends SliverPersistentHeaderDelegate {
-  final TextEditingController controller;
-  final VoidCallback onClear;
-
-  _StickySearchHeaderDelegate({
-    required this.controller,
-    required this.onClear,
-  });
-
-  @override
-  double get minExtent => 56;
-  @override
-  double get maxExtent => 56;
-
-  @override
-  Widget build(
-    BuildContext context,
-    double shrinkOffset,
-    bool overlapsContent,
-  ) {
-    return Material(
-      elevation: overlapsContent ? 2 : 0,
-      color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-        child: TextField(
-          controller: controller,
-          textInputAction: TextInputAction.search,
-          decoration: UI
-              .input('Search by product name or SKU code')
-              .copyWith(
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: (controller.text.trim().isEmpty)
-                    ? null
-                    : IconButton(
-                        onPressed: onClear,
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-              ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  bool shouldRebuild(covariant _StickySearchHeaderDelegate old) {
-    return old.controller != controller || old.onClear != onClear;
   }
 }
 
 /// ----- Reuse small parts dari file (SheetHeader, Section, RowKV, QtyPill) -----
-class _SheetHeader extends StatelessWidget {
-  final String title;
-  final String? caption;
-  const _SheetHeader({required this.title, this.caption});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const SizedBox(height: 6),
-        Container(
-          width: 44,
-          height: 4,
-          decoration: BoxDecoration(
-            color: UI.line,
-            borderRadius: BorderRadius.circular(999),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      color: UI.text,
-                    ),
-                  ),
-                  if (caption != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      caption!,
-                      style: const TextStyle(fontSize: 12, color: UI.sub),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close_rounded, color: UI.sub),
-              tooltip: 'Close',
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-      ],
-    );
-  }
-}
-
 class _Section extends StatelessWidget {
   final String? title;
   final Widget? titleWidget;
@@ -2069,284 +1673,43 @@ class _InlinePriceEditorState extends State<_InlinePriceEditor> {
   }
 }
 
-Future<_PurchaseRow?> showProductVariantSheet(
+Future<_PurchaseRow?> _showProductVariantSheet(
   BuildContext context,
   Product product,
-) {
+) async {
   final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-  return showModalBottomSheet<_PurchaseRow>(
+  final picked = await showModalBottomSheet<VariantPickerSelection>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: Colors.transparent, // center on tablet
+    backgroundColor: Colors.transparent,
     builder: (_) => _CenteredConstrainedSheet(
       maxWidth: isTablet ? 640 : double.infinity,
-      child: _ProductVariantSheet(product: product),
+      child: ProductVariantPickerSheet(
+        product: product,
+        title: 'Choose Variants',
+        showPriceInfo: false,
+        showStockInfo: false,
+        showSkuCode: true,
+        showWholesaleInfo: false,
+        enforceValidOption: false,
+        showUnitSuffix: false,
+        primaryColor: UI.blue,
+      ),
     ),
   );
-}
 
-class _ProductVariantSheet extends StatefulWidget {
-  final Product product;
-  const _ProductVariantSheet({required this.product});
+  if (picked == null) return null;
 
-  @override
-  State<_ProductVariantSheet> createState() => _ProductVariantSheetState();
-}
-
-class _ProductVariantSheetState extends State<_ProductVariantSheet> {
-  final Map<String, String> _selectedAttrs = {};
-  int _qty = 1;
-
-  @override
-  Widget build(BuildContext context) {
-    final product = widget.product;
-    final attrsList = _extractAttributes(product.productSkus);
-
-    ProductSku? matchedSku;
-    for (final s in product.productSkus) {
-      if (_isSkuMatch(s, _selectedAttrs, requiredCount: attrsList.length)) {
-        matchedSku = s;
-        break;
-      }
-    }
-
-    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-    final heroSize = isTablet ? 84.0 : 72.0;
-
-    return Container(
-      color: UI.bg,
-      child: SafeArea(
-        minimum: EdgeInsets.fromLTRB(
-          isTablet ? 20 : 16,
-          12,
-          isTablet ? 20 : 16,
-          0,
-        ),
-        child: Column(
-          children: [
-            _SheetHeader(title: 'Choose Variants', caption: product.name),
-            const SizedBox(height: 4),
-
-            // hero
-            _Section(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: (product.primaryImageUrl != null)
-                        ? Image.network(
-                            product.primaryImageUrl!,
-                            width: heroSize,
-                            height: heroSize,
-                            fit: BoxFit.cover,
-                          )
-                        : Container(
-                            width: heroSize,
-                            height: heroSize,
-                            color: const Color(0xFFF3F4F6),
-                            child: const Icon(
-                              Icons.image,
-                              color: Color(0xFFA3A3A3),
-                            ),
-                          ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          product.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        if (matchedSku != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            matchedSku!.code,
-                            style: const TextStyle(color: UI.sub, fontSize: 12),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // attributes
-            Expanded(
-              child: ListView(
-                children: attrsList.entries.map((e) {
-                  final attr = e.key;
-                  final values = e.value.toList()..sort();
-                  final selected = _selectedAttrs[attr];
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _Section(
-                      title: attr,
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: values.map((val) {
-                          final isSel = selected == val;
-                          return ChoiceChip(
-                            label: Text(val),
-                            selected: isSel,
-                            onSelected: (_) =>
-                                setState(() => _selectedAttrs[attr] = val),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            selectedColor: UI.blue.withOpacity(.12),
-                            labelStyle: TextStyle(
-                              fontWeight: isSel
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: isSel ? UI.blue : UI.text,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-
-            // qty + CTA
-            Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(top: BorderSide(color: UI.line)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x14000000),
-                    blurRadius: 12,
-                    offset: Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: SafeArea(
-                top: false,
-                minimum: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          "Quantity",
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        Container(
-                          height: 36,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: UI.line),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            children: [
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                onPressed: _qty > 1
-                                    ? () => setState(() => _qty--)
-                                    : null,
-                                icon: const Icon(Icons.remove_rounded),
-                              ),
-                              Text(
-                                "$_qty",
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                onPressed: () => setState(() => _qty++),
-                                icon: const Icon(Icons.add_rounded),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: (matchedSku == null)
-                            ? null
-                            : () {
-                                final row = _PurchaseRow(
-                                  productId: product.idProduct,
-                                  skuId: matchedSku!.idProductSku,
-                                  productName: product.name,
-                                  skuLabel: matchedSku!.code,
-                                  imageUrl: product.primaryImageUrl,
-                                  defaultPrice: matchedSku.price,
-                                  qty: _qty,
-                                );
-                                Navigator.pop(context, row);
-                              },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: UI.blue,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: Text(
-                          (matchedSku == null)
-                              ? "Pilih semua varian"
-                              : "Add to cart",
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Map<String, Set<String>> _extractAttributes(List<ProductSku> skus) {
-    final result = <String, Set<String>>{};
-    for (final sku in skus) {
-      for (final attr in sku.attributes) {
-        result.putIfAbsent(attr.name, () => {}).add(attr.value);
-      }
-    }
-    return result;
-  }
-
-  // helper: apakah SKU sesuai dengan pilihan user
-  bool _isSkuMatch(
-    ProductSku sku,
-    Map<String, String> sel, {
-    required int requiredCount,
-  }) {
-    for (final entry in sel.entries) {
-      final ok = sku.attributes.any(
-        (a) =>
-            a.name.toLowerCase() == entry.key.toLowerCase() &&
-            a.value == entry.value,
-      );
-      if (!ok) return false;
-    }
-    // aktif kalau SEMUA atribut sudah dipilih
-    return sel.length == requiredCount;
-  }
+  return _PurchaseRow(
+    productId: product.idProduct,
+    skuId: picked.sku.idProductSku,
+    productName: product.name,
+    skuLabel: picked.sku.code,
+    imageUrl: product.primaryImageUrl,
+    defaultPrice: picked.unitPrice,
+    qty: picked.qty,
+  );
 }
 
 class _LabeledField extends StatelessWidget {

@@ -1113,6 +1113,7 @@ class SalesProvider extends SafeChangeNotifier {
   /// - [limit]   : jumlah item per halaman (default 30)
   /// - [storeLocationId] : filter id_store_location (opsional, kalau null
   ///                       otomatis pakai storeLocationId aktif di provider)
+  /// - [customerId] : filter id_customer (opsional)
   /// - [append]  : kalau true → hasilnya di-append ke list lama (infinite scroll)
   ///               kalau false → list di-reset (pull-to-refresh / first load)
   Future<void> fetchSalesReports(
@@ -1120,6 +1121,7 @@ class SalesProvider extends SafeChangeNotifier {
     int page = 1,
     int limit = 30,
     String? storeLocationId,
+    String? customerId,
     bool append = false,
   }) async {
     final sw = Stopwatch()..start();
@@ -1152,6 +1154,11 @@ class SalesProvider extends SafeChangeNotifier {
       final storeId = (storeLocationId ?? _storeLocationId ?? '').trim();
       if (storeId.isNotEmpty) {
         buf.write('&id_store_location=$storeId');
+      }
+
+      final cId = (customerId ?? '').trim();
+      if (cId.isNotEmpty) {
+        buf.write('&id_customer=$cId');
       }
 
       final path = buf.toString();
@@ -2101,6 +2108,108 @@ class SalesProvider extends SafeChangeNotifier {
     });
 
     return perUnit;
+  }
+
+  Map<String, dynamic> exportDraftPayload({int? step}) {
+    ensureReferenceInitialized(notify: false);
+    return {
+      'step': (step ?? _currentStep).clamp(0, 2).toInt(),
+      'storeLocationId': _storeLocationId ?? '',
+      'storeLocationName': _storeLocationName ?? '',
+      'discount': _discount ?? 0,
+      'note': _note ?? '',
+      'reference': _reference ?? '',
+      'paymentMethod': _paymentMethod ?? 1,
+      'customerId': _customerId ?? '',
+      'customerName': _customerName ?? '',
+      'items': _cart.values.map((item) {
+        final sku = item.sku;
+        return <String, dynamic>{
+          'skuId': sku.skuId,
+          'skuUuid': sku.skuUuid,
+          'skuCode': sku.skuCode,
+          'price': sku.price,
+          'productId': sku.productId,
+          'productName': sku.productName,
+          'imageUrl': sku.imageUrl,
+          'inStock': sku.inStock,
+          'qty': item.qty,
+          'discountPerItem': perItemDiscountOf(sku.skuId),
+        };
+      }).toList(),
+    };
+  }
+
+  Map<String, dynamic> _safeMap(dynamic raw) {
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) {
+      return raw.map((k, v) => MapEntry(k.toString(), v));
+    }
+    return const <String, dynamic>{};
+  }
+
+  void restoreFromDraftPayload(Map<String, dynamic> rawDraft) {
+    final payloadRaw = rawDraft['payload'];
+    final payload = payloadRaw is Map ? _safeMap(payloadRaw) : rawDraft;
+
+    _cart.clear();
+    _itemDiscount.clear();
+
+    final rowsRaw = payload['items'];
+    if (rowsRaw is List) {
+      for (final raw in rowsRaw) {
+        final row = _safeMap(raw);
+        if (row.isEmpty) continue;
+
+        final skuId = _s(row['skuId']);
+        final productId = _s(row['productId']);
+        if (skuId.isEmpty || productId.isEmpty) continue;
+
+        final qty = _asInt(row['qty'], 0);
+        if (qty <= 0) continue;
+
+        final sku = PosSku(
+          skuId: skuId,
+          skuUuid: _s(row['skuUuid']).isEmpty ? skuId : _s(row['skuUuid']),
+          skuCode: _s(row['skuCode']),
+          price: _asInt(row['price'], 0),
+          productId: productId,
+          productName: _s(row['productName']),
+          imageUrl: _s(row['imageUrl']),
+          inStock: row['inStock'] != false,
+        );
+
+        _cart[_keyFor(sku)] = CartItem(sku: sku, qty: qty);
+
+        final disc = _asInt(row['discountPerItem'], 0);
+        if (disc > 0) _itemDiscount[skuId] = disc;
+      }
+    }
+
+    _storeLocationId = _s(payload['storeLocationId']).isEmpty
+        ? null
+        : _s(payload['storeLocationId']);
+    _storeLocationName = _s(payload['storeLocationName']).isEmpty
+        ? null
+        : _s(payload['storeLocationName']);
+    _discount = _asInt(payload['discount'], 0);
+    _shippingFee = 0;
+    _note = _s(payload['note']).isEmpty ? null : _s(payload['note']);
+    _reference = _s(payload['reference']).isEmpty
+        ? null
+        : _s(payload['reference']);
+    _paymentMethod = _asInt(payload['paymentMethod'], 1);
+    _customerId = _s(payload['customerId']).isEmpty
+        ? null
+        : _s(payload['customerId']);
+    _customerName = _s(payload['customerName']).isEmpty
+        ? null
+        : _s(payload['customerName']);
+
+    final stepRaw = _asInt(rawDraft['step'] ?? payload['step'], 2);
+    _currentStep = stepRaw.clamp(0, 2).toInt();
+
+    notifyListeners();
   }
 
   void reset() {

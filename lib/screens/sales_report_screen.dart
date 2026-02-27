@@ -33,6 +33,8 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   // store filter (local)
   String? _selectedStoreId;
   String? _selectedStoreName;
+  String? _selectedCustomerId;
+  String? _selectedCustomerName;
 
   // ✅ banned status for active business: null / "semi-ban" / "ban"
   String? _bannedStatus;
@@ -257,6 +259,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
       limit: _limit,
       append: false,
       storeLocationId: _selectedStoreId,
+      customerId: _selectedCustomerId,
     );
     if (mounted) setState(() {});
   }
@@ -276,6 +279,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
       limit: _limit,
       append: true,
       storeLocationId: _selectedStoreId,
+      customerId: _selectedCustomerId,
     );
 
     final after = prov.reports.length;
@@ -342,6 +346,8 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
         initialRange: _range,
         initialStoreId: _selectedStoreId,
         initialStoreName: _selectedStoreName,
+        initialCustomerId: _selectedCustomerId,
+        initialCustomerName: _selectedCustomerName,
         onPickRange: (initial) => _pickRangeDialog(initial: initial),
       ),
     );
@@ -349,14 +355,17 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     if (!mounted || result == null) return;
 
     final prevStore = _selectedStoreId;
+    final prevCustomer = _selectedCustomerId;
     setState(() {
       _range = result.range;
       _selectedStoreId = result.storeId;
       _selectedStoreName = result.storeName;
+      _selectedCustomerId = result.customerId;
+      _selectedCustomerName = result.customerName;
     });
 
-    // store filter affects backend fetch
-    if (prevStore != _selectedStoreId) {
+    // store/customer filter affects backend fetch
+    if (prevStore != _selectedStoreId || prevCustomer != _selectedCustomerId) {
       await _loadFirstPage();
     } else {
       // only date change => client-side filter, cukup rebuild
@@ -503,6 +512,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
                     child: _FiltersHintLine(
                       storeName: _selectedStoreName,
+                      customerName: _selectedCustomerName,
                       range: _range,
                     ),
                   ),
@@ -787,8 +797,13 @@ String formatRangeCompact(DateTimeRange r) {
 }
 
 class _FiltersHintLine extends StatelessWidget {
-  const _FiltersHintLine({required this.storeName, required this.range});
+  const _FiltersHintLine({
+    required this.storeName,
+    required this.customerName,
+    required this.range,
+  });
   final String? storeName;
+  final String? customerName;
   final DateTimeRange? range;
 
   @override
@@ -796,6 +811,9 @@ class _FiltersHintLine extends StatelessWidget {
     final parts = <String>[];
     if (storeName != null && storeName!.trim().isNotEmpty) {
       parts.add(storeName!.trim());
+    }
+    if (customerName != null && customerName!.trim().isNotEmpty) {
+      parts.add(customerName!.trim());
     }
     if (range != null) {
       parts.add(formatRangeCompact(range!));
@@ -828,11 +846,15 @@ class _SalesAdvancedFilterResult {
   final DateTimeRange? range;
   final String? storeId;
   final String? storeName;
+  final String? customerId;
+  final String? customerName;
 
   const _SalesAdvancedFilterResult({
     required this.range,
     required this.storeId,
     required this.storeName,
+    required this.customerId,
+    required this.customerName,
   });
 }
 
@@ -841,12 +863,16 @@ class _SalesAdvancedFilterSheet extends StatefulWidget {
     required this.initialRange,
     required this.initialStoreId,
     required this.initialStoreName,
+    required this.initialCustomerId,
+    required this.initialCustomerName,
     required this.onPickRange,
   });
 
   final DateTimeRange? initialRange;
   final String? initialStoreId;
   final String? initialStoreName;
+  final String? initialCustomerId;
+  final String? initialCustomerName;
 
   final Future<DateTimeRange?> Function(DateTimeRange? initial) onPickRange;
 
@@ -859,6 +885,8 @@ class _SalesAdvancedFilterSheetState extends State<_SalesAdvancedFilterSheet> {
   DateTimeRange? _range;
   String? _storeId;
   String? _storeName;
+  String? _customerId;
+  String? _customerName;
 
   @override
   void initState() {
@@ -866,6 +894,8 @@ class _SalesAdvancedFilterSheetState extends State<_SalesAdvancedFilterSheet> {
     _range = widget.initialRange;
     _storeId = widget.initialStoreId;
     _storeName = widget.initialStoreName;
+    _customerId = widget.initialCustomerId;
+    _customerName = widget.initialCustomerName;
   }
 
   Future<void> _pickStore() async {
@@ -888,11 +918,25 @@ class _SalesAdvancedFilterSheetState extends State<_SalesAdvancedFilterSheet> {
     setState(() => _range = picked);
   }
 
+  Future<void> _pickCustomer() async {
+    final picked = await showCustomerPickerSheet(
+      context,
+      selectedId: _customerId,
+    );
+    if (picked == null) return;
+    setState(() {
+      _customerId = picked.id;
+      _customerName = picked.label;
+    });
+  }
+
   void _resetAll() {
     setState(() {
       _range = null;
       _storeId = null;
       _storeName = null;
+      _customerId = null;
+      _customerName = null;
     });
   }
 
@@ -907,6 +951,10 @@ class _SalesAdvancedFilterSheetState extends State<_SalesAdvancedFilterSheet> {
     final storeLabel = (_storeName == null || _storeName!.trim().isEmpty)
         ? l10n.salesStoreAll
         : _storeName!.trim();
+    final customerLabel =
+        (_customerName == null || _customerName!.trim().isEmpty)
+        ? 'All customer'
+        : _customerName!.trim();
 
     return DraggableScrollableSheet(
       initialChildSize: 0.78,
@@ -959,6 +1007,8 @@ class _SalesAdvancedFilterSheetState extends State<_SalesAdvancedFilterSheet> {
                           range: _range,
                           storeId: _storeId,
                           storeName: _storeName,
+                          customerId: _customerId,
+                          customerName: _customerName,
                         ),
                       );
                     },
@@ -1002,6 +1052,14 @@ class _SalesAdvancedFilterSheetState extends State<_SalesAdvancedFilterSheet> {
                     value: storeLabel,
                     onTap: _pickStore,
                     isActive: _storeId != null,
+                  ),
+                  const SizedBox(height: 10),
+                  _FilterPickTile(
+                    icon: Icons.person_outline_rounded,
+                    title: 'Customer',
+                    value: customerLabel,
+                    onTap: _pickCustomer,
+                    isActive: _customerId != null && _customerId!.isNotEmpty,
                   ),
                   const SizedBox(height: 10),
                   _FilterPickTile(

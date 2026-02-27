@@ -282,6 +282,7 @@ class _HomeScreenState extends State<HomeScreen>
               message: ok ? t.refresh_success : t.refresh_failed,
               duration: const Duration(seconds: 2),
             );
+
           },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(

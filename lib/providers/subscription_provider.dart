@@ -136,7 +136,9 @@ class SubscriptionProvider with ChangeNotifier {
   bool _iosIapAvailable = false;
 
   bool _iosPurchasing = false;
+  bool _iosRestoringPurchases = false;
   String? _iosIapError;
+  Timer? _iosRestoreFallbackTimer;
 
   // ---------------------------------------------------------------------------
   // ✅ Apple verify endpoint (after purchase success)
@@ -291,10 +293,7 @@ class SubscriptionProvider with ChangeNotifier {
                 Text(
                   'Silakan coba lagi beberapa saat.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: Colors.grey.shade500,
-                  ),
+                  style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500),
                 ),
               ],
             ),
@@ -432,6 +431,7 @@ class SubscriptionProvider with ChangeNotifier {
   bool get iosIapAvailable => _iosIapAvailable;
 
   bool get iosPurchasing => _iosPurchasing;
+  bool get iosRestoringPurchases => _iosRestoringPurchases;
   String? get iosIapError => _iosIapError;
 
   String? get iosLastMessage => _iosLastMessage;
@@ -476,7 +476,10 @@ class SubscriptionProvider with ChangeNotifier {
     PlanPricing pricing, {
     bool usePromoProduct = false,
   }) {
-    final id = iosProductIdForPricing(pricing, usePromoProduct: usePromoProduct);
+    final id = iosProductIdForPricing(
+      pricing,
+      usePromoProduct: usePromoProduct,
+    );
     if (id == null) return null;
     return _iosProductsById[id];
   }
@@ -702,6 +705,79 @@ class SubscriptionProvider with ChangeNotifier {
     }
   }
 
+  void _stopIosRestoreFallbackTimer() {
+    _iosRestoreFallbackTimer?.cancel();
+    _iosRestoreFallbackTimer = null;
+  }
+
+  void _finishIosRestoreFlow({String? message}) {
+    _stopIosRestoreFallbackTimer();
+    final safeMessage = message?.trim();
+    final shouldNotify =
+        _iosRestoringPurchases ||
+        (safeMessage != null && safeMessage.isNotEmpty) ||
+        _iosPurchasing;
+
+    _iosRestoringPurchases = false;
+    if (safeMessage != null && safeMessage.isNotEmpty) {
+      _iosLastMessage = safeMessage;
+    }
+
+    if (shouldNotify) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> restoreIosPurchases({required BuildContext context}) async {
+    if (!isIOS) return;
+    if (_iosRestoringPurchases || _iosPurchasing) return;
+
+    _iosLastContext = context;
+
+    if (!_iosIapInitDone || _iosIapInitLoading) {
+      await initIosIap();
+    }
+
+    if (!_iosIapAvailable) {
+      await _showIosSubscriptionFailedDialog(
+        context,
+        message:
+            'We could not connect to App Store right now. Please try restoring again in a moment.',
+      );
+      return;
+    }
+
+    _iapLog('restore purchases start');
+    _iosRestoringPurchases = true;
+    _iosIapError = null;
+    notifyListeners();
+
+    _stopIosRestoreFallbackTimer();
+
+    try {
+      await _iap.restorePurchases();
+
+      _iosRestoreFallbackTimer = Timer(const Duration(seconds: 12), () {
+        if (!_iosRestoringPurchases) return;
+        _finishIosRestoreFlow(
+          message:
+              'No previous purchases were found for this Apple ID on this device.',
+        );
+      });
+    } catch (e) {
+      _iapLog('restore purchases error: $e');
+      _iosIapError = e.toString();
+      _finishIosRestoreFlow();
+      if (context.mounted) {
+        await _showIosSubscriptionFailedDialog(
+          context,
+          message:
+              'We could not restore your previous purchases. Please try again.',
+        );
+      }
+    }
+  }
+
   Future<void> _handlePurchaseUpdates(List<PurchaseDetails> purchases) async {
     for (final p in purchases) {
       _iapLog(
@@ -719,7 +795,11 @@ class SubscriptionProvider with ChangeNotifier {
       if (statusName == 'canceled' || statusName == 'cancelled') {
         _iosPurchasing = false;
         _iosIapError = null;
-        notifyListeners();
+        if (_iosRestoringPurchases) {
+          _finishIosRestoreFlow(message: 'Restore purchases canceled.');
+        } else {
+          notifyListeners();
+        }
         continue;
       }
 
@@ -727,14 +807,21 @@ class SubscriptionProvider with ChangeNotifier {
         _iosPurchasing = false;
         _iosIapError = p.error?.message ?? 'Unknown purchase error';
         final ctx = _iosLastContext;
+        final wasRestoring = _iosRestoringPurchases;
+        if (wasRestoring) {
+          _finishIosRestoreFlow();
+        }
         if (ctx != null) {
           await _showIosSubscriptionFailedDialog(
             ctx,
-            message:
-                'We could not complete your subscription. Please try again.',
+            message: wasRestoring
+                ? 'We could not restore your previous purchases. Please try again.'
+                : 'We could not complete your subscription. Please try again.',
           );
         }
-        notifyListeners();
+        if (!wasRestoring) {
+          notifyListeners();
+        }
         continue;
       }
 
@@ -805,12 +892,15 @@ class SubscriptionProvider with ChangeNotifier {
         );
         final isVerified = verifyOutcome == _AppleVerifyOutcome.verified;
         final shouldGoSuccess = Env.isDev ? true : isVerified;
+        final isRestoreEvent = p.status == PurchaseStatus.restored;
         if (shouldGoSuccess && _iosLastContext != null) {
           await _goToSuccessStep(_iosLastContext!);
         }
 
         if (shouldGoSuccess) {
-          _iosLastMessage = 'Subscription purchased successfully.';
+          _iosLastMessage = isRestoreEvent
+              ? 'Purchases restored successfully.'
+              : 'Subscription purchased successfully.';
         }
         if (!shouldGoSuccess && _iosLastContext != null) {
           if (verifyOutcome == _AppleVerifyOutcome.backendRejected) {
@@ -827,7 +917,12 @@ class SubscriptionProvider with ChangeNotifier {
             );
           }
         }
-        notifyListeners();
+        final wasRestoring = _iosRestoringPurchases;
+        if (wasRestoring) {
+          _finishIosRestoreFlow();
+        } else {
+          notifyListeners();
+        }
       }
 
       if (p.pendingCompletePurchase) {
@@ -3190,6 +3285,7 @@ class SubscriptionProvider with ChangeNotifier {
 
     _iapPurchaseSub?.cancel();
     _iapPurchaseSub = null;
+    _stopIosRestoreFallbackTimer();
 
     if (isIOS) {
       unawaited(_iosAddition?.setDelegate(null));

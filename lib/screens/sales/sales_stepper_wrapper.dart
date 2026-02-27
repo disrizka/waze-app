@@ -1,26 +1,12 @@
 import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:wa_blast/constants/app_colors.dart';
 import 'package:wa_blast/providers/sales_provider.dart';
 
 import '../../widgets/stepper_header.dart';
 import 'steps/make_order_step.dart';
 import 'steps/check_order_step.dart';
 import 'steps/payment_step.dart';
-
-String _pmLabel(int? id) {
-  switch (id) {
-    case 1:
-      return 'Cash';
-    case 2:
-      return 'EDC';
-    case 3:
-      return 'QRIS/VA';
-    default:
-      return 'Payment';
-  }
-}
 
 class SalesStepperWrapper extends StatelessWidget {
   const SalesStepperWrapper({super.key});
@@ -35,7 +21,7 @@ class SalesStepperWrapper extends StatelessWidget {
 }
 
 class _WrapperScaffold extends StatefulWidget {
-  const _WrapperScaffold({super.key});
+  const _WrapperScaffold();
 
   @override
   State<_WrapperScaffold> createState() => _WrapperScaffoldState();
@@ -43,6 +29,56 @@ class _WrapperScaffold extends StatefulWidget {
 
 class _WrapperScaffoldState extends State<_WrapperScaffold> {
   int _lastStep = 0;
+
+  bool _hasUnsavedProgress(SalesProvider prov) {
+    if (prov.cartLen > 0) return true;
+    if ((prov.storeLocationId ?? '').trim().isNotEmpty) return true;
+    if ((prov.customerId ?? '').trim().isNotEmpty) return true;
+    if ((prov.note ?? '').trim().isNotEmpty) return true;
+    if ((prov.discount ?? 0) > 0) return true;
+    if ((prov.paymentMethod ?? 1) != 1) return true;
+    return false;
+  }
+
+  Future<void> _exitToSalesList(BuildContext context) async {
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).popUntil((route) => route.settings.name == '/sales/list');
+  }
+
+  Future<void> _showExitStepOneDialog(BuildContext context) async {
+    final prov = context.read<SalesProvider>();
+    if (!_hasUnsavedProgress(prov)) {
+      await _exitToSalesList(context);
+      return;
+    }
+
+    final shouldLeave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Leave this transaction?'),
+          content: const Text('Your changes will be lost.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Leave'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || shouldLeave != true) {
+      return;
+    }
+    await _exitToSalesList(context);
+  }
 
   Future<void> _handleBack(BuildContext context) async {
     final prov = context.read<SalesProvider>();
@@ -85,7 +121,7 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
                   ),
                   const SizedBox(height: 20),
                   const Text(
-                    'Keluar dari transaksi?',
+                    'Leave this transaction?',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
@@ -95,7 +131,7 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'Anda sedang dalam proses pembayaran. Keluar sekarang akan menghentikan alur pembayaran.',
+                    'Payment is currently in progress. Leaving now will stop the payment flow.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Color(0xFF6B7280),
@@ -117,7 +153,7 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
                           ),
                           onPressed: () => Navigator.of(ctx).pop(false),
                           child: const Text(
-                            'Batal',
+                            'Cancel',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               color: Color(0xFF374151),
@@ -139,7 +175,7 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
                           ),
                           onPressed: () => Navigator.of(ctx).pop(true),
                           child: const Text(
-                            'Ya, keluar',
+                            'Leave now',
                             style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                         ),
@@ -165,10 +201,7 @@ class _WrapperScaffoldState extends State<_WrapperScaffold> {
     if (step > 0) {
       prov.goTo(step - 1); // mundur satu step
     } else {
-      if (!mounted) return;
-      Navigator.of(
-        context,
-      ).popUntil((route) => route.settings.name == '/sales/list');
+      await _showExitStepOneDialog(context);
     }
   }
 
