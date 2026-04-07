@@ -42,6 +42,7 @@ class _StoreOrderListScreenState extends State<StoreOrderListScreen> {
         page: 1,
         limit: _limit,
         append: false,
+        processed: false,
       );
     });
   }
@@ -276,6 +277,7 @@ class _StoreOrderListScreenState extends State<StoreOrderListScreen> {
                 page: 1,
                 limit: _limit,
                 append: false,
+                processed: false,
               );
             }
 
@@ -439,7 +441,7 @@ class _StoreOrderListScreenState extends State<StoreOrderListScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 6, 16, 18),
                       sliver: SliverList.separated(
                         itemCount: items.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, index) {
                           final StoreOrder it = items[index];
 
@@ -456,6 +458,7 @@ class _StoreOrderListScreenState extends State<StoreOrderListScreen> {
                             totalText: 'Rp ${fMoney.format(it.totalAmount)}',
                             itemsCount: it.items.length,
                             platformName: it.platformName.trim(),
+                            processed: it.processed,
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -782,9 +785,11 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
     final sanitizedStatus = s.isEmpty ? null : s;
 
     final tx = (_transactionStatus ?? '').trim().toLowerCase();
-    final sanitizedTransactionStatus = (tx == 'processed' || tx == 'unprocessed')
-        ? tx
-        : null;
+    final sanitizedTransactionStatus = (tx == 'processed'
+        ? 'true'
+        : tx == 'unprocessed'
+        ? 'false'
+        : null);
 
     final p = (_platformKey ?? '').trim().toLowerCase();
     final sanitizedPlatform = (p == 'tiktok' || p == 'shopee') ? p : null;
@@ -837,8 +842,7 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
     if ((_transactionStatus ?? '').trim().isNotEmpty) {
       chips.add(
         _MiniChip(
-          label:
-              'Transaction: ${_transactionStatusLabel(_transactionStatus!)}',
+          label: 'Transaction: ${_transactionStatusLabel(_transactionStatus!)}',
           onClear: () => setState(() => _transactionStatus = null),
         ),
       );
@@ -1029,9 +1033,8 @@ class _AdvancedFilterSheetState extends State<_AdvancedFilterSheet> {
                                 label: 'All',
                                 selected: (_transactionStatus ?? '').isEmpty,
                                 selectedColor: const Color(0xFF111827),
-                                onTap: () => setState(
-                                  () => _transactionStatus = null,
-                                ),
+                                onTap: () =>
+                                    setState(() => _transactionStatus = null),
                               ),
                               _FilterStatusChip(
                                 label: 'Processed',
@@ -1618,6 +1621,7 @@ class _OrderCard extends StatelessWidget {
   final int itemsCount;
 
   final String platformName;
+  final bool processed;
 
   final VoidCallback? onTap;
 
@@ -1628,6 +1632,7 @@ class _OrderCard extends StatelessWidget {
     required this.totalText,
     required this.itemsCount,
     required this.platformName,
+    required this.processed,
     this.onTap,
   });
 
@@ -1644,7 +1649,7 @@ class _OrderCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: _border),
           ),
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1665,30 +1670,30 @@ class _OrderCard extends StatelessWidget {
                       color: _blueDark,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Text(
+                          timeText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: _textMuted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
                         Text(
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w800,
                             color: _textMain,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          timeText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: _textMuted,
-                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],
@@ -1698,43 +1703,62 @@ class _OrderCard extends StatelessWidget {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      _StatusChip(status: status),
-                      const SizedBox(height: 8),
-                      const Icon(
-                        Icons.chevron_right_rounded,
-                        color: _textMuted,
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 2,
+                          vertical: 2,
+                        ),
+                        // decoration: BoxDecoration(
+                        //   color: Color(0xFFFDE68A),
+                        //   borderRadius: BorderRadius.circular(999),
+                        //   border: Border.all(color: Color(0xFFD97706)),
+                        // ),
+                        child: processed
+                            ? Icon(
+                                Icons.check_circle,
+                                size: 22,
+                                color: Color(0xFF166534),
+                              )
+                            : null,
                       ),
+                      // const SizedBox(height: 8),
+                      // const Icon(
+                      //   Icons.chevron_right_rounded,
+                      //   color: _textMuted,
+                      // ),
                     ],
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Container(height: 1, color: _border),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   _PlatformPill(platformName: platformName),
+                  const SizedBox(width: 4),
+                  _StatusChip(status: status),
                   const Spacer(),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text(
-                        'Total',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _textSub,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
+                      // const Text(
+                      //   'Total',
+                      //   style: TextStyle(
+                      //     fontSize: 12,
+                      //     color: _textSub,
+                      //     fontWeight: FontWeight.w800,
+                      //   ),
+                      // ),
+                      // const SizedBox(height: 2),
                       Text(
                         totalText,
                         textAlign: TextAlign.right,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
                           color: _textMain,
                         ),
                       ),
@@ -1762,12 +1786,12 @@ class _PlatformPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = platformName.trim().isEmpty ? '-' : platformName.trim();
-    final bg = _isTiktok ? const Color(0xFF111827) : const Color(0xFFEFF6FF);
-    final fg = _isTiktok ? Colors.white : const Color(0xFF2F5FD0);
-    final bd = _isTiktok ? const Color(0xFF111827) : const Color(0xFFE5E7EB);
+    final bg = _isTiktok ? const Color(0xFF111827) : const Color(0xD2F8DBC8);
+    final fg = _isTiktok ? Colors.white : const Color(0xFFEE4D2D);
+    final bd = _isTiktok ? const Color(0xFF111827) : const Color(0xD2F8DBC8);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(999),
@@ -1776,8 +1800,8 @@ class _PlatformPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.public_rounded, size: 16, color: fg),
-          const SizedBox(width: 8),
+          // Icon(Icons.public_rounded, size: 16, color: fg),
+          // const SizedBox(width: 8),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 220),
             child: Text(
@@ -1787,7 +1811,7 @@ class _PlatformPill extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 color: fg,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -1847,15 +1871,17 @@ class _StatusChip extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: border),
       ),
       child: Text(
-        _pretty(raw),
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: fg),
+        // _pretty(raw)
+        raw,
+        // style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: fg),
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg),
       ),
     );
   }

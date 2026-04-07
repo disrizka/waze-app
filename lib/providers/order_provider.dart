@@ -59,7 +59,10 @@ class OrderProvider extends ChangeNotifier {
 
     final tx = _transactionStatus?.trim().toLowerCase();
     if (tx == 'processed' || tx == 'unprocessed') {
-      q['transaction_status'] = tx!;
+      // q['transaction_status'] = tx!;
+    }
+    if (_transactionStatus != null) {
+      q['processed'] = _transactionStatus == 'true' ? 'true' : 'false';
     }
 
     if (_startDate != null) q['start_date'] = _fmtDate(_startDate!);
@@ -306,10 +309,14 @@ class OrderProvider extends ChangeNotifier {
     required int page,
     required int limit,
     required bool append,
+    required bool processed,
   }) async {
     // tetap support, tapi sekarang tetap pakai filter + perbaikan effectivePage
     _limit = limit <= 0 ? _limit : limit;
     _lastLimit = _limit;
+
+    // Set transaction status based on processed for backward compat
+    _transactionStatus = processed ? 'true' : 'false';
 
     if (!append) {
       _page = 1;
@@ -544,6 +551,20 @@ class OrderProvider extends ChangeNotifier {
 
       if (!ok) {
         _setAcceptError(res?.body ?? 'Failed to accept store order');
+        return false;
+      }
+
+      Map<String, dynamic> decoded;
+      final raw = res.body;
+      try {
+        decoded = jsonDecode(raw).cast<String, dynamic>();
+      } catch (e) {
+        _setAcceptError('Invalid JSON response');
+        return false;
+      }
+
+      if (decoded['status'] != 200) {
+        _setAcceptError(decoded['message'] ?? 'Failed to accept store order');
         return false;
       }
 

@@ -205,43 +205,42 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                         ),
 
                         // error in dialog (if any)
-                        if ((prov.acceptError ?? '').trim().isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFEE2E2),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: const Color(0xFFFECACA),
-                              ),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Icon(
-                                  Icons.error_outline_rounded,
-                                  color: Color(0xFF991B1B),
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    prov.acceptError!.trim(),
-                                    style: const TextStyle(
-                                      color: Color(0xFF991B1B),
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 12,
-                                      height: 1.3,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-
+                        // if ((prov.acceptError ?? '').trim().isNotEmpty) ...[
+                        //   const SizedBox(height: 12),
+                        //   Container(
+                        //     width: double.infinity,
+                        //     padding: const EdgeInsets.all(12),
+                        //     decoration: BoxDecoration(
+                        //       color: const Color(0xFFFEE2E2),
+                        //       borderRadius: BorderRadius.circular(14),
+                        //       border: Border.all(
+                        //         color: const Color(0xFFFECACA),
+                        //       ),
+                        //     ),
+                        //     child: Row(
+                        //       crossAxisAlignment: CrossAxisAlignment.start,
+                        //       children: [
+                        //         const Icon(
+                        //           Icons.error_outline_rounded,
+                        //           color: Color(0xFF991B1B),
+                        //           size: 18,
+                        //         ),
+                        //         const SizedBox(width: 8),
+                        //         Expanded(
+                        //           child: Text(
+                        //             prov.acceptError!.trim(),
+                        //             style: const TextStyle(
+                        //               color: Color(0xFF991B1B),
+                        //               fontWeight: FontWeight.w900,
+                        //               fontSize: 12,
+                        //               height: 1.3,
+                        //             ),
+                        //           ),
+                        //         ),
+                        //       ],
+                        //     ),
+                        //   ),
+                        // ],
                         const SizedBox(height: 14),
 
                         // actions
@@ -455,30 +454,30 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if ((prov.acceptError ?? '').trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.error_outline_rounded,
-                              size: 18,
-                              color: Color(0xFF991B1B),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                prov.acceptError!.trim(),
-                                style: const TextStyle(
-                                  color: Color(0xFF991B1B),
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    // if ((prov.acceptError ?? '').trim().isNotEmpty)
+                    //   Padding(
+                    //     padding: const EdgeInsets.only(bottom: 10),
+                    //     child: Row(
+                    //       children: [
+                    //         const Icon(
+                    //           Icons.error_outline_rounded,
+                    //           size: 18,
+                    //           color: Color(0xFF991B1B),
+                    //         ),
+                    //         const SizedBox(width: 8),
+                    //         Expanded(
+                    //           child: Text(
+                    //             prov.acceptError!.trim(),
+                    //             style: const TextStyle(
+                    //               color: Color(0xFF991B1B),
+                    //               fontWeight: FontWeight.w800,
+                    //               fontSize: 12,
+                    //             ),
+                    //           ),
+                    //         ),
+                    //       ],
+                    //     ),
+                    //   ),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
@@ -619,53 +618,109 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _IconBadge(
-                        icon: Icons.shopping_bag_rounded,
-                        bg: const Color(0xFFEFF6FF),
-                        fg: const Color(0xFF2F5FD0),
-                      ),
-                      const SizedBox(width: 12),
+                      // _IconBadge(
+                      //   icon: Icons.shopping_bag_rounded,
+                      //   bg: const Color(0xFFEFF6FF),
+                      //   fg: const Color(0xFF2F5FD0),
+                      // ),
+                      // const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // ID + Order Status chip (1 chip saja)
+                            // Date, number & processed badge
                             Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Expanded(
-                                  child: Text(
-                                    idText,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w900,
-                                      color: _textMain,
-                                    ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        createdAt,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: _textMuted,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      Text(
+                                        idText,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w900,
+                                          color: _textMain,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 const SizedBox(width: 10),
-                                _OrderStatusChip(status: order.status),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 2,
+                                        vertical: 2,
+                                      ),
+                                      // decoration: BoxDecoration(
+                                      //   color: Color(0xFFFDE68A),
+                                      //   borderRadius: BorderRadius.circular(999),
+                                      //   border: Border.all(color: Color(0xFFD97706)),
+                                      // ),
+                                      child: order.processed
+                                          ? Icon(
+                                              Icons.check_circle,
+                                              size: 26,
+                                              color: Color(0xFF166534),
+                                            )
+                                          : null,
+                                    ),
+                                  ],
+                                ),
                               ],
                             ),
+
+                            // ID + Order Status chip (1 chip saja)
+                            // Row(
+                            //   crossAxisAlignment: CrossAxisAlignment.start,
+                            //   children: [
+                            //     Expanded(
+                            //       child: Text(
+                            //         idText,
+                            //         maxLines: 1,
+                            //         overflow: TextOverflow.ellipsis,
+                            //         style: const TextStyle(
+                            //           fontSize: 16,
+                            //           fontWeight: FontWeight.w900,
+                            //           color: _textMain,
+                            //         ),
+                            //       ),
+                            //     ),
+                            //     const SizedBox(width: 10),
+                            //     _OrderStatusChip(status: order.status),
+                            //   ],
+                            // ),
                             const SizedBox(height: 8),
 
                             // Processed + Date (tanpa chip, rapi)
-                            Row(
-                              children: [
-                                _ProcessedInlineBadge(
-                                  processed: order.processed,
-                                ),
-                                const Spacer(),
-                                _MetaLine(
-                                  icon: Icons.schedule_rounded,
-                                  text: createdAt,
-                                ),
-                              ],
-                            ),
+                            // Row(
+                            //   children: [
+                            //     _ProcessedInlineBadge(
+                            //       processed: order.processed,
+                            //     ),
+                            //     const Spacer(),
+                            //     _MetaLine(
+                            //       icon: Icons.schedule_rounded,
+                            //       text: createdAt,
+                            //     ),
+                            //   ],
+                            // ),
 
-                            const SizedBox(height: 12),
+                            // const SizedBox(height: 12),
 
                             // Platform + Total
                             Row(
@@ -674,19 +729,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                                   name: platform,
                                   isTiktok: _isTiktok(platform),
                                 ),
+                                const SizedBox(width: 4),
+                                _OrderStatusChip(status: order.status),
                                 const Spacer(),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
-                                    const Text(
-                                      'Total Price',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: _textSub,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
                                     Text(
                                       totalText,
                                       style: const TextStyle(
@@ -1038,12 +1086,12 @@ class _PlatformMini extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = isTiktok ? const Color(0xFF111827) : const Color(0xFFEFF6FF);
-    final fg = isTiktok ? Colors.white : const Color(0xFF2F5FD0);
-    final bd = isTiktok ? const Color(0xFF111827) : const Color(0xFFE5E7EB);
+    final bg = isTiktok ? const Color(0xFF111827) : const Color(0xD2F8DBC8);
+    final fg = isTiktok ? Colors.white : const Color(0xFFEE4D2D);
+    final bd = isTiktok ? const Color(0xFF111827) : const Color(0xD2F8DBC8);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(999),
@@ -1061,7 +1109,7 @@ class _PlatformMini extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               color: fg,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],
@@ -1185,7 +1233,8 @@ class _OrderStatusChip extends StatelessWidget {
         break;
     }
 
-    final label = status.trim().isEmpty ? '-' : _pretty(status);
+    // final label = status.trim().isEmpty ? '-' : _pretty(status);
+    final label = status.trim().isEmpty ? '-' : status;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
