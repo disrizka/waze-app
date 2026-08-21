@@ -181,12 +181,21 @@ class _VariantsEditorScreenState extends State<VariantsEditorScreen> {
         return;
       }
 
+      // ✅ FIX: price is mandatory for every SKU downstream (Add/Edit Product
+      // screen blocks submit if any variant has no price), so we must catch
+      // this here instead of silently saving price as null and leaving the
+      // user stuck on a permanently greyed-out "Add new product" button.
+      final missingPrice = skusBuilt.any((s) => s.price <= 0);
+      if (missingPrice) {
+        _toast('Please fill in a price for every variant.');
+        return;
+      }
+
       final skusJson = skusBuilt
           .map(
             (s) => {
               'code': s.code.trim().isEmpty ? null : s.code.trim(),
-              // ✅ price opsional: kalau 0 / kosong -> null
-              'price': (s.price > 0) ? s.price : null,
+              'price': s.price,
               'attributes': s.attributes
                   .map((a) => {'name': a.name, 'value': a.value})
                   .toList(),
@@ -268,7 +277,7 @@ class _VariantsEditorScreenState extends State<VariantsEditorScreen> {
           SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Tip: Table can be scrolled sideways → swipe left/right to fill SKU & Price (optional).',
+              'Tip: SKU Code is optional, but Price is required for every variant.',
               style: TextStyle(
                 color: _muted,
                 height: 1.25,
@@ -362,7 +371,7 @@ class _VariantsEditorScreenState extends State<VariantsEditorScreen> {
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Tip: SKU code & price are optional. You can save variants first and fill prices later.',
+                            'Tip: SKU Code is optional, but Price is required for every variant before saving.',
                             style: TextStyle(
                               color: _muted,
                               height: 1.3,
@@ -408,7 +417,7 @@ class _TopCopy extends StatelessWidget {
         ),
         SizedBox(height: 3),
         Text(
-          'Add variant options (e.g. Color, Size). SKU code and price can be left empty if you want.',
+          'Add variant options (e.g. Color, Size). SKU code is optional, but Price is required for every variant.',
           style: TextStyle(
             fontSize: 12,
             height: 1.35,

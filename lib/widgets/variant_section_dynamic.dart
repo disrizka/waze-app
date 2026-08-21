@@ -539,8 +539,8 @@ class VariantsSectionDynamicState extends State<VariantsSectionDynamic> {
             scrollDirection: Axis.horizontal,
             child: DataTable(
               headingRowHeight: 44,
-              dataRowMinHeight: 56,
-              dataRowMaxHeight: 72,
+              dataRowMinHeight: 160,
+              dataRowMaxHeight: 180,
               columns: const [
                 DataColumn(
                   label: Text(
@@ -823,22 +823,37 @@ class _SkuPriceCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(
-        minWidth: 380,
-      ), // ruang cukup untuk 2 field
-      child: Row(
-        children: [
-          // SKU Code
-          Expanded(
-            flex: 6,
-            child: TextFormField(
+    // ✅ FIX: previously SKU Code and Price were laid out side-by-side in a
+    // Row needing 380px min width. On narrow phone screens the Price field
+    // was pushed off-screen and only reachable by scrolling the table
+    // sideways, so users would type the price into the SKU Code field by
+    // mistake and then hit "Price is required" with no idea why. Stacking
+    // the two fields vertically (with explicit labels) keeps both always
+    // visible without any horizontal scrolling.
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 220, maxWidth: 240),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'SKU Code',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF6B7280),
+              ),
+            ),
+            const SizedBox(height: 2),
+            TextFormField(
               controller: skuController,
               inputFormatters: [skuNoSpaceFormatter],
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 isDense: true,
-                hintText: 'SKU Code (no spaces)',
+                hintText: 'Optional, no spaces',
                 border: OutlineInputBorder(),
                 contentPadding: EdgeInsets.symmetric(
                   horizontal: 10,
@@ -846,12 +861,17 @@ class _SkuPriceCell extends StatelessWidget {
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          // Price (right next to SKU)
-          Expanded(
-            flex: 4,
-            child: TextFormField(
+            const SizedBox(height: 10),
+            const Text(
+              'Price *',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF6B7280),
+              ),
+            ),
+            const SizedBox(height: 2),
+            TextFormField(
               controller: priceController,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -868,7 +888,7 @@ class _SkuPriceCell extends StatelessWidget {
               },
               decoration: const InputDecoration(
                 isDense: true,
-                hintText: 'Price',
+                hintText: 'Price (required)',
                 border: OutlineInputBorder(),
                 contentPadding: EdgeInsets.symmetric(
                   horizontal: 10,
@@ -878,8 +898,8 @@ class _SkuPriceCell extends StatelessWidget {
               validator: (v) =>
                   (parseIdInt(v ?? '') > 0) ? null : 'Must be > 0',
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

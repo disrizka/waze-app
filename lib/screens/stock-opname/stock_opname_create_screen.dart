@@ -491,6 +491,7 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                       builderDelegate: PagedChildBuilderDelegate<Product>(
                         itemBuilder: (_, p, __) {
                           final skus = p.productSkus;
+                          final hasNoSku = skus.isEmpty;
                           final productImage =
                               p.primaryImageUrl ?? 'assets/empty_box.png';
 
@@ -498,6 +499,11 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                             padding: const EdgeInsets.symmetric(vertical: 6),
                             child: _ProductTile(
                               productName: p.name,
+                              // ✅ NEW: mark products with zero SKUs upfront
+                              // instead of only telling the user after they
+                              // tap and get a "SKU not found" snackbar.
+                              disabled: hasNoSku,
+                              disabledLabel: hasNoSku ? 'No SKU' : null,
                               productImage: productImage,
                               onTap: () async {
                                 if (skus.isEmpty) {
@@ -1769,51 +1775,82 @@ class _ProductTile extends StatelessWidget {
     required this.productName,
     required this.productImage,
     required this.onTap,
+    this.disabled = false,
+    this.disabledLabel,
   });
 
   final String productName;
   final String productImage;
   final VoidCallback onTap;
+  final bool disabled;
+  final String? disabledLabel;
 
   @override
   Widget build(BuildContext context) {
     const Color border = Color(0xFFE5E7EB);
 
     return InkWell(
+      // ✅ still tappable when disabled so the "SKU not found" snackbar
+      // (with the fuller explanation) still fires if the user taps anyway.
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: border),
-          boxShadow: const [
-            BoxShadow(
-              blurRadius: 16,
-              offset: Offset(0, 10),
-              color: Color(0x08000000),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(10),
-        child: Row(
-          children: [
-            _ThumbImage(image: productImage),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                productName,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF111827),
-                  fontSize: 14,
-                  height: 1.25,
+      child: Opacity(
+        opacity: disabled ? 0.55 : 1,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: border),
+            boxShadow: const [
+              BoxShadow(
+                blurRadius: 16,
+                offset: Offset(0, 10),
+                color: Color(0x08000000),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              _ThumbImage(image: productImage),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  productName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF111827),
+                    fontSize: 14,
+                    height: 1.25,
+                  ),
                 ),
               ),
-            ),
-          ],
+              if (disabled && disabledLabel != null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF1F2),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: const Color(0xFFFECDD3)),
+                  ),
+                  child: Text(
+                    disabledLabel!,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFB91C1C),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

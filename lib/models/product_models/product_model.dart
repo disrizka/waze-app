@@ -359,8 +359,19 @@ class Product {
 
   int? get basePrice {
     if (productSkus.isNotEmpty) {
-      final prices = productSkus.map((s) => s.price).toList()..sort();
-      return prices.first;
+      // ✅ FIX: ignore SKUs with no price (leftover from products saved
+      // before price was made mandatory) so one incomplete SKU doesn't make
+      // the whole product display "Rp. 0" even though other SKUs have a
+      // real price. Only fall back to 0/null if truly none are priced.
+      final pricedOnly = productSkus
+          .map((s) => s.price)
+          .where((p) => p > 0)
+          .toList()
+        ..sort();
+      if (pricedOnly.isNotEmpty) return pricedOnly.first;
+
+      final allPrices = productSkus.map((s) => s.price).toList()..sort();
+      return allPrices.isNotEmpty ? allPrices.first : null;
     }
     if (productPrices.isNotEmpty) {
       final sorted = [...productPrices]
