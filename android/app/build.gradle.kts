@@ -28,7 +28,6 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
-
     defaultConfig {
         applicationId = "com.wave.up"
         minSdk = flutter.minSdkVersion
@@ -37,10 +36,13 @@ android {
         versionName = flutter.versionName
     }
 
+    val storeFilePath = keystoreProperties["storeFile"] as String?
+    val storeFileExists = !storeFilePath.isNullOrEmpty() && rootProject.file(storeFilePath).exists()
+
     signingConfigs {
         create("release") {
-            if (keystoreProperties.isNotEmpty()) {
-                storeFile = file(keystoreProperties["storeFile"] ?: "")
+            if (storeFileExists) {
+                storeFile = rootProject.file(storeFilePath!!)
                 storePassword = keystoreProperties["storePassword"]?.toString() ?: ""
                 keyAlias = keystoreProperties["keyAlias"]?.toString() ?: ""
                 keyPassword = keystoreProperties["keyPassword"]?.toString() ?: ""
@@ -67,7 +69,13 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // Menggunakan signingConfig release jika keystore valid, jika tidak gunakan debug
+            signingConfig = if (storeFileExists) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

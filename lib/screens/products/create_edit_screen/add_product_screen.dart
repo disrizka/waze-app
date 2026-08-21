@@ -520,6 +520,41 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return true;
   }
 
+  // ✅ NEW: explains *why* the submit button is currently blocked, so the
+  // user isn't left staring at a greyed-out button with no context.
+  String? get _submitBlockReason {
+    if (_nameC.text.trim().isEmpty) {
+      return 'Enter a product name to continue.';
+    }
+
+    if (!_useVariants) {
+      if (_toInt(_singleSkuPriceC.text) <= 0) {
+        return 'Enter a valid SKU Price to continue.';
+      }
+      if (_skuNoSpaceValidator(_singleSkuNameC.text) != null) {
+        return 'SKU Code cannot contain spaces.';
+      }
+    } else {
+      if (_variantsDraft == null || _variantsDraft!.skusJson.isEmpty) {
+        return 'Tap "Add variants" and save at least one variant to continue.';
+      }
+      if (_useMultiPrice && !_variantPricesUniform) {
+        return 'Multi Price needs identical SKU prices across all variants.';
+      }
+    }
+
+    if (_useMultiPrice) {
+      if (_prices.where((e) => e.isFilled).isEmpty) {
+        return 'Fill at least one wholesale price tier, or turn Multi Price off.';
+      }
+      if (!_allTierPricesValid) {
+        return 'Each wholesale tier price must be lower than the base SKU price.';
+      }
+    }
+
+    return null;
+  }
+
   Future<void> _onSubmit() async {
     try {
       setState(() => _attemptedSubmit = true);
@@ -1187,46 +1222,79 @@ class _AddProductScreenState extends State<AddProductScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: SizedBox(
-            height: 48,
-            width: double.infinity,
-            child: _isSubmitting
-                ? Shimmer.fromColors(
-                    baseColor: const Color(0xFF9CA3AF),
-                    highlightColor: const Color(0xFF6B7280),
-                    child: ElevatedButton(
-                      onPressed: null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF9CA3AF),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ✅ NEW: tell the user exactly why the button is greyed out,
+              // instead of leaving it unexplained.
+              if (!_isSubmitting && !canSubmit && _submitBlockReason != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: Color(0xFFEF4444),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _submitBlockReason!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFEF4444),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                      child: const Text(
-                        'Add new product',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  )
-                : ElevatedButton(
-                    onPressed: _isSubmitting ? null : _onSubmit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: canSubmit
-                          ? AppColors.primary
-                          : const Color(0xFFE5E7EB),
-                      foregroundColor: canSubmit
-                          ? Colors.white
-                          : const Color(0xFF9CA3AF),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text(
-                      'Add new product',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
+                    ],
                   ),
+                ),
+              SizedBox(
+                height: 48,
+                width: double.infinity,
+                child: _isSubmitting
+                    ? Shimmer.fromColors(
+                        baseColor: const Color(0xFF9CA3AF),
+                        highlightColor: const Color(0xFF6B7280),
+                        child: ElevatedButton(
+                          onPressed: null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF9CA3AF),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Add new product',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      )
+                    : ElevatedButton(
+                        onPressed: _isSubmitting ? null : _onSubmit,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: canSubmit
+                              ? AppColors.primary
+                              : const Color(0xFFE5E7EB),
+                          foregroundColor: canSubmit
+                              ? Colors.white
+                              : const Color(0xFF9CA3AF),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Add new product',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+              ),
+            ],
           ),
         ),
       ),

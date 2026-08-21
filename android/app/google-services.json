@@ -58,11 +58,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "1094236657957-jefq3lmlnsjls149lhfm3svgqbdcfu92.apps.googleusercontent.com",
+          "client_id": "1094236657957-80gdmkqhi68g2ppsbf9jive8d0h1ulkh.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.wave.biz",
-            "certificate_hash": "404291510e4a106478f358403a09677f73ddc2d4"
+            "certificate_hash": "2535cefbd46dee8cf7ad5dc5436f1d9495879dfd"
           }
         },
         {
@@ -102,11 +102,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "1094236657957-nvi21lsaho4rk7irka6pjmuaooqnie1r.apps.googleusercontent.com",
+          "client_id": "1094236657957-6vr3eq1f09fc7vekcc9ho1rt30fqnc0d.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.wave.up",
-            "certificate_hash": "404291510e4a106478f358403a09677f73ddc2d4"
+            "certificate_hash": "2535cefbd46dee8cf7ad5dc5436f1d9495879dfd"
           }
         },
         {

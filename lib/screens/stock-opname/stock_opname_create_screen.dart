@@ -494,14 +494,13 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                           final productImage =
                               p.primaryImageUrl ?? 'assets/empty_box.png';
 
-                          if (skus.isEmpty) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 6),
-                              child: _SkuTile(
-                                productName: p.name,
-                                productImage: productImage,
-                                skuCode: '-',
-                                onTap: () {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: _ProductTile(
+                              productName: p.name,
+                              productImage: productImage,
+                              onTap: () async {
+                                if (skus.isEmpty) {
                                   AppSnackbar.show(
                                     context,
                                     type: AppSnackType.error,
@@ -509,88 +508,104 @@ class _StockOpnameCreateScreenState extends State<StockOpnameCreateScreen> {
                                     message:
                                         'This product does not have any SKU.',
                                   );
-                                },
-                              ),
-                            );
-                          }
+                                  return;
+                                }
 
-                          return Column(
-                            children: skus.map((sku) {
-                              final dynamic s = sku;
-                              final skuId = (s.idProductSku ?? '').toString();
-                              final skuCode = _skuCode(s);
-                              final stock = _skuStock(s);
+                                final sid =
+                                    _filters.storeLocationId ??
+                                    _storeId ??
+                                    context
+                                        .read<ProductProvider>()
+                                        .currentStoreLocationId;
 
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 6,
-                                ),
-                                child: _SkuTile(
-                                  productName: p.name,
-                                  productImage: productImage,
-                                  skuCode: skuCode,
-                                  onTap: () async {
-                                    final sid =
-                                        _filters.storeLocationId ??
-                                        _storeId ??
-                                        context
-                                            .read<ProductProvider>()
-                                            .currentStoreLocationId;
+                                if (sid == null || sid.isEmpty) {
+                                  AppSnackbar.show(
+                                    context,
+                                    type: AppSnackType.error,
+                                    title: 'Store is required',
+                                    message:
+                                        'Please select a store location in Filter.',
+                                  );
+                                  return;
+                                }
 
-                                    if (sid == null || sid.isEmpty) {
-                                      AppSnackbar.show(
-                                        context,
-                                        type: AppSnackType.error,
-                                        title: 'Store is required',
-                                        message:
-                                            'Please select a store location in Filter.',
-                                      );
-                                      return;
-                                    }
-
-                                    if (skuId.trim().isEmpty) {
-                                      AppSnackbar.show(
-                                        context,
-                                        type: AppSnackType.error,
-                                        title: 'Invalid SKU',
-                                        message:
-                                            'SKU ID is missing for this item.',
-                                      );
-                                      return;
-                                    }
-
-                                    await showModalBottomSheet<bool>(
-                                      context: context,
-                                      isScrollControlled: true,
-                                      useSafeArea: true,
-                                      backgroundColor: Colors.white,
-                                      shape: const RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.vertical(
-                                          top: Radius.circular(20),
+                                // Step 1: kalau variant lebih dari 1, tampilkan
+                                // modal pilihan variant dulu. Kalau cuma 1,
+                                // langsung skip ke input qty.
+                                dynamic chosenSku;
+                                if (skus.length == 1) {
+                                  chosenSku = skus.first;
+                                } else {
+                                  chosenSku =
+                                      await showModalBottomSheet<dynamic>(
+                                        context: context,
+                                        isScrollControlled: true,
+                                        useSafeArea: true,
+                                        backgroundColor: Colors.white,
+                                        shape: const RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.vertical(
+                                            top: Radius.circular(20),
+                                          ),
                                         ),
-                                      ),
-                                      builder: (_) => _StockOpnameQtySheet(
-                                        hostContext: context,
-                                        onOpenHistory: () {
-                                          if (!context.mounted) return;
-                                          Navigator.pushNamed(
-                                            context,
-                                            '/stock/opname',
-                                          );
-                                        },
-                                        storeId: sid,
-                                        productId: p.idProduct,
-                                        productSkuId: skuId,
-                                        productName: p.name,
-                                        productImage: productImage,
-                                        skuCode: skuCode,
-                                        currentStock: stock,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              );
-                            }).toList(),
+                                        builder: (_) => _VariantPickerSheet(
+                                          productName: p.name,
+                                          productImage: productImage,
+                                          skus: skus,
+                                          skuCodeOf: _skuCode,
+                                          skuStockOf: _skuStock,
+                                        ),
+                                      );
+
+                                  if (chosenSku == null) return; // dibatalkan
+                                }
+
+                                final skuId = (chosenSku.idProductSku ?? '')
+                                    .toString();
+                                final skuCode = _skuCode(chosenSku);
+                                final stock = _skuStock(chosenSku);
+
+                                if (skuId.trim().isEmpty) {
+                                  AppSnackbar.show(
+                                    context,
+                                    type: AppSnackType.error,
+                                    title: 'Invalid SKU',
+                                    message: 'SKU ID is missing for this item.',
+                                  );
+                                  return;
+                                }
+
+                                // Step 2: modal input qty fisik.
+                                if (!context.mounted) return;
+                                await showModalBottomSheet<bool>(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  useSafeArea: true,
+                                  backgroundColor: Colors.white,
+                                  shape: const RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.vertical(
+                                      top: Radius.circular(20),
+                                    ),
+                                  ),
+                                  builder: (_) => _StockOpnameQtySheet(
+                                    hostContext: context,
+                                    onOpenHistory: () {
+                                      if (!context.mounted) return;
+                                      Navigator.pushNamed(
+                                        context,
+                                        '/stock/opname',
+                                      );
+                                    },
+                                    storeId: sid,
+                                    productId: p.idProduct,
+                                    productSkuId: skuId,
+                                    productName: p.name,
+                                    productImage: productImage,
+                                    skuCode: skuCode,
+                                    currentStock: stock,
+                                  ),
+                                );
+                              },
+                            ),
                           );
                         },
                         firstPageProgressIndicatorBuilder: (_) =>
@@ -1745,18 +1760,19 @@ class _SelectFieldTile extends StatelessWidget {
   }
 }
 
-/// SKU card
-class _SkuTile extends StatelessWidget {
-  const _SkuTile({
+/// Product card (list utama Create Stock Opname).
+/// - Nama produk 2 baris
+/// - Tanpa badge SKU
+/// - Tanpa icon chevron kanan
+class _ProductTile extends StatelessWidget {
+  const _ProductTile({
     required this.productName,
     required this.productImage,
-    required this.skuCode,
     required this.onTap,
   });
 
   final String productName;
   final String productImage;
-  final String skuCode;
   final VoidCallback onTap;
 
   @override
@@ -1785,59 +1801,177 @@ class _SkuTile extends StatelessWidget {
             _ThumbImage(image: productImage),
             const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Text(
+                productName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF111827),
+                  fontSize: 14,
+                  height: 1.25,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Modal pilihan variant/SKU (muncul kalau produk punya lebih dari 1 SKU).
+/// Tap salah satu variant -> ditutup & mengembalikan SKU yang dipilih.
+class _VariantPickerSheet extends StatelessWidget {
+  const _VariantPickerSheet({
+    required this.productName,
+    required this.productImage,
+    required this.skus,
+    required this.skuCodeOf,
+    required this.skuStockOf,
+  });
+
+  final String productName;
+  final String productImage;
+  final List<dynamic> skus;
+  final String Function(dynamic sku) skuCodeOf;
+  final int Function(dynamic sku) skuStockOf;
+
+  String _variantLabel(dynamic sku) {
+    try {
+      final attrs = (sku.attributes as List?) ?? const [];
+      if (attrs.isNotEmpty) {
+        final parts = attrs
+            .map((a) => (a.value ?? '').toString())
+            .where((v) => v.trim().isNotEmpty)
+            .toList();
+        if (parts.isNotEmpty) return parts.join(' / ');
+      }
+    } catch (_) {}
+    return 'SKU: ${skuCodeOf(sku)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.72,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5E7EB),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
                 children: [
-                  Text(
-                    productName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF111827),
-                      fontSize: 14,
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      color: const Color(0xFFF3F4F6),
+                      child: _SquareImage(image: productImage),
                     ),
                   ),
-                  const SizedBox(height: 7),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF3F4F6),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: const Color(0xFFE5E7EB)),
-                    ),
-                    child: Text(
-                      'SKU: $skuCode',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF6B7280),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 11,
-                      ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Choose Variant',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF111827),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          productName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(width: 10),
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F4F6),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE5E7EB)),
+              const SizedBox(height: 14),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: skus.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (_, i) {
+                    final sku = skus[i];
+                    final label = _variantLabel(sku);
+                    final stock = skuStockOf(sku);
+
+                    return InkWell(
+                      onTap: () => Navigator.pop(context, sku),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 13,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF9FAFB),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFE5E7EB)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF111827),
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Stock: $stock',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
-              child: const Icon(
-                Icons.chevron_right_rounded,
-                color: Color(0xFF6B7280),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -2270,7 +2404,9 @@ class _StockOpnameQtySheetState extends State<_StockOpnameQtySheet> {
                       child: TextFormField(
                         controller: _qtyC,
                         keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
                         decoration: InputDecoration(
                           isDense: true,
                           filled: true,

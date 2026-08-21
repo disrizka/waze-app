@@ -353,7 +353,7 @@ class VariantsSectionDynamicState extends State<VariantsSectionDynamic> {
           Expanded(
             flex: 6,
             child: Text(
-              'Variant Values (comma-separated)',
+              'Variant Values',
               style: TextStyle(fontWeight: FontWeight.w600, color: textSub),
             ),
           ),
@@ -382,17 +382,17 @@ class VariantsSectionDynamicState extends State<VariantsSectionDynamic> {
     String _valuesHintFor(int index) {
       switch (index) {
         case 0:
-          return 'e.g., S,M,L,XL';
+          return 'Type a value, e.g., S';
         case 1:
-          return 'e.g., Blue,Red,Green';
+          return 'Type a value, e.g., Blue';
         case 2:
-          return 'e.g., Cotton,Linen';
+          return 'Type a value, e.g., Cotton';
         case 3:
-          return 'e.g., Slim,Regular,Relaxed';
+          return 'Type a value, e.g., Slim';
         case 4:
-          return 'e.g., Plain,Striped,Checked';
+          return 'Type a value, e.g., Plain';
         default:
-          return 'Comma,separated,values';
+          return 'Type a value';
       }
     }
 
@@ -414,10 +414,10 @@ class VariantsSectionDynamicState extends State<VariantsSectionDynamic> {
           const SizedBox(width: 8),
           Expanded(
             flex: 6,
-            child: _input(
-              controller: ctrl.valuesC,
-              hint: _valuesHintFor(index),
-              onChanged: (_) => _rebuildCombos(),
+            child: _ChipsValueField(
+              controller: ctrl,
+              hintText: _valuesHintFor(index),
+              onChanged: _rebuildCombos,
             ),
           ),
           const SizedBox(width: 8),
@@ -616,6 +616,200 @@ class VariantsSectionDynamicState extends State<VariantsSectionDynamic> {
   }
 
   bool get hasAtLeastOneRow => _combos.isNotEmpty;
+}
+
+/// =========================
+/// Chip-based Variant Values Input
+/// =========================
+/// Replaces the old "comma-separated" text field with a friendlier UI:
+/// user types ONE value at a time, presses Enter (or taps +), and it turns
+/// into a removable chip. Under the hood it still writes a comma-joined
+/// string into VariantGroupController.valuesC, so the existing cartesian
+/// product logic (`values` getter, hydrateFromServer, etc.) keeps working
+/// without any other change.
+class _ChipsValueField extends StatefulWidget {
+  const _ChipsValueField({
+    required this.controller,
+    required this.hintText,
+    required this.onChanged,
+  });
+
+  final VariantGroupController controller;
+  final String hintText;
+  final VoidCallback onChanged;
+
+  @override
+  State<_ChipsValueField> createState() => _ChipsValueFieldState();
+}
+
+class _ChipsValueFieldState extends State<_ChipsValueField> {
+  final TextEditingController _inputC = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  List<String> _chips = [];
+
+  static const Color _border = Color(0xFFE5E7EB);
+  static const Color _chipBg = Color(0xFFEFF6FF); // blue-50
+  static const Color _chipBorder = Color(0xFFBFDBFE); // blue-200
+  static const Color _chipText = Color(0xFF1D4ED8); // blue-700
+  static const Color _textMain = Color(0xFF111827);
+  static const Color _textSub = Color(0xFF9CA3AF);
+
+  @override
+  void initState() {
+    super.initState();
+    // Prefill from controller (covers hydrateFromServer setting valuesC.text
+    // before this widget mounts, and edit-mode reopen).
+    _chips = widget.controller.values;
+    widget.controller.valuesC.addListener(_syncFromController);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.valuesC.removeListener(_syncFromController);
+    _inputC.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  bool _sameList(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  // Keeps chips in sync if valuesC.text is changed from outside this widget
+  // (e.g. hydrateFromServer).
+  void _syncFromController() {
+    final external = widget.controller.values;
+    if (!_sameList(external, _chips)) {
+      setState(() => _chips = external);
+    }
+  }
+
+  void _pushToController() {
+    widget.controller.valuesC.text = _chips.join(',');
+    widget.onChanged();
+  }
+
+  void _commitInput() {
+    final text = _inputC.text.trim();
+    _inputC.clear();
+    if (text.isEmpty) return;
+    if (_chips.contains(text)) return; // avoid duplicate values
+    setState(() => _chips.add(text));
+    _pushToController();
+  }
+
+  void _removeChip(String value) {
+    setState(() => _chips.remove(value));
+    _pushToController();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: _border),
+        borderRadius: BorderRadius.circular(10),
+        color: Colors.white,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_chips.isNotEmpty) ...[
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: _chips
+                  .map(
+                    (v) => Container(
+                      padding: const EdgeInsets.only(
+                        left: 10,
+                        right: 4,
+                        top: 4,
+                        bottom: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _chipBg,
+                        border: Border.all(color: _chipBorder),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            v,
+                            style: const TextStyle(
+                              color: _chipText,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          InkWell(
+                            borderRadius: BorderRadius.circular(999),
+                            onTap: () => _removeChip(v),
+                            child: const Padding(
+                              padding: EdgeInsets.all(3),
+                              child: Icon(
+                                Icons.close_rounded,
+                                size: 14,
+                                color: _chipText,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 6),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _inputC,
+                  focusNode: _focusNode,
+                  textInputAction: TextInputAction.done,
+                  style: const TextStyle(color: _textMain, fontSize: 14),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: widget.hintText,
+                    hintStyle: const TextStyle(color: _textSub, fontSize: 13),
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                  ),
+                  onSubmitted: (_) {
+                    _commitInput();
+                    // Keep focus so the user can keep adding values quickly.
+                    _focusNode.requestFocus();
+                  },
+                ),
+              ),
+              InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: _commitInput,
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.add_circle_rounded,
+                    size: 22,
+                    color: Color(0xFF2563EB),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SkuPriceCell extends StatelessWidget {

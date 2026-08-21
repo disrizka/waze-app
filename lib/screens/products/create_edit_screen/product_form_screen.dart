@@ -1047,13 +1047,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                         const SizedBox(height: 16),
 
                         // Name
-                        const Text(
-                          'Product Name',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF111827),
-                          ),
-                        ),
+                        const _FieldLabel(label: 'Product Name'),
                         const SizedBox(height: 8),
                         Field(
                           controller: _nameC,
@@ -1081,11 +1075,12 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                           keyboardType: TextInputType.multiline,
                           maxLines: null,
                           inputFormatters: const [FirstUppercaseFormatter()],
+                          style: const TextStyle(color: Color(0xFF4B5563)),
                           decoration: InputDecoration(
                             isDense: true,
                             hintText: 'Product description',
                             filled: true,
-                            fillColor: const Color(0xFFF3F4F6),
+                            fillColor: Colors.white,
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 14,
                               vertical: 14,
@@ -1109,13 +1104,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
 
                         // Single SKU price (when variants OFF)
                         if (!_useVariants) ...[
-                          const Text(
-                            'SKU Price',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF111827),
-                            ),
-                          ),
+                          const _FieldLabel(label: 'SKU Price'),
                           const SizedBox(height: 8),
                           TextFormField(
                             controller: _singleSkuPriceC,
@@ -1123,6 +1112,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                             inputFormatters: [
                               FilteringTextInputFormatter.digitsOnly,
                             ],
+                            style: const TextStyle(color: Color(0xFF4B5563)),
                             onChanged: (t) {
                               if (t.isEmpty) return;
                               final sel = _singleSkuPriceC.selection;
@@ -1139,10 +1129,42 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                                 );
                               setState(() {});
                             },
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               isDense: true,
                               hintText: 'Price',
-                              border: OutlineInputBorder(),
+                              filled: true,
+                              fillColor: Colors.white,
+                              // Hide the default error text below the
+                              // field; the "Required" tag next to the
+                              // label already communicates this.
+                              errorStyle: const TextStyle(
+                                height: 0,
+                                fontSize: 0,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE5E7EB),
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFCBD5E1),
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              errorBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFEF4444),
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              focusedErrorBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFEF4444),
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
                             ),
                             validator: (v) =>
                                 (_toInt(v ?? '') > 0) ? null : 'Must be > 0',
@@ -1225,63 +1247,92 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
 
                         const SizedBox(height: 16),
 
-                        // Use Variants
+                        // ==========================================================
+                        // ✅ Use Variants + variants editor, merged into a single
+                        // card so they read as one section instead of two
+                        // separately-boxed rows.
+                        // ==========================================================
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
                             color: const Color(0xFFF9FAFB),
-                            border: Border.all(color: const Color(0xFFE5E7EB)),
+                            border: Border.all(
+                              color: variantErrorText == null
+                                  ? const Color(0xFFE5E7EB)
+                                  : const Color(0xFFEF4444),
+                            ),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Expanded(
-                                child: Text(
-                                  'Use Variants',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF111827),
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Use Variants',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF111827),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              Switch(
-                                activeColor: AppColors.primaryDark,
-                                value: _useVariants,
-                                onChanged: (v) => setState(() {
-                                  _useVariants = v;
+                                  Switch(
+                                    activeColor: AppColors.primaryDark,
+                                    value: _useVariants,
+                                    onChanged: (v) => setState(() {
+                                      _useVariants = v;
 
-                                  if (_useVariants) {
-                                    // clear single fields
-                                    if (_singleSkuCodeC.text.isNotEmpty ||
-                                        _singleSkuPriceC.text.isNotEmpty) {
-                                      _singleSkuCodeC.clear();
-                                      _singleSkuPriceC.clear();
-                                    }
-                                  } else {
-                                    // ✅ turning off variants clears variants result
-                                    _clearVariantsState();
-                                    _useMultiPrice = false;
-                                  }
-                                }),
+                                      if (_useVariants) {
+                                        // clear single fields
+                                        if (_singleSkuCodeC.text.isNotEmpty ||
+                                            _singleSkuPriceC.text.isNotEmpty) {
+                                          _singleSkuCodeC.clear();
+                                          _singleSkuPriceC.clear();
+                                        }
+                                      } else {
+                                        // ✅ turning off variants clears variants result
+                                        _clearVariantsState();
+                                        _useMultiPrice = false;
+                                      }
+                                    }),
+                                  ),
+                                ],
                               ),
+                              if (_useVariants) ...[
+                                const SizedBox(height: 10),
+                                const Divider(
+                                  height: 1,
+                                  color: Color(0xFFE5E7EB),
+                                ),
+                                const SizedBox(height: 10),
+                                _VariantsSummaryCard(
+                                  variantNames: _variantNames,
+                                  hasAnySkus: (_variantsSkusJson ?? const [])
+                                      .isNotEmpty,
+                                  onTap: _openVariantsEditor,
+                                  embedded: true,
+                                ),
+                              ],
                             ],
                           ),
                         ),
-                        const SizedBox(height: 12),
+                        if (_useVariants && variantErrorText != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            variantErrorText,
+                            style: const TextStyle(
+                              color: Color(0xFFEF4444),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
 
                         // ==========================================================
-                        // ✅ VARIANTS SECTION (summary + open editor) / Single SKU code
+                        // Single SKU code (only when variants OFF)
                         // ==========================================================
-                        if (_useVariants) ...[
-                          _VariantsSummaryCard(
-                            variantNames: _variantNames,
-                            hasAnySkus:
-                                (_variantsSkusJson ?? const []).isNotEmpty,
-                            onTap: _openVariantsEditor,
-                            errorText: variantErrorText,
-                          ),
-                          const SizedBox(height: 16),
-                        ] else ...[
+                        if (!_useVariants) ...[
                           const Text(
                             'SKU Code',
                             style: TextStyle(
@@ -1293,6 +1344,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                           TextFormField(
                             controller: _singleSkuCodeC,
                             inputFormatters: [_skuNoSpaceFormatter],
+                            style: const TextStyle(color: Color(0xFF4B5563)),
                             decoration: const InputDecoration(
                               isDense: true,
                               hintText: 'SKU Code (optional, no spaces)',
@@ -1612,6 +1664,7 @@ class _VariantsSummaryCard extends StatelessWidget {
     required this.hasAnySkus,
     required this.onTap,
     this.errorText,
+    this.embedded = false,
   });
 
   final List<String> variantNames;
@@ -1619,9 +1672,106 @@ class _VariantsSummaryCard extends StatelessWidget {
   final VoidCallback onTap;
   final String? errorText;
 
+  /// When true, this renders as plain content (no outer card/border and
+  /// no repeated "Variants" heading) so it can sit inline right below
+  /// the "Use Variants" toggle inside the same card.
+  final bool embedded;
+
   @override
   Widget build(BuildContext context) {
     final hasNames = variantNames.isNotEmpty;
+
+    final row = InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: EdgeInsets.fromLTRB(
+          embedded ? 0 : 14,
+          embedded ? 0 : 12,
+          embedded ? 0 : 14,
+          embedded ? 0 : 12,
+        ),
+        decoration: embedded
+            ? null
+            : BoxDecoration(
+                color: const Color(0xFFF9FAFB),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: errorText == null
+                      ? const Color(0xFFE5E7EB)
+                      : const Color(0xFFEF4444),
+                ),
+              ),
+        child: Row(
+          children: [
+            const Icon(Icons.tune_rounded, color: Color(0xFF4C6EF5)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasAnySkus ? 'Edit variants' : 'Add variants',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  if (!hasNames)
+                    const Text(
+                      'No variants yet. Tap to create (e.g. Color, Size).',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF6B7280),
+                        height: 1.3,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: variantNames
+                          .map(
+                            (n) => Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEFF6FF),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: const Color(0xFFBFDBFE),
+                                ),
+                              ),
+                              child: Text(
+                                n,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF1D4ED8),
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF6B7280)),
+          ],
+        ),
+      ),
+    );
+
+    if (embedded) {
+      // Error text is shown by the parent card in this mode.
+      return row;
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1634,88 +1784,7 @@ class _VariantsSummaryCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF9FAFB),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: errorText == null
-                    ? const Color(0xFFE5E7EB)
-                    : const Color(0xFFEF4444),
-              ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.tune_rounded, color: Color(0xFF4C6EF5)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        hasAnySkus ? 'Edit variants' : 'Add variants',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      if (!hasNames)
-                        const Text(
-                          'No variants yet. Tap to create (e.g. Color, Size).',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF6B7280),
-                            height: 1.3,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        )
-                      else
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: variantNames
-                              .map(
-                                (n) => Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEFF6FF),
-                                    borderRadius: BorderRadius.circular(999),
-                                    border: Border.all(
-                                      color: const Color(0xFFBFDBFE),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    n,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF1D4ED8),
-                                    ),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFF6B7280),
-                ),
-              ],
-            ),
-          ),
-        ),
+        row,
         if (errorText != null) ...[
           const SizedBox(height: 6),
           Text(
@@ -1783,11 +1852,15 @@ class Field extends StatelessWidget {
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
       validator: validator,
+      style: const TextStyle(color: Color(0xFF4B5563)),
       decoration: InputDecoration(
         isDense: true,
         hintText: hintText,
         filled: true,
-        fillColor: const Color(0xFFF3F4F6),
+        fillColor: Colors.white,
+        // The "Required" message is now shown next to the field label
+        // instead of below the input, so we hide the default error text.
+        errorStyle: const TextStyle(height: 0, fontSize: 0),
         prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
         prefixIcon: prefix,
         contentPadding: const EdgeInsets.symmetric(
@@ -1802,7 +1875,52 @@ class Field extends StatelessWidget {
           borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
           borderRadius: BorderRadius.circular(10),
         ),
+        errorBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFEF4444)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Color(0xFFEF4444)),
+          borderRadius: BorderRadius.circular(10),
+        ),
       ),
+    );
+  }
+}
+
+/// Small helper: shows a field label together with an inline
+/// "Required" tag, instead of relying on the error text that
+/// normally renders below the input.
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel({required this.label, this.required = true});
+
+  final String label;
+  final bool required;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF111827),
+          ),
+        ),
+        if (required) ...[
+          const SizedBox(width: 6),
+          const Text(
+            'Required',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFEF4444),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
