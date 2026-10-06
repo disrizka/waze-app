@@ -1,4 +1,3 @@
-// lib/screens/stock-opname/stock_opname_create_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
@@ -14,10 +13,6 @@ import 'package:wa_blast/providers/store_provider.dart';
 import 'package:wa_blast/widgets/app_snackbar.dart';
 import 'package:wa_blast/widgets/reusable_pickers.dart';
 
-/// Screen to create stock opname:
-/// - Shows SKU list (not product list)
-/// - Card: parent product image, product name, SKU code, current stock
-/// - Tap card -> input qty only (no SKU selection)
 class StockOpnameCreateScreen extends StatefulWidget {
   const StockOpnameCreateScreen({super.key});
 
